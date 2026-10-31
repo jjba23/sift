@@ -271,16 +271,21 @@ about: whether the reader said \"unterminated\", \"unmatched\" or nothing."
         (unless (file-exists? path) (apply throw key args))))))
 
 (define (remove-tree path)
-  "Remove @var{path}, recursing into it when it is a directory."
-  (when (file-exists? path)
-    (if (eq? (stat:type (stat path)) 'directory)
-      (begin
-        (for-each (lambda (name)
-                    (unless (member name '("." ".."))
-                      (remove-tree (string-append path "/" name))))
-          (scandir path))
-        (rmdir path))
-      (delete-file path))))
+  "Remove @var{path}, recursing into it when it is a directory.
+
+The question is asked with `lstat', because a dangling symlink neither exists
+nor is a directory: `file-exists?' says no, so a tree holding one could not be
+taken apart, and the failure read as a test that would not clean up."
+  (let ((info (catch #t (lambda () (lstat path)) (lambda (key . args) #f))))
+    (when info
+      (if (eq? (stat:type info) 'directory)
+        (begin
+          (for-each (lambda (name)
+                      (unless (member name '("." ".."))
+                        (remove-tree (string-append path "/" name))))
+            (or (scandir path) '()))
+          (rmdir path))
+        (delete-file path)))))
 
 (define temp-name-counter 0)
 

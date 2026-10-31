@@ -315,6 +315,29 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
   (let ((dot (string-rindex path #\.)))
     (and dot (member (substring path dot) lisp-file-extensions) #t)))
 
+(define (entry-type path)
+  "Return the type of @var{path}, or @code{#f} when it cannot be asked.
+
+A directory being walked is a directory that is being changed: a socket in
+/tmp comes and goes between the listing and the question, and a linter that
+raises on that is a linter nobody can point at a home directory."
+  (catch #t
+    (lambda () (stat:type (stat path)))
+    (lambda (key . args) #f)))
+
+(define (directory-names directory)
+  "Return the entries of @var{directory}, sorted, or @code{()} when unreadable.
+
+`scandir' answers @code{#f} for a directory it may not read, and a walk that
+hands @code{#f} to the next step is a walk that raises instead of saying what
+it skipped."
+  (catch #t
+    (lambda ()
+      (or (scandir directory (lambda (name)
+                               (not (member name '("." ".." ".git")))))
+        '()))
+    (lambda (key . args) '())))
+
 (define (directory-files* directory)
   "Return the Lisp files under @var{directory}, sorted.
 
@@ -327,13 +350,15 @@ Hidden directories and the usual build droppings are skipped, so
                          ".cache" ".tox" "dist" "build"))
           '()]
          [else
-            (let ((path (string-append (string-trim-right directory #\/) "/" name)))
+            (let* ((path (string-append (string-trim-right directory #\/)
+                           "/" name))
+                   (type (entry-type path)))
               (cond
-                [(eq? (stat:type (stat path)) 'directory) (directory-files* path)]
+                [(not type) '()]
+                [(eq? type 'directory) (directory-files* path)]
                 [(lisp-file? name) (list path)]
                 [else '()]))]))
-     (sort (scandir directory (lambda (name)
-                                (not (member name '("." ".." ".git"))))) string<?)))
+     (sort (directory-names directory) string<?)))
 
 (define (expand-operands files)
   "Turn directory operands into the Lisp files they hold, in sorted order.
@@ -366,10 +391,32 @@ A linter is pointed at a project, not at a list: `sift ci .` and
     (call-with-input-file path get-string-all)
     (get-string-all (current-input-port))))
 
+(define (errno-in thing)
+  "Return the error number in @var{thing}, a Guile system-error argument.
+
+Guile hands a `system-error' over as @code{(subroutine format-string
+irritants errno)}, and the error number arrives either bare or wrapped in a
+one-element list depending on which layer threw it, so both shapes are read."
+  (cond
+    [(integer? thing) thing]
+    [(and (pair? thing) (integer? (car thing)) (null? (cdr thing))) (car thing)]
+    [else #f]))
+
 (define (unreadable-file path condition)
-  (format (current-error-port) "sift: cannot read ~a: ~a~%"
-    path (if (pair? condition) (cadr condition) condition))
-  2)
+  "Say that @var{path} could not be read, in the words the system used.
+
+A `system-error' carries a *format string* where a message would be, so
+printing the second element of it is how a program ends up telling a user
+`~A: ~S' instead of which file it could not open and why.  The error number
+is turned into a sentence, and the number is the one thing about the failure
+that reads the same in every language."
+  (let* ((numbers (filter-map errno-in
+                    (if (pair? condition) condition '())))
+         (reason (if (pair? numbers)
+                   (strerror (car numbers))
+                   (format #f "~a" condition))))
+    (format (current-error-port) "sift: cannot read ~a: ~a~%" path reason)
+    2))
 
 (define* (safe-read-file path)
   "Read @var{path}; return @code{(values text #f)} or @code{(values #f status)}."
