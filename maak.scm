@@ -235,9 +235,12 @@ $(prefix)/share/guile/site/3.0."
 
 The tool formats itself: a formatter that cannot read its own project is not
 one to trust with anyone else's."
+  ;; `dsl:run' starts `sh' with the script as one argument, so the script is
+  ;; handed over as written: shell-quoting it here would make the shell read
+  ;; the quotes as part of the command name and fail with \"No such file or
+  ;; directory\" before the first file was read.
   (dsl:run (list "sh" "-c"
-             (dsl:shell-quote
-                "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write"))
+                 "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
     #:verbose? #t))
 
 (define (clean)
