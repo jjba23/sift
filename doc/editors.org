@@ -287,7 +287,7 @@ layer decided it:
 
 #+begin_src shell
 $ sift doctor
-sift 0.3.0
+sift 0.4.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
   rules       39

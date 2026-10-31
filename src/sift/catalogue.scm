@@ -139,7 +139,8 @@ with several code fragments are built here rather than written inline."
        "and the test suite fails when it falls behind.  What each rule is\n"
        "*for* -- the reasoning, and the style the rules belong to -- is in\n"
        "[[file:style.org][style.org]].\n\n"
-       (format #f "There are ~a rules in sift ~a.\n\n" (length checkers) "0.2.0")
+       (format #f "There are ~a rules in sift ~a.\n\n" (length checkers)
+         sift-version)
        "* Summary\n\n"
        (summary-table checkers)
        "\n* The rules, one by one\n\n"

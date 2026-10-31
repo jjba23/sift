@@ -1,7 +1,7 @@
 # sift --- hooks for the pre-commit framework (https://pre-commit.com)
 #
 #   - repo: https://codeberg.org/jjba23/sift
-#     rev: v0.2.0
+#     rev: v0.4.0
 #     hooks: [{id: sift-format}, {id: sift-lint}]
 #
 # `language: system` means the hook runs whatever `sift` is on the PATH, so

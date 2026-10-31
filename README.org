@@ -501,7 +501,7 @@ project can pick the one it wants:
 #+begin_src yaml
 repos:
   - repo: https://codeberg.org/jjba23/sift
-    rev: v0.2.0
+    rev: v0.4.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 

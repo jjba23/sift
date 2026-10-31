@@ -14,7 +14,10 @@
 ;; propagated one: installing sift on a machine that will never run its tests
 ;; should not install a test framework.
 
-(use-modules (guix packages)
+(use-modules (ice-9 regex)
+             (ice-9 textual-ports)
+             (guix gexp)
+             (guix packages)
              (guix utils)
              (guix git-download)
              (gnu packages guile)
@@ -24,6 +27,19 @@
 
 (define %source-dir
   (dirname (current-filename)))
+
+;; The version is stated once, in the library, and read from there: a package
+;; definition is code, so it can read the number rather than keep a second copy
+;; that a release would have to remember to rewrite.
+(define %sift-version
+  (let ((text (call-with-input-file
+                (string-append %source-dir "/src/sift/records.scm")
+                get-string-all)))
+    (let ((found (string-match "sift-version[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\""
+                   text)))
+      (unless found
+        (error "guix.scm: src/sift/records.scm does not state a version"))
+      (match:substring found 1))))
 
 (define-public guile-veritas
   (package
@@ -53,7 +69,7 @@ specific language for test suites.")
 (define-public sift
   (package
     (name "sift")
-    (version "0.4.0")
+    (version %sift-version)
     (source
      (local-file %source-dir
                  #:recursive? #t

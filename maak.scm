@@ -9,7 +9,14 @@
   ;; `run' and `test' are both task names here, and both shadow something the
   ;; maak DSL exports, so the DSL is imported under a prefix.
   #:use-module ((maak dsl) #:prefix dsl:)
+  ;; Likewise for git: a task called `tag' or `commit' here would shadow the
+  ;; helper it calls.
+  #:use-module ((maak git) #:prefix git:)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 regex)
+  #:use-module (ice-9 string-fun)
+  #:use-module (ice-9 textual-ports)
+  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
   #:export (test
              check
@@ -21,6 +28,7 @@
              emacs-check
              docs
              complexity
+             release
              repl
              fmt
              clean
@@ -216,6 +224,182 @@ one to trust with anyone else's."
 (define (clean)
   "Remove build artefacts."
   (delete-file-recursively "reports"))
+
+;; ====== Releasing ======
+
+;; The version is stated once, here, and quoted everywhere else.
+(define version-file
+  "src/sift/records.scm")
+
+;; Where the version is quoted, besides that one home.  Each entry is a file
+;; and the shape the number takes in it: the tag's spelling in a workflow
+;; sample, the `Version:' field of the Emacs package, the line of sample output
+;; a reader sees.  A release rewrites the number inside a shape it knows and
+;; touches nothing else -- prose that happens to contain a number is not a
+;; version, and a task that rewrote prose is a task nobody would dare run.
+(define version-quotations
+  '(("emacs/sift.el" . "Version: ~a")
+    ("README.org" . "v~a")
+    ("doc/editors.org" . "v~a")
+    ("doc/editors.org" . "sift ~a")
+    (".pre-commit-hooks.yaml" . "v~a")
+    ("action.yml" . "v~a")
+    (".github/workflows/sift.yml" . "v~a")))
+
+(define (release-error message . args)
+  "Stop the release with @var{message}, a format string and its arguments."
+  (apply error (string-append "release: " message) args))
+
+(define (current-version)
+  "Return the version `src/sift/records.scm' states."
+  (let ((text (call-with-input-file version-file get-string-all)))
+    (let ((found (string-match
+                    "sift-version[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" text)))
+      (unless found
+        (release-error "~a does not state sift-version as a version"
+          version-file))
+      (match:substring found 1))))
+
+(define (valid-version? version)
+  (and (string? version)
+    (string-match "^[0-9]+\\.[0-9]+\\.[0-9]+$" version)
+    #t))
+
+(define (how-many needle haystack)
+  "Return how many times @var{needle} appears in @var{haystack}."
+  (let loop ((start 0) (count 0))
+    (let ((at (string-contains haystack needle start)))
+      (if at (loop (+ at (string-length needle)) (+ count 1)) count))))
+
+;;; Replace one spelling of the version in one file, answering how many places
+;;; it rewrote.  The file is read and written whole, so a replacement that
+;;; fails cannot leave half a file behind.
+(define (rewrite-file file old new shapes)
+  "Write @var{new} into @var{file} wherever @var{old} is quoted, and count them."
+  (let* ((text (call-with-input-file file get-string-all))
+         (rewritten
+            (fold (lambda (shape text)
+                    (let ((from (format #f shape old))
+                          (to (format #f shape new)))
+                      (if (string-contains text from)
+                        (string-replace-substring text from to)
+                        text)))
+              text
+              shapes))
+         (count (fold
+                   (lambda (shape total)
+                     (+ total (how-many (format #f shape new) rewritten)))
+                   0
+                   shapes)))
+    (unless (string=? text rewritten)
+      (call-with-output-file file
+        (lambda (port) (display rewritten port))))
+    count))
+
+(define (quotation-files)
+  "Return the files that quote the version, each once, in the order listed."
+  (delete-duplicates (map car version-quotations) string=?))
+
+(define (shapes-of file)
+  "Return the shapes the version takes in @var{file}."
+  (filter-map (lambda (entry)
+                (and (string=? (car entry) file) (cdr entry)))
+    version-quotations))
+
+(define (write-version! old new)
+  "Write @var{new} into every place that quotes the version, and answer where."
+  (let ((written '()))
+    (for-each
+       (lambda (file)
+         (let* ((ways (if (string=? file version-file)
+                        (list "\"~a\"")
+                        (shapes-of file)))
+                (count (and (file-exists? file)
+                         (rewrite-file file old new ways))))
+           (when (and count (> count 0))
+             (set! written (cons (format #f "~a (~a)" file count) written)))))
+       (cons version-file (quotation-files)))
+    (reverse written)))
+
+(define (gates)
+  "Run every check this project has, and stop the release when one fails."
+  (for-each (lambda (task)
+              (format #t "~&release: running ~a~%" (car task))
+              ((cdr task)))
+    `(("docs" . ,docs)
+      ("test" . ,test)
+      ("check" . ,check)
+      ("self-check" . ,self-check)
+      ("fixture-check" . ,fixture-check)
+      ("emacs-check" . ,emacs-check)
+      ("emacs-test" . ,emacs-test))))
+
+(define (release . args)
+  "Cut a release: write the version everywhere, run the gates, commit and tag.
+
+With no argument, say what the current version is, where it is quoted, and
+what would have to be typed to release the next one -- and change nothing.
+
+With a version, do the whole ritual in one command: write the number into the
+library and into every place that quotes it, regenerate the rule catalogue,
+run every gate, commit everything tracked as `chore: Release vX.Y.Z', and tag
+that commit `vX.Y.Z' with an annotation that names it.
+
+The gates run before the commit rather than after it, so a release that would
+have been broken is a tree with a new number in it and a message saying which
+check said no -- never a tag that has to be taken back.  A version that is
+already tagged is refused rather than retagged, and naming the version the
+files already state is how a bump made by hand is released."
+  (let* ((current (current-version))
+         (requested (and (pair? args) (car args))))
+    (cond
+      [(null? args)
+       (format #t "~&sift ~a~%" current)
+       (format #t "~%Where the version is quoted:~%")
+       (format #t "  ~a~%" version-file)
+       (for-each
+          (lambda (file)
+            (for-each (lambda (shape)
+                        (format #t "  ~a  (~a)~%" file
+                          (format #f shape current)))
+              (shapes-of file)))
+          (quotation-files))
+       (format #t "~%To release: maak release VERSION~%")
+       0]
+      [(not (valid-version? requested))
+       (release-error "~s is not a version; a release is numbered like 0.5.0"
+         requested)]
+      [else
+         (let ((tag (string-append "v" requested)))
+           (when (member tag (git:git-tags))
+             (release-error "~a is already a tag; bump the version first" tag))
+           (format #t "~&release: ~a -> ~a~%" current requested)
+           (let ((written (write-version! current requested)))
+             (if (null? written)
+               (format #t "release: nothing quoted the old version~%")
+               (for-each
+                  (lambda (where)
+                    (format #t "release: wrote ~a into ~a~%" requested where))
+                  written)))
+           (gates)
+           (git:git (list "add" "--all"))
+           (let* ((message (format #f "chore: Release v~a" requested))
+                  (staged (string-trim-both
+                             (git:git-output (list "diff" "--cached"
+                                               "--name-only")))))
+             ;; A tree that already says the version is a tree with nothing to
+             ;; commit: tag where it stands rather than fail on an empty commit.
+             (if (string-null? staged)
+               (format #t "~%release: nothing to commit~%")
+               (begin
+                 (git:git (list "commit" "--message" message))
+                 (format #t "~%release: committed `~a'~%" message)))
+             (git:git (list "tag" "--annotate" tag "--message"
+                        (format #f "sift ~a" requested)))
+             (format #t "release: tagged ~a~%~%" tag)
+             (format #t "A tag nobody has fetched is not a release yet:~%")
+             (format #t "  git push origin main --follow-tags~%"))
+           0)])))
 
 (define (default)
   "List the tasks this project defines."
