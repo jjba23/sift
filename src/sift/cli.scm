@@ -128,14 +128,24 @@ Run `sift COMMAND --help' for the options of a command.
            (cons arg (or (assq-ref state 'exclude-checkers) '()))
            state)))))
 
-(define long-option-names
-  '("write" "check" "stdin" "stdout" "fix" "comment-align" "no-color" "force"
-    "trust-config" "quiet" "verbose" "help" "dialect" "severity" "format"
-    "style" "line-length" "indent" "config" "checker" "exclude-checker"))
+(define (long-names option)
+  "Return the long names of @var{option}: every name that is a string."
+  (filter string? (option-names option)))
 
+;;; The two lists below are read off the specification above rather than
+;;; written out again, because a list written out again is a list that drifts.
+;;; `--brackets square' and `--label x' were rejected as unrecognized options
+;;; for as long as they were missing from a copy of this list, and no test
+;;; could tell that they had ever been there.
+
+;; Every long spelling of an option; abbreviations are resolved against these.
+(define long-option-names
+  (append-map long-names option-specification))
+
+;; The long options that take an argument on the command line.
 (define long-options-with-values
-  '("dialect" "severity" "format" "style" "line-length" "indent"
-    "config" "checker" "exclude-checker"))
+  (append-map long-names
+    (filter option-required-arg? option-specification)))
 
 (define (resolve-long-name name)
   "Return the full long option @var{name} abbreviates, or @code{#f}.
@@ -210,82 +220,93 @@ file whose name begins with a dash can still be named."
     (append-map (lambda (piece) (string-split piece #\,))
       (string-split value #\space))))
 
+;;; Each procedure below reads one option's argument and answers with the
+;;; value to override, or raises a usage error naming the option, what it
+;;; takes and what it got.  They are procedures of the value alone, because
+;;; that is what makes the table under them a table: adding an option is one
+;;; procedure and one entry, not another twelve lines in the middle of a
+;;; `let'.
+
+(define (dialect-option value)
+  (or (string->dialect value)
+    (usage-error "unknown dialect `~a'; supported dialects are scheme, elisp and cl"
+      value)))
+
+(define (style-option value)
+  (or (string->style value)
+    (usage-error "unknown style `~a'; supported styles are community and dangling"
+      value)))
+
+(define (severity-option value)
+  (or (string->severity value)
+    (usage-error "unknown severity `~a'; sift knows error, warning and info"
+      value)))
+
+(define (brackets-option value)
+  (or (string->brackets value)
+    (usage-error "unknown bracket style `~a'; sift knows square, parens and preserve"
+      value)))
+
+(define (format-option value)
+  (let ((format (string->symbol value)))
+    (if (memq format '(human json null github sarif))
+      format
+      (usage-error "unknown format `~a'; sift knows human, json, null, github and sarif"
+        value))))
+
+(define (positive-integer-option what)
+  "Return a reader that accepts a positive integer, or reports @var{what}."
+  (lambda (value)
+    (let ((n (string->number value)))
+      (if (and n (integer? n) (> n 0))
+        n
+        (usage-error "~a must be a positive integer, got `~a'" what value)))))
+
+;; The options whose argument is a single value, in the order they are read.
+(define option-readers
+  `((dialect . ,dialect-option)
+    (style . ,style-option)
+    (severity . ,severity-option)
+    (format . ,format-option)
+    (brackets . ,brackets-option)
+    (line-length . ,(positive-integer-option "--line-length"))
+    (indent . ,(positive-integer-option "--indent"))))
+
+;; The options that are a switch on the command line and a setting in the
+;; configuration.
+(define option-flags
+  '(comment-align quiet verbose force))
+
+(define (checker-override state key what)
+  "Return the reading of the repeated option @var{key}, or @code{#f}.
+
+`--checker' may be given more than once, and the names inside one giving may
+be separated by commas or spaces, so the state holds a list of spellings
+that has to be flattened, split, trimmed and de-duplicated before it is a
+setting."
+  (let ((given (assq-ref state key)))
+    (and given
+      (cons key
+        (delete-duplicates
+           (append-map (lambda (item) (checker-name-list item what))
+             (reverse given)))))))
+
 (define* (build-overrides state)
   "Return the alist of settings the command line overrides.
 
 Invalid values are usage errors, not silent fallbacks: a `--line-length' of
 `abc' means the run is wrong, and saying so is the only useful answer."
-  (define (number-option key what)
-    (let ((value (assq-ref state key)))
-      (and value
-        (let ((n (string->number value)))
-          (if (and n (integer? n) (> n 0))
-            n
-            (usage-error "~a must be a positive integer, got `~a'"
-              what value))))))
-  (append
-     (filter identity
-       (list
-          (let ((value (assq-ref state 'dialect)))
-            (and value
-              (let ((dialect (string->dialect value)))
-                (unless dialect
-                  (usage-error "unknown dialect `~a'; supported dialects are scheme, elisp and cl"
-                    value))
-                (cons 'dialect dialect))))
-          (let ((value (assq-ref state 'style)))
-            (and value
-              (let ((style (string->style value)))
-                (unless style
-                  (usage-error "unknown style `~a'; supported styles are community and dangling"
-                    value))
-                (cons 'style style))))
-          (let ((value (assq-ref state 'severity)))
-            (and value
-              (let ((severity (string->severity value)))
-                (unless severity
-                  (usage-error "unknown severity `~a'; sift knows error, warning and info"
-                    value))
-                (cons 'severity severity))))
-          (let ((value (assq-ref state 'format)))
-            (and value
-              (let ((output (string->symbol value)))
-                (unless (memq output '(human json null github sarif))
-                  (usage-error "unknown format `~a'; sift knows human, json, null, github and sarif"
-                    value))
-                (cons 'format output))))
-          (let ((value (assq-ref state 'brackets)))
-            (and value
-              (let ((brackets (string->brackets value)))
-                (unless brackets
-                  (usage-error "unknown bracket style `~a'; sift knows square, parens and preserve"
-                    value))
-                (cons 'brackets brackets))))
-          (let ((value (number-option 'line-length "--line-length")))
-            (and value (cons 'line-length value)))
-          (let ((value (number-option 'indent "--indent")))
-            (and value (cons 'indent value)))
-          (and (assq 'comment-align state) (cons 'comment-align #t))
-          (and (assq 'quiet state) (cons 'quiet #t))
-          (and (assq 'verbose state) (cons 'verbose #t))
-          (and (assq 'force state) (cons 'force #t))
-          (let ((value (assq-ref state 'color)))
-            (and value (cons 'color value)))
-          (let ((value (assq-ref state 'checkers)))
-            (and value
-              (cons 'checkers
-                (delete-duplicates
-                   (append-map (lambda (item)
-                                 (checker-name-list item "--checker"))
-                     (reverse value))))))
-          (let ((value (assq-ref state 'exclude-checkers)))
-            (and value
-              (cons 'exclude-checkers
-                (delete-duplicates
-                   (append-map (lambda (item)
-                                 (checker-name-list item "--exclude-checker"))
-                     (reverse value))))))))
-     '()))
+  (define (read-option key reader)
+    (let ((given (assq-ref state key)))
+      (and given (cons key (reader given)))))
+  (filter identity
+    (append
+       (map (lambda (entry) (read-option (car entry) (cdr entry)))
+         option-readers)
+       (map (lambda (key) (and (assq key state) (cons key #t))) option-flags)
+       (list (read-option 'color string->symbol)
+         (checker-override state 'checkers "--checker")
+         (checker-override state 'exclude-checkers "--exclude-checker")))))
 
 (define lisp-file-extensions
   '(".scm" ".ss" ".sld" ".sls" ".el" ".lisp" ".cl" ".asd" ".lsp" ".system"))

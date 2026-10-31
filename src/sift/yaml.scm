@@ -77,23 +77,42 @@ machinery."
 ;; only at the start of a line, and inline comments are stripped when a
 ;; scalar is read.
 
-(define (strip-comment text)
-  "Return @var{text} without a trailing `# comment', quotes respected."
-  (let loop ((i 0) (q #f) (escape #f))
+(define* (find-unquoted text pred #:optional (start 0))
+  "Return the index of the first character of @var{text} that @var{pred} accepts.
+
+Only characters outside quotes are offered to @var{pred}, and a backslash
+inside a double quoted scalar skips the character after it, so a `#' inside
+`\"a # b\"' is part of the string rather than the start of a comment.
+@code{#f} when nothing matches.
+
+Three procedures below ask this one question about a line -- where does the
+comment start, is there a `:' that separates a key from its value, which one
+-- and each used to carry its own copy of this walk.  A copy is a place for
+the quoting rules to disagree with themselves."
+  (let loop ((i start) (quote-char #f))
     (cond
-      [(>= i (string-length text)) text]
+      [(>= i (string-length text)) #f]
       [else
          (let ((c (string-ref text i)))
            (cond
-             [escape (loop (+ i 1) q #f)]
-             [(eq? q #\") (if (char=? c #\\)
-                            (loop (+ i 1) q #t)
-                            (if (char=? c #\") (loop (+ i 1) #f #f) (loop (+ i 1) q #f)))]
-             [(eq? q #\') (if (char=? c #\') (loop (+ i 1) #f #f) (loop (+ i 1) q #f))]
-             [(memv c '(#\" #\')) (loop (+ i 1) c #f)]
-             [(and (char=? c #\#) (or (= i 0) (char=? (string-ref text (- i 1)) #\space)))
-              (string-trim-right (substring text 0 i))]
-             [else (loop (+ i 1) q #f)]))])))
+             [(eq? quote-char #\")
+              (cond
+                [(char=? c #\\) (loop (+ i 2) quote-char)]
+                [(char=? c #\") (loop (+ i 1) #f)]
+                [else (loop (+ i 1) quote-char)])]
+             [(eq? quote-char #\')
+              (if (char=? c #\') (loop (+ i 1) #f) (loop (+ i 1) quote-char))]
+             [(memv c '(#\" #\')) (loop (+ i 1) c)]
+             [(pred text i c) i]
+             [else (loop (+ i 1) quote-char)]))])))
+
+(define (strip-comment text)
+  "Return @var{text} without a trailing `# comment', quotes respected."
+  (define (comment-start? text i c)
+    (and (char=? c #\#)
+      (or (= i 0) (char=? (string-ref text (- i 1)) #\space))))
+  (let ((at (find-unquoted text comment-start?)))
+    (if at (string-trim-right (substring text 0 at)) text)))
 
 (define (quoted? text)
   (and (> (string-length text) 1)
@@ -124,8 +143,15 @@ machinery."
       [(member clean '("null" "~" "Null" "NULL")) 'null]
       [(string->number clean) (string->number clean)]
       [(and (string-prefix? "[" clean) (string-suffix? "]" clean))
-       (map scalar->value (string-split (substring clean 1 (- (string-length clean) 1))
-                            #\,))]
+       (let ((body (string-trim-both
+                      (substring clean 1 (- (string-length clean) 1)))))
+         ;; `[]' is the empty sequence, not a sequence holding one empty
+         ;; string: a configuration that says `exclude-checkers: []' means
+         ;; "none", and reading it as `("")' made every key that takes a list
+         ;; of names unusable in the flow style.
+         (if (string-null? body)
+           '()
+           (map scalar->value (string-split body #\,))))]
       [else raw])))
 
 ;;; ===== The parser =====
@@ -202,37 +228,24 @@ machinery."
           rest)))))
 
 (define (mapping-line? text)
-  (let loop ((i 0) (q #f))
-    (cond
-      [(>= i (string-length text)) #f]
-      [else
-         (let ((c (string-ref text i)))
-           (cond
-             [(eq? q #\") (if (char=? c #\\) (loop (+ i 2) q)
-                            (if (char=? c #\") (loop (+ i 1) #f) (loop (+ i 1) q)))]
-             [(eq? q #\') (if (char=? c #\') (loop (+ i 1) #f) (loop (+ i 1) q))]
-             [(memv c '(#\" #\')) (loop (+ i 1) c)]
-             [(char=? c #\:) (or (= (+ i 1) (string-length text))
-                               (char=? (string-ref text (+ i 1)) #\space))]
-             [else (loop (+ i 1) #f)]))])))
+  "Return @code{#t} when @var{text} is a `key: value' line.
+
+The colon that makes it one has to be outside quotes and followed by a space
+or the end of the line, which is what tells `key: value' from `12:30'."
+  (define (key-colon? text i c)
+    (and (char=? c #\:)
+      (or (= (+ i 1) (string-length text))
+        (char=? (string-ref text (+ i 1)) #\space))))
+  (and (find-unquoted text key-colon?) #t))
 
 (define (split-mapping-line text)
   "Return @code{(key . value)} for a `key: value' line."
-  (let loop ((i 0) (q #f))
-    (cond
-      [(>= i (string-length text))
-       (yaml-error #f 0 0 "a mapping entry needs a `:'")]
-      [else
-         (let ((c (string-ref text i)))
-           (cond
-             [(eq? q #\") (if (char=? c #\\) (loop (+ i 2) q)
-                            (if (char=? c #\") (loop (+ i 1) #f) (loop (+ i 1) q)))]
-             [(eq? q #\') (if (char=? c #\') (loop (+ i 1) #f) (loop (+ i 1) q))]
-             [(memv c '(#\" #\')) (loop (+ i 1) c)]
-             [(char=? c #\:)
-              (cons (string-trim-both (substring text 0 i))
-                (string-trim-both (substring text (+ i 1))))]
-             [else (loop (+ i 1) #f)]))])))
+  (define (any-colon? text i c) (char=? c #\:))
+  (let ((at (find-unquoted text any-colon?)))
+    (if at
+      (cons (string-trim-both (substring text 0 at))
+        (string-trim-both (substring text (+ at 1))))
+      (yaml-error #f 0 0 "a mapping entry needs a `:'"))))
 
 (define (parse-mapping lines path indent)
   (let ((line (car lines)))
