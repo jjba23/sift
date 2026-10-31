@@ -44,7 +44,7 @@ There are 50 rules in sift 1.1.0.
 | let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
 | letrec-single-binding | SIFT015 | scheme | info | ~letrec~ with a single binding that does not need recursive scope |
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
-| line-length | SIFT003 | all | warning | Line exceeds the configured soft limit |
+| line-length | SIFT003 | all | warning | Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp) |
 | loop-keyword-style | SIFT029 | cl | info | Symbolic LOOP keywords where the project style asks for literal ~:keywords~ |
 | naming-convention | SIFT040 | all | warning | An underscore or camelCase in the name of a definition |
 | negated-if | SIFT033 | scheme, elisp, cl | warning | ~if~ or ~when~ with a negated test, which ~unless~ says directly |
@@ -621,14 +621,14 @@ Run ~sift explain lexical-binding-missing~ at the command line, or ~M-x sift-exp
 :CUSTOM_ID: line-length
 :END:
 
-Line exceeds the configured soft limit
+Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp)
 
 - *Dialects:* all
 - *Severity:* warning
 - *Fix:* no automatic fix; break the form by hand
 
 #+begin_src scheme
-(define (f x) (some-very-long-call ...))  ; over 100 columns
+(define (f x) (some-very-long-call ...))  ; over 96 columns
 #+end_src
 
 #+begin_quote

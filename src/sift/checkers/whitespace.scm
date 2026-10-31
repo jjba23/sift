@@ -116,7 +116,7 @@
 
 (define (line-length-warnings ast source dialect)
   (let* ((limit (or (option 'line-length #f)
-                  (if (eq? dialect 'elisp) 80 100)))
+                  (if (eq? dialect 'elisp) 80 96)))
          (spans (line-spans source))
          (warnings '()))
     (let loop ((rest spans) (number 1))
@@ -139,11 +139,11 @@
 
 (define line-length-checker
   (checker 'line-length
-           "Line exceeds the configured soft limit"
+           "Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp)"
            'all
            line-length-warnings
            #:severity 'warning
-           #:example '((input . "(define (f x) (some-very-long-call ...))  ; over 100 columns")
+           #:example '((input . "(define (f x) (some-very-long-call ...))  ; over 96 columns")
                        (fix . "no automatic fix; break the form by hand"))))
 
 ;;; ===== trailing-blank-lines =====

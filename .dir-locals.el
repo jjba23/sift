@@ -13,4 +13,4 @@
   . ((sift-executable . "./bin/sift")
      (sift-dialect . "scheme")))
  (nil
-  . ((fill-column . 100))))
+  . ((fill-column . 96))))

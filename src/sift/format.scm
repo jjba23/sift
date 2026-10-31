@@ -75,8 +75,8 @@
 
 Emacs Lisp is held to 80 columns -- the width the Emacs manual assumes for a
 docstring's first line and for a source file read side by side -- while
-Scheme and Common Lisp get 100."
-  (if (eq? dialect 'elisp) 80 100))
+Scheme and Common Lisp get 96."
+  (if (eq? dialect 'elisp) 80 96))
 
 (define* (line-length-for dialect #:optional (override #f))
   (or override (default-line-length dialect)))

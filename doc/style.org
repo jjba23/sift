@@ -437,6 +437,13 @@ delimiters) or about a form all three dialects share (`if`, `when`,
 `progn`, `let`).  Everything about a specific dialect's bookkeeping is in
 that dialect's section.
 
+*Why SIFT003 is 96 columns:* the limit is soft -- it warns, and sift will not
+reflow the line for you.  Scheme and Common Lisp get 96; Emacs Lisp gets 80,
+the width the Emacs manual assumes for a docstring's first line and for a
+source file read side by side.  The number is a default, not a law:
+`--line-length`, or `line-length:` in a config file, moves it for a project
+that writes to a different width.
+
 *Why SIFT001 and SIFT002 matter:* trailing whitespace is invisible and
 shows up in every diff; a tab renders at a different width in every editor,
 so indentation that uses one is not indentation the next reader will see.

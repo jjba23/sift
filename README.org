@@ -401,7 +401,7 @@ command line wins.
 | ~--format~                 | lint, check, ci                 | human, json, null, github or sarif (default ~human~)                  |
 | ~--style~                  | format                          | community (trailing closers) or dangling (own line)                   |
 | ~--brackets~               | format                          | square, parens or preserve, for clause lists                          |
-| ~--line-length N~          | format, lint                    | Soft line limit (100, or 80 for Emacs Lisp)                           |
+| ~--line-length N~          | format, lint                    | Soft line limit (96, or 80 for Emacs Lisp)                            |
 | ~--indent N~               | format                          | Indentation width (default 2)                                         |
 | ~--comment-align~          | format                          | Line up contiguous inline comments                                    |
 | ~--no-color~               | all                             | No ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)         |
@@ -927,7 +927,7 @@ should not be able to run code merely because sift was pointed at it.
 #+begin_src scheme
 ;; sift.scm
 `((dialect . scheme)
-  (line-length . 100)
+  (line-length . 90)
   (indent-rules . ((with-my-thing . 2))))
 #+end_src
 
@@ -949,7 +949,7 @@ indent: 4   # command line (--indent)
 
 $ sift config explain line-length
 line-length
-  Soft line limit; #f means 100, or 80 for Emacs Lisp.
+  Soft line limit; #f means 96, or 80 for Emacs Lisp.
   type:    integer
   default: #f
   flag:    --line-length

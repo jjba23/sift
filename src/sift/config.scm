@@ -124,7 +124,7 @@ one entry per key and `config-ref' always answers with the winning layer."
      (type . integer)
      (default . #f)
      (flag . "--line-length")
-     (description . "Soft line limit; #f means 100, or 80 for Emacs Lisp."))
+     (description . "Soft line limit; #f means 96, or 80 for Emacs Lisp."))
     (indent
      (type . integer)
      (default . 2)

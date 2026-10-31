@@ -17,7 +17,7 @@ indent_style = space
 
 [*.{scm,ss,sld,sls,el,lisp,cl,asd,sc}]
 indent_size = 2
-max_line_length = 100
+max_line_length = 96
 
 [*.el]
 # the Emacs manual's own limit for a docstring's first line
