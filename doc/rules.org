@@ -980,7 +980,7 @@ Lines ending with spaces or tabs
 - *Fix:* strip the trailing whitespace
 
 #+begin_src scheme
-(define (f x)
+(define (f x) 
   x)
 #+end_src
 
@@ -1109,3 +1109,4 @@ A body form that is too deep or too long to read as one expression
 #+begin_quote
 Run ~sift explain wrap-in-let~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
+
