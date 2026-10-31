@@ -441,6 +441,19 @@ delimiter goes, and sift does not guess."
 
 ;;; ===== format =====
 
+(define* (format-with config dialect path source)
+  "Return @code{(values text errors)} for @var{source} under @var{config}.
+
+One place decides which settings of the configuration the formatter is given,
+so that `format', `check' and `ci' cannot disagree about what the formatted
+text means."
+  (format-source source #:dialect dialect #:file path
+    #:style (config-ref config 'style)
+    #:indent (config-ref config 'indent)
+    #:comment-align (config-ref config 'comment-align)
+    #:brackets (config-ref config 'brackets)
+    #:indent-rules (config-ref config 'indent-rules)))
+
 (define* (format-one config path source #:key (write? #f) (check? #f)
            (label #f) (diff? #f))
   "Format one source, returning the exit status for it.
@@ -448,23 +461,14 @@ delimiter goes, and sift does not guess."
 @var{path} is @code{#f} for standard input.  Nothing is written unless
 @var{write?} asks for it; without it the formatted text goes to stdout, so
 `format' is a filter."
-  (let* ((dialect (dialect-for config path source #:label label))
-         (style (config-ref config 'style))
-         (indent (config-ref config 'indent))
-         (align (config-ref config 'comment-align))
-         (brackets (config-ref config 'brackets))
-         (rules (config-ref config 'indent-rules)))
+  (let* ((dialect (dialect-for config path source #:label label)))
     (emit-verbose config "formatting ~a (~a, ~a)"
-      (or path "<stdin>") dialect style)
+      (or path "<stdin>") dialect (config-ref config 'style))
     (let ((denied (deny-on-parse-errors config path source dialect)))
       (if denied
         denied
         (call-with-values
-          (lambda ()
-            (format-source source #:dialect dialect #:file path
-              #:style style #:indent indent
-              #:comment-align align #:brackets brackets
-              #:indent-rules rules))
+          (lambda () (format-with config dialect path source))
           (lambda (formatted errors)
             (cond
               [check?
@@ -522,9 +526,15 @@ delimiter goes, and sift does not guess."
     (let ((overrides (build-overrides state)))
       (with-config overrides state
         (lambda (config)
-          (if (assq 'check state)
-            (run-check config files)
-            (run-format config files state)))))))
+          (if (and (assq 'check state)
+                (machine-format? (config-ref config 'format)))
+            (document-status config files
+              #:stdin? (reads-stdin? state files)
+              #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
+              #:formatting? #t #:lint? #f)
+            (if (assq 'check state)
+              (run-check config files)
+              (run-format config files state))))))))
 
 (define (load-effective-config overrides state)
   "Return the effective <config>, or #f when a configuration file is wrong.
@@ -583,10 +593,105 @@ only has to answer with the usage status."
 
 ;;; ===== check =====
 
-(define* (run-check config files #:key (stdin? #f))
+;;; ===== One document per run =====
+;;;
+;;; `human', `github' and `null' are formats a line at a time can carry: the
+;;; first is read by a person, the second turns each finding into an
+;;; annotation, and the third says nothing.  `json' and `sarif' are documents,
+;;; and a run of two files that wrote two documents would write something no
+;;; consumer can read.  For those two the whole run is asked first and
+;;; answered once -- which is also why `check' stops answering with a diff
+;;; there: a machine wants the finding, and a diff is the human form of the
+;;; same answer.
+
+(define (machine-format? format*)
+  "Return @code{#t} for a format that is one document per run."
+  (memq format* '(json sarif)))
+
+(define (reads-stdin? state files)
+  "Return @code{#t} when this run reads its source from standard input.
+
+No files and no `--stdin' means standard input, as it does for every Unix
+filter: naming no file is not the empty run, it is the piped one."
+  (and (or (assq 'stdin state) (null? files)) #t))
+
+(define (formatting-finding path)
+  "Return the finding that says @var{path} is not formatted."
+  (make-lint-warning 'format 'error
+    "the file is not formatted the way sift would format it"
+    (make-source-location* path 1 1 0 0)))
+
+(define* (read-sources files #:key (stdin? #f) (label #f))
+  "Return @code{(values pairs status)}: one @code{(path . source)} per file.
+
+Standard input is one pair whose path is the label, which is how an editor
+names the buffer it piped in."
+  (if stdin?
+    (values (list (cons label (get-string-all (current-input-port)))) 0)
+    (let loop ((rest files) (pairs '()) (status 0))
+      (cond
+        [(or (null? rest) (= status 2)) (values (reverse pairs) status)]
+        [else
+           (call-with-values (lambda () (safe-read-file (car rest)))
+             (lambda (source failure)
+               (if failure
+                 (values (reverse pairs) failure)
+                 (loop (cdr rest) (cons (cons (car rest) source) pairs) status))))]))))
+
+(define* (formatting-findings config pairs)
+  "Return one finding per source in @var{pairs} that would be formatted differently.
+
+A source sift could not read is not a formatting finding: the reader says what
+is wrong with it, and a diff of a file with a missing parenthesis would be a
+guess at where the parenthesis goes."
+  (append-map
+     (lambda (pair)
+       (let ((path (car pair))
+             (source (cdr pair)))
+         (call-with-values
+           (lambda ()
+             (format-with config (dialect-for config path source) path source))
+           (lambda (formatted errors)
+             (if (or (pair? errors) (string=? formatted source))
+               '()
+               (list (formatting-finding path)))))))
+     pairs))
+
+(define* (lint-findings config pairs)
+  "Return every lint finding of every source in @var{pairs}."
+  (append-map
+     (lambda (pair)
+       (call-with-values
+         (lambda () (lint-text config (cdr pair) #:path (car pair)))
+         (lambda (warnings dialect status) warnings)))
+     pairs))
+
+(define* (report-findings config pairs #:key (lint? #f) (formatting? #t))
+  "Render the findings of the whole run once, and answer the exit status.
+
+@var{lint?} and @var{formatting?} say which of the two questions to ask;
+`check' asks the second, `lint' the first, and `ci' both -- which is what
+makes `ci --format=sarif' one document that holds both answers."
+  (let* ((warnings (append (or (and lint? (lint-findings config pairs)) '())
+                     (or (and formatting? (formatting-findings config pairs))
+                       '())))
+         (sorted (sort warnings lint-warning<?)))
+    (render-warnings sorted #:format (config-ref config 'format))
+    (if (null? sorted) 0 1)))
+
+(define* (document-status config files #:key (stdin? #f) (label #f)
+           (lint? #f) (formatting? #t))
+  "Answer a run of @var{files} in a format that is one document per run."
+  (call-with-values
+    (lambda () (read-sources files #:stdin? stdin? #:label label))
+    (lambda (pairs status)
+      (max status (report-findings config pairs #:lint? lint?
+                    #:formatting? formatting?)))))
+
+(define* (run-check config files #:key (stdin? #f) (label #f))
   (if (or stdin? (null? files))
     (let ((source (get-string-all (current-input-port))))
-      (format-one config #f source #:check? #t))
+      (format-one config #f source #:check? #t #:label label))
     (fold (lambda (path status)
             (if (= status 2)
               status
@@ -606,7 +711,13 @@ only has to answer with the usage status."
     (let ((overrides (build-overrides state)))
       (with-config overrides state
         (lambda (config)
-          (run-check config files #:stdin? (and (assq 'stdin state) #t)))))))
+          (let ((stdin? (and (assq 'stdin state) #t))
+                (label (assq-ref state 'label)))
+            (if (machine-format? (config-ref config 'format))
+              (document-status config files
+                #:stdin? (or stdin? (null? files)) #:label label
+                #:formatting? #t #:lint? #f)
+              (run-check config files #:stdin? stdin? #:label label))))))))
 
 ;;; ===== lint =====
 
@@ -739,7 +850,16 @@ finding work is a bug, not a queue."
              (list (cons 'checkers (config-ref config 'checkers))
                (cons 'exclude-checkers
                  (config-ref config 'exclude-checkers))))
-          (run-lint config files state))))))
+          ;; `--fix' writes to the files it judges, so it stays on the path
+          ;; that reports as it goes; a format that is one document per run
+          ;; would have to hold what it found before the second pass.
+          (if (and (machine-format? (config-ref config 'format))
+                (not (assq 'fix state)))
+            (document-status config files
+              #:stdin? (reads-stdin? state files)
+              #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
+              #:lint? #t #:formatting? #f)
+            (run-lint config files state)))))))
 
 ;;; ===== ci =====
 
@@ -763,16 +883,25 @@ the tree it is judging is a CI job nobody trusts."
       (with-config overrides state
         (lambda (config)
           (let* ((stdin? (and (assq 'stdin state) #t))
-                 (check-status (run-check config files #:stdin? stdin?))
-                 (lint-status (run-lint config files state)))
-            (cond
-              [(or (= check-status 2) (= lint-status 2)) 2]
-              [(or (= check-status 1) (= lint-status 1)) 1]
-              [else
-                 (when (and (not (config-ref config 'quiet))
-                         (eq? (config-ref config 'format) 'human))
-                   (format (current-error-port) "sift: formatting and lint are clean~%"))
-                 0])))))))
+                 (label (assq-ref state 'label))
+                 (status
+                    (if (machine-format? (config-ref config 'format))
+                      (document-status config files
+                        #:stdin? (or stdin? (null? files)) #:label label
+                        #:lint? #t #:formatting? #t)
+                      (let ((check-status (run-check config files #:stdin? stdin?
+                                            #:label label))
+                            (lint-status (run-lint config files state)))
+                        (cond
+                          [(or (= check-status 2) (= lint-status 2)) 2]
+                          [(or (= check-status 1) (= lint-status 1)) 1]
+                          [else
+                             (when (and (not (config-ref config 'quiet))
+                                     (eq? (config-ref config 'format) 'human))
+                               (format (current-error-port)
+                                 "sift: formatting and lint are clean~%"))
+                             0])))))
+            status))))))
 
 ;;; ===== install-hooks =====
 

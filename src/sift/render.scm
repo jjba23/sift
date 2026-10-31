@@ -142,18 +142,21 @@ script can ask for the exit status alone."
 
 The order matters: a diff of two runs of sift should only show what
 changed, and a hash table would not promise that."
-  (let ((location (lint-warning-location warning)))
+  (let* ((location (lint-warning-location warning))
+         (checker (lint-warning-checker warning)))
     (string-append
        "{"
        "\"file\":" (json-escape (or (source-location-file location) "<stdin>")) ","
        "\"line\":" (number->string (source-location-line location)) ","
        "\"column\":" (number->string (source-location-column location)) ","
-       "\"checker\":" (json-escape (symbol->string
-                                      (lint-warning-checker warning))) ","
+       "\"checker\":" (json-escape (symbol->string checker)) ","
        ;; the rule code is what an editor attaches to a diagnostic, so that a
-       ;; key press can open the documentation of the rule that fired
-       "\"code\":" (json-escape (or (rule-code (lint-warning-checker warning))
-                                  "")) ","
+       ;; key press can open the documentation of the rule that fired; a
+       ;; finding that is not a rule -- a file that would be reformatted, one
+       ;; that could not be read -- is named by its checker instead, because
+       ;; an empty code is a code no editor can look up
+       "\"code\":" (json-escape (or (rule-code checker)
+                                  (symbol->string checker))) ","
        "\"severity\":" (json-escape (severity->string
                                        (lint-warning-severity warning))) ","
        "\"message\":" (json-escape (lint-warning-message warning))
@@ -162,9 +165,151 @@ changed, and a hash table would not promise that."
 ;;; ===== SARIF =====
 ;;;
 ;;; SARIF 2.1.0 is what GitHub code scanning, DefectDojo and a dozen other
-;;; tools read.  A result names the rule that fired, its level, the message
-;;; and the place; the rules it refers to are described once, in the order
-;;; they first appear, which is what `ruleIndex' points at.
+;;; tools read, so the document is written to the specification rather than to
+;;; what one consumer happens to need.  A *run* names its tool, the rules the
+;;; tool applied, the artifacts it looked at and the results it found; every
+;;; result points at its rule and at its artifact by index, so that a document
+;;; with a hundred findings describes each rule once.
+
+(define sarif-schema-uri "https://json.schemastore.org/sarif-2.1.0.json")
+(define sift-home-page "https://codeberg.org/jjba23/sift")
+
+(define (sift-rules-page)
+  "Return the URL of the rule catalogue."
+  (string-append sift-home-page "/src/branch/main/doc/rules.org"))
+
+;;; --- building JSON -----------------------------------------------------
+
+;;; Every object below is built from a list of members rather than by
+;;; concatenating into one format string: the order of the keys is then the
+;;; order they are written in, a member whose value is not known is #f, and
+;;; `json-object' drops it.  That matters here because half of SARIF is
+;;; optional: a region has a character span when the checker knew one, and a
+;;; document with `"charOffset":#f' in it is not a document.
+
+(define (json-array items)
+  "Return @var{items} as a JSON array."
+  (string-append "[" (string-join items ",") "]"))
+
+(define (json-object . members)
+  "Return a JSON object of @var{members}, in the order given.
+
+A member that is @code{#f} is left out, which is how an optional field is
+written."
+  (string-append "{" (string-join (filter identity members) ",") "}"))
+
+(define (json-field name value)
+  "Return the JSON member @var{name} with @var{value}, or @code{#f} for none."
+  (and value (string-append (json-escape name) ":" value)))
+
+(define (json-text text)
+  "Return @var{text} as a SARIF message object."
+  (json-object (json-field "text" (json-escape text))))
+
+(define (fingerprint . parts)
+  "Return a stable short hash of @var{parts}, in hexadecimal.
+
+The hash is written out here rather than taken from the runtime: a code
+scanning service stores the fingerprint and compares it with the next run's,
+so it may not change when this Guile changes.  FNV-1a is small enough to read
+and stable by definition."
+  (let ((text (string-join (map (lambda (part) (format #f "~a" part)) parts)
+                "\n")))
+    (let loop ((index 0) (hash #x811c9dc5))
+      (if (>= index (string-length text))
+        (format #f "~8,'0x" hash)
+        (loop (+ index 1)
+          (modulo (* (logxor hash
+                       (char->integer (string-ref text index)))
+                    #x01000193)
+            #x100000000))))))
+
+(define (distinct items)
+  "Return @var{items} without duplicates, keeping the first of each."
+  (let loop ((rest items) (seen '()) (out '()))
+    (cond
+      [(null? rest) (reverse out)]
+      [(memv (car rest) seen) (loop (cdr rest) seen out)]
+      [else (loop (cdr rest) (cons (car rest) seen) (cons (car rest) out))])))
+
+;;; --- describing a rule ------------------------------------------------
+
+;;; Two findings have a position and a message but no rule of the linter
+;;; behind them: a file that could not be read, and a file that is not
+;;; formatted.  They are results all the same, and a result whose rule is
+;;; described nowhere is a result a code scanning service may discard, so
+;;; they get a rule of their own.
+
+(define pseudo-rules
+  `((reader . "the file could not be read as Lisp")
+    (format . "the file is not formatted the way sift would format it")))
+
+(define (checker-dialect-names checker)
+  "Return the dialects @var{checker} applies to, as names."
+  (let ((applies (lint-checker-dialects checker)))
+    (map symbol->string (if (eq? applies 'all) dialects applies))))
+
+(define (dialects-sentence names)
+  "Return @var{names} as an English list: scheme, elisp and cl."
+  (cond
+    [(null? names) "any dialect"]
+    [(null? (cdr names)) (car names)]
+    [else (string-append (string-join (drop-right names 1) ", ")
+            " and " (car (take-right names 1)))]))
+
+(define (rule-fields name)
+  "Return what a SARIF document says about the rule @var{name}.
+
+A rule of the linter answers with the fields of its checker record, so the
+help a code scanning service shows is the description and the example the
+test suite already asserts.  A pseudo rule -- `reader', `format' -- answers
+from the table above, because there is no record to read."
+  (let ((checker (find-checker name)))
+    (if checker
+      `((id . ,(or (lint-checker-code checker) (symbol->string name)))
+        (name . ,(symbol->string (lint-checker-name checker)))
+        (description . ,(lint-checker-description checker))
+        (severity . ,(lint-checker-severity checker))
+        (dialects . ,(checker-dialect-names checker))
+        (example . ,(lint-checker-example checker)))
+      `((id . ,(symbol->string name))
+        (name . ,(symbol->string name))
+        (description . ,(or (assq-ref pseudo-rules name) (format #f "~a" name)))
+        (severity . warning)
+        (dialects . ,(map symbol->string dialects))
+        (example . #f)))))
+
+(define (sentence text)
+  "Return @var{text} with a full stop, unless it already ends with one."
+  (if (or (string-null? text)
+        (char=? (string-ref text (- (string-length text) 1)) #\.))
+    text
+    (string-append text ".")))
+
+(define (indent-block text)
+  "Return @var{text} with every line but the first indented by two spaces."
+  (string-join (string-split text #\newline) "\n  "))
+
+(define (rule-help-text rule)
+  "Return the help text of @var{rule}: what it wants, and what it looks like.
+
+The example is the rule's own -- the one its tests assert -- so that the help
+shown beside a finding cannot drift from the rule."
+  (let* ((code (assq-ref rule 'id))
+         (example (assq-ref rule 'example))
+         (input (and example (assq-ref example 'input)))
+         (fix (and example (assq-ref example 'fix))))
+    (string-append
+       (assq-ref rule 'description) "\n\n"
+       (if input
+         (string-append "Reported, for example, for:\n\n  " (indent-block input)
+           "\n\n"
+           (if fix
+             (string-append "which is written:\n\n  " (indent-block fix) "\n\n")
+             ""))
+         "")
+       (format #f "Rule ~a is documented with the others at ~a."
+         code (sift-rules-page)))))
 
 (define (sarif-level severity)
   (case severity
@@ -172,70 +317,157 @@ changed, and a hash table would not promise that."
     [(warning) "warning"]
     [else "note"]))
 
-(define* (rules-of warnings)
-  "Return the checkers the run mentioned, in the order they first appear."
-  (let ((seen '()))
-    (reverse
-       (filter-map
-          (lambda (warning)
-            (let ((name (lint-warning-checker warning)))
-              (unless (memq name seen)
-                (set! seen (cons name seen))
-                (find-checker name))))
-          warnings))))
+(define (sarif-rule name)
+  "Return the SARIF description of the rule @var{name}."
+  (let* ((rule (rule-fields name))
+         (code (assq-ref rule 'id))
+         (dialects (assq-ref rule 'dialects)))
+    (json-object
+       (json-field "id" (json-escape code))
+       (json-field "name" (json-escape (assq-ref rule 'name)))
+       (json-field "shortDescription" (json-text (assq-ref rule 'description)))
+       (json-field "fullDescription"
+         (json-text (format #f "~a Reported in ~a."
+                      (sentence (assq-ref rule 'description))
+                      (dialects-sentence dialects))))
+       (json-field "help" (json-text (rule-help-text rule)))
+       (json-field "helpUri"
+         (if (assq-ref pseudo-rules name)
+           (json-escape sift-home-page)
+           (json-escape (format #f "~a#~a" (sift-rules-page) code))))
+       (json-field "defaultConfiguration"
+         (json-object
+            (json-field "level" (json-escape (sarif-level (assq-ref rule 'severity))))))
+       (json-field "properties"
+         (json-object
+            (json-field "tags" (json-array (map json-escape (cons "sift" dialects)))))))))
 
-(define (sarif-rule checker)
-  (string-append
-     "{\"id\":" (json-escape (or (lint-checker-code checker) "")) ","
-     "\"name\":" (json-escape (symbol->string (lint-checker-name checker))) ","
-     "\"shortDescription\":{\"text\":"
-     (json-escape (lint-checker-description checker)) "},"
-     "\"defaultConfiguration\":{\"level\":"
-     (json-escape (sarif-level (lint-checker-severity checker))) "},"
-     "\"properties\":{\"tags\":["
-     (json-escape (dialects->string checker)) "]}}"))
+;;; --- describing the run -----------------------------------------------
 
-(define* (warning->sarif warning #:optional (rules '()))
+(define (artifact-of warning)
+  "Return the artifact @var{warning} is about, as it was named."
+  (or (source-location-file (lint-warning-location warning)) "<stdin>"))
+
+(define (artifact-uri path)
+  "Return @var{path} as a URI a code scanning service can resolve.
+
+A path relative to where sift ran is what such a service wants, because it
+resolves it against the repository.  An absolute one is not, so it is spelled
+as the `file:' URI it actually is."
+  (if (and (string-prefix? "/" path) (not (string-prefix? "//" path)))
+    (string-append "file://" path)
+    path))
+
+(define (sarif-artifact path)
+  (json-object
+     (json-field "location"
+       (json-object (json-field "uri" (json-escape (artifact-uri path)))))
+     (json-field "roles" (json-array (list (json-escape "analysisTarget"))))))
+
+(define (parse-error? warning)
+  "Return @code{#t} when @var{warning} says the file could not be read."
+  (and (eq? (lint-warning-checker warning) 'reader)
+    (eq? (lint-warning-severity warning) 'error)))
+
+(define (sarif-invocation warnings)
+  "Return the invocation of the run that found @var{warnings}.
+
+`executionSuccessful' is false when a file could not be parsed: the analysis
+of that file did not finish, and a document that claimed otherwise would be
+saying something sift does not know."
+  (json-object
+     (json-field "executionSuccessful"
+       (if (any parse-error? warnings) "false" "true"))))
+
+;;; --- results ----------------------------------------------------------
+
+(define (sarif-region warning)
+  "Return the region @var{warning} points at.
+
+The line and the column are always there; the character span is there when
+the checker said which characters it meant, which is what lets a consumer
+highlight the whole finding rather than one character of it."
   (let* ((location (lint-warning-location warning))
-         (checker (lint-warning-checker warning))
-         (index (list-index (lambda (rule)
-                              (eq? (lint-checker-name rule) checker))
-                  rules)))
-    (string-append
-       "{"
-       "\"ruleId\":" (json-escape (or (rule-code checker) "")) ","
-       (if index
-         (string-append "\"ruleIndex\":" (number->string index) ",")
-         "")
-       "\"level\":" (json-escape (sarif-level (lint-warning-severity warning)))
-       ","
-       "\"message\":{\"text\":"
-       (json-escape (format #f "~a [~a]"
-                      (lint-warning-message warning) checker))
-       "},"
-       "\"locations\":[{\"physicalLocation\":{"
-       "\"artifactLocation\":{\"uri\":"
-       (json-escape (or (source-location-file location) "<stdin>")) "},"
-       "\"region\":{\"startLine\":" (number->string (source-location-line location))
-       ",\"startColumn\":" (number->string (source-location-column location)) "}}}]"
-       "}")))
+         (range (lint-warning-range warning)))
+    (json-object
+       (json-field "startLine" (number->string (source-location-line location)))
+       (json-field "startColumn" (number->string (source-location-column location)))
+       (and range (json-field "charOffset" (number->string (car range))))
+       (and range
+         (json-field "charLength"
+           (number->string (max 1 (- (cdr range) (car range)))))))))
+
+(define (warning->sarif warning artifacts rules)
+  "Return one warning as a SARIF result, pointing at its rule and its artifact."
+  (let* ((checker (lint-warning-checker warning))
+         (rule (assq-ref (rule-fields checker) 'id))
+         (artifact (artifact-of warning))
+         (rule-index (list-index (lambda (name) (eq? name checker)) rules))
+         (artifact-index
+            (list-index (lambda (path) (string=? path artifact)) artifacts)))
+    (json-object
+       (json-field "ruleId" (json-escape rule))
+       (and rule-index (json-field "ruleIndex" (number->string rule-index)))
+       (json-field "level"
+         (json-escape (sarif-level (lint-warning-severity warning))))
+       (json-field "message"
+         (json-text (format #f "~a [~a]" (lint-warning-message warning) checker)))
+       (json-field "locations"
+         (json-array
+            (list
+               (json-object
+                  (json-field "physicalLocation"
+                    (json-object
+                       (json-field "artifactLocation"
+                         (json-object
+                            (json-field "uri" (json-escape (artifact-uri artifact)))
+                            (and artifact-index
+                              (json-field "index" (number->string artifact-index)))))
+                       (json-field "region" (sarif-region warning))))))))
+       ;; The fingerprint is what a code scanning service offers the finding by:
+       ;; the rule, the file and the message, and deliberately not the line, so
+       ;; that adding a line above a finding does not open a new alert for it.
+       (json-field "partialFingerprints"
+         (json-object
+            (json-field "siftFingerprint/v1"
+              (json-escape (fingerprint rule artifact
+                             (lint-warning-message warning)))))))))
 
 (define* (warnings->sarif warnings)
-  "Return @var{warnings} as a SARIF 2.1.0 document."
-  (let* ((rules (rules-of warnings))
-         (results (map (lambda (warning) (warning->sarif warning rules))
+  "Return @var{warnings} as a SARIF 2.1.0 document.
+
+One run, whatever the number of files: the rules that fired, the artifacts
+those findings are in, and the findings themselves.  A run that found nothing
+is still a valid document, and one that could not read a file says so."
+  (let* ((rules (distinct (map lint-warning-checker warnings)))
+         (artifacts (distinct (map artifact-of warnings)))
+         (results (map (lambda (warning)
+                         (warning->sarif warning artifacts rules))
                     warnings)))
-    (string-append
-       "{\"$schema\":\"https://json.schemastore.org/sarif-2.1.0.json\","
-       "\"version\":\"2.1.0\","
-       "\"runs\":[{\"tool\":{\"driver\":{"
-       "\"name\":\"sift\","
-       "\"version\":" (json-escape sift-version) ","
-       "\"informationUri\":\"https://codeberg.org/jjba23/sift\","
-       "\"rules\":[" (string-join (map sarif-rule rules) ",") "]"
-       "}},"
-       "\"results\":[" (string-join results ",") "]"
-       "}]}")))
+    (json-object
+       (json-field "$schema" (json-escape sarif-schema-uri))
+       (json-field "version" (json-escape "2.1.0"))
+       (json-field "runs"
+         (json-array
+            (list
+               (json-object
+                  (json-field "tool"
+                    (json-object
+                       (json-field "driver"
+                         (json-object
+                            (json-field "name" (json-escape "sift"))
+                            (json-field "fullName"
+                              (json-escape "sift, a dialect-aware formatter and linter"))
+                            (json-field "version" (json-escape sift-version))
+                            (json-field "informationUri" (json-escape sift-home-page))
+                            (json-field "rules"
+                              (json-array (map sarif-rule rules)))))))
+                  (json-field "invocations"
+                    (json-array (list (sarif-invocation warnings))))
+                  (json-field "artifacts"
+                    (json-array (map sarif-artifact artifacts)))
+                  (json-field "columnKind" (json-escape "unicodeCodePoints"))
+                  (json-field "results" (json-array results)))))))))
 
 (define* (warning->github warning)
   "Return one warning as a GitHub Actions workflow command.

@@ -25,6 +25,17 @@
              name
              (format #f "~a [stderr: ~a]" name (caddr got)))))
 
+(define (occurrences needle haystack)
+  "Return how many times @var{needle} appears in @var{haystack}.
+
+A format that is one document per run is asserted by counting what a document
+has exactly one of, which is a question `assert-contains' cannot ask."
+  (let loop ((start 0) (count 0))
+    (let ((at (string-contains haystack needle start)))
+      (if at
+        (loop (+ at (string-length needle)) (+ count 1))
+        count))))
+
 (define (spec)
   ;; serial: every test here starts a process, and a dozen of them at once
   ;; turns a timing accident into a flaky suite
@@ -286,6 +297,62 @@
            (assert-contains #:expect output #:got "\"rules\":")
            (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")
            (assert-contains #:expect output #:got "\"artifactLocation\"")))
+
+       ;; SARIF is read by a service, not by a person, so a field it is
+       ;; missing is a field nobody sees: a rule with no help, an artifact
+       ;; every result names in full, a region that cannot say how long the
+       ;; finding is, a result that cannot be matched with last week's.
+       (test "lint --format=sarif describes the rules, the artifacts and the run"
+         (let* ((result (run-sift '("lint" "--format=sarif"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (for-each
+              (lambda (field)
+                (assert-contains #:expect output #:got field
+                  #:name (format #f "the document carries ~a" field)))
+              '("\"fullDescription\":"
+                "\"help\":{\"text\":"
+                "\"helpUri\":"
+                "\"shortDescription\":"
+                "\"invocations\":[{\"executionSuccessful\":true}]"
+                "\"artifacts\":[{\"location\":{\"uri\":\"tests/fixtures/lint/dirty.scm\"}"
+                "\"roles\":[\"analysisTarget\"]"
+                "\"index\":0"
+                "\"columnKind\":\"unicodeCodePoints\""
+                "\"partialFingerprints\":{\"siftFingerprint/v1\":"
+                "\"charOffset\":"
+                "\"charLength\":"
+                "\"ruleIndex\":0"))
+           (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\""
+             #:name "the rule is named by its code")))
+
+       (test "a document format writes one document for the whole run"
+         (let* ((result (run-sift '("ci" "--format=sarif"
+                                    "tests/fixtures/lint/dirty.scm"
+                                    "tests/fixtures/scheme/community/input/messy.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           ;; two files, one document: a second `$schema' would be a second
+           ;; document, which is what a code scanning service cannot read
+           (assert-equal #:expect 1 #:got (occurrences "\"$schema\"" output)
+             #:name "there is one document")
+           (assert-equal #:expect 2 #:got (occurrences "\"analysisTarget\"" output)
+             #:name "both files are artifacts")
+           ;; a formatting difference is a finding of its own, with a rule of
+           ;; its own, so that `ci --format=sarif' says everything `ci' says
+           (assert-contains #:expect output #:got "\"ruleId\":\"format\"")
+           (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")))
+
+       (test "a document format answers a run of several files once"
+         (let* ((result (run-sift '("lint" "--format=json"
+                                    "tests/fixtures/lint/dirty.scm"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (assert-true (string-prefix? "[" output) #:name "it is one array")
+           (assert-equal #:expect 1 #:got (occurrences ",{\"file\"" output)
+             #:name "one array holds them all")))
 
        (test "doctor says what ran and what it decided"
          (let ((result (run-sift '("doctor"))))
