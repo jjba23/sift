@@ -2,7 +2,7 @@
 # Common Lisp.
 #
 # SPDX-License-Identifier: MIT
-;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 # A derivation for sift, written once and called from wherever it is needed:
 #
