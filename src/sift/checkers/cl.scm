@@ -56,6 +56,7 @@
       (walk-with-ancestors
          (lambda (node ancestors)
            (when (and (node-list? node)
+                   (code-position? node ancestors)
                    (not (inside-defpackage? node ancestors)))
              (let ((head (node-head node)))
                (when (and head
@@ -113,7 +114,7 @@
 
 (define (defun-no-docstring-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head
@@ -153,7 +154,7 @@
   (let ((style (or (option 'loop-keywords 'either) 'either))
         (warnings '()))
     (unless (eq? style 'either)
-      (for-each-node
+      (for-each-form
          (lambda (node)
            (when (loop-form? node)
              (for-each
@@ -199,7 +200,7 @@
 
 (define (redundant-identity-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (cond
            [(and (list-headed-by? node 'identity)

@@ -55,6 +55,7 @@
               config-explain
               trust-config-file!
               trusted-config-file?
+              scheme-config?
               config-error?
               config-error->string
               with-config-error-handler
@@ -117,12 +118,12 @@ one entry per key and `config-ref' always answers with the winning layer."
        (type . style)
        (default . community)
        (flag . "--style")
-       (description . "Formatter style: community, or dangling for closing delimiters on their own line."))
+       (description . "Formatting style: community or dangling."))
     (line-length
        (type . integer)
        (default . #f)
        (flag . "--line-length")
-       (description . "Soft line limit for the line-length checker; #f means 100, or 80 for Emacs Lisp."))
+       (description . "Soft line limit; #f means 100, or 80 for Emacs Lisp."))
     (indent
        (type . integer)
        (default . 2)
@@ -132,27 +133,27 @@ one entry per key and `config-ref' always answers with the winning layer."
        (type . rules)
        (default . ())
        (flag . #f)
-       (description . "Extra indentation rules, as a list of (symbol . columns) pairs, for a project's own macros. Config-only."))
+       (description . "Indentation for a project's own macros: (symbol . columns) pairs."))
     (brackets
        (type . brackets)
        (default . #f)
        (flag . "--brackets")
-       (description . "Bracket style for clause lists: square (the Scheme default), parens, or preserve."))
+       (description . "Bracket style for clause lists: square, parens or preserve."))
     (max-depth
        (type . integer)
        (default . 6)
        (flag . #f)
-       (description . "How deeply a body form may nest before wrap-in-let suggests binding part of it. Config-only."))
+       (description . "Depth at which wrap-in-let suggests a binding. Config-only."))
     (max-elements
        (type . integer)
        (default . 20)
        (flag . #f)
-       (description . "How many elements a body form may have before wrap-in-let suggests binding part of it. Config-only."))
+       (description . "Size at which wrap-in-let suggests a binding. Config-only."))
     (max-positional
        (type . integer)
        (default . 5)
        (flag . #f)
-       (description . "How many positional arguments a call may take before keyword-arguments suggests :key arguments. Config-only."))
+       (description . "Positional arguments before keyword-arguments suggests :key. Config-only."))
     (comment-align
        (type . boolean)
        (default . #f)
@@ -202,7 +203,7 @@ one entry per key and `config-ref' always answers with the winning layer."
        (type . loop-style)
        (default . either)
        (flag . #f)
-       (description . "LOOP keyword style for the loop-keyword-style checker: either, literal or symbolic. Config-only."))))
+       (description . "LOOP keyword style: either, literal or symbolic. Config-only."))))
 
 (define (config-defaults)
   "Return the default configuration as a <config>."
@@ -487,8 +488,10 @@ files that do."
     (if (trusted-config-file? path #:explicit explicit)
       (load-scheme-config path)
       (raise-config-error path 1 1
-        (format #f "~a is a Scheme configuration file, which runs code, and it is not trusted; run `sift config trust ~a' to allow it, or use YAML"
-          path path)))
+        (string-append
+           (format #f "~a is a Scheme config file, which runs code, " path)
+           (format #f "and it is not trusted; run `sift config trust ~a'"
+             path))))
     (load-yaml-config path)))
 
 ;;; ===== Discovery =====
@@ -537,7 +540,9 @@ belongs to a different project and must not be applied to this one."
               (cond
                 [(not directory) #f]
                 [(string-null? directory) #f]
-                [(existing-config-in directory)]
+                ;; `=>' keeps the value the test produced without giving the
+                ;; clause a body that would just be the test again
+                [(existing-config-in directory) => identity]
                 [(and root (string=? directory root)) #f]
                 [else (loop (parent-directory directory))]))))
     (filter identity
@@ -618,7 +623,7 @@ expect."
                                                         value)
                                            ", "))]
                     [else (format port "~a" value)])
-              (if source?
+              (when source?
                 (format port "   # ~a"
                   (assq-ref (config-provenance->alist config) key)))
               (newline port)))
@@ -631,8 +636,7 @@ expect."
   "Explain one configuration key: what it does, its default and its flag."
   (let ((key (if (symbol? key) key (string->symbol key)))
         (doc (config-key-doc (if (symbol? key) key (string->symbol key)))))
-    (if (not doc)
-      #f
+    (when doc
       (begin
         (format port "~a~%" key)
         (format port "  ~a~%" (assq-ref doc 'description))

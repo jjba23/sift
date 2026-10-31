@@ -149,6 +149,7 @@ sift list-checkers  [--dialect DIALECT]
 sift explain        CHECKER-NAME
 sift config         show | explain | trust
 sift install-hooks  [--force]
+sift doctor
 sift version
 #+end_src
 
@@ -175,7 +176,7 @@ command line wins.
 | ~--checker NAME[,NAME...]~                 | lint                   | Run only these rules                                             |
 | ~--exclude-checker NAME~                   | lint                   | Skip these rules (repeatable)                                    |
 | ~--severity~                              | lint                   | error, warning or info; the smallest one to report (default ~info~) |
-| ~--format~                                | lint, check, ci        | human, json, null or github (default ~human~)                     |
+| ~--format~                                | lint, check, ci        | human, json, null, github or sarif (default ~human~)              |
 | ~--style~                                 | format                 | community (trailing closers) or dangling (own line)               |
 | ~--brackets~                              | format                 | square, parens or preserve, for clause lists                      |
 | ~--line-length N~                          | format, lint           | Soft line limit (100, or 80 for Emacs Lisp)                      |
@@ -518,8 +519,8 @@ indent-rules:
 
 Scheme is code, and is only loaded when it is trusted: named with ~--config~,
 allowed for this run with ~SIFT_TRUST_CONFIG=1~, or recorded once with
-~sift config trust sift.scm~, which writes the project into
-~/.config/sift/trusted-projects=.  A repository that is cloned and opened
+~sift config trust sift.scm~, which adds the project to
+=$HOME/.config/sift/trusted-projects=.  A repository that is cloned and opened
 should not be able to run code merely because sift was pointed at it.
 
 #+begin_src scheme
@@ -587,6 +588,21 @@ file; each rule has its own file with a passing case, a failing case at a
 known line and column, a case per applicable dialect, and — where there is a
 fix — the fixed text and a re-lint that must find nothing; and the command
 line is tested as a subprocess, by exit status.
+
+* Editors and pipelines
+:PROPERTIES:
+:CUSTOM_ID: editors
+:END:
+
+=emacs/sift.el= covers Emacs; everything else talks to the program, which
+already speaks the shapes an editor or a pipeline needs: the human line that
+=:make=, =compilation-mode= and a CI log parse; a JSON array for editors that
+want structure; SARIF 2.1.0 for code scanning; and =--format=github= for
+annotations on a pull request.
+
+[[file:doc/editors.org][doc/editors.org]] has the recipes: Neovim, Helix, VS Code, the pre-commit
+framework, a Git hook that checks only the staged files, and the two CI
+shapes — annotations for a review, SARIF for the Security tab.
 
 * How it is built
 :PROPERTIES:

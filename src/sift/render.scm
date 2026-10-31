@@ -20,6 +20,10 @@
   #:use-module (ice-9 string-fun)
   #:use-module (ice-9 match)
   #:use-module (sift records)
+  ;; The registry, so that a SARIF document can describe the rules it names.
+  ;; `(sift lint)' does not import this module, so the dependency points one
+  ;; way: the linter knows nothing about how it is printed.
+  #:use-module (sift lint)
   #:export (color-enabled?
               paint
               render-warning
@@ -87,6 +91,7 @@ script can ask for the exit status alone."
                  (display (warning->github warning) port)
                  (newline port))
        warnings)]
+    [(sarif) (display (warnings->sarif warnings) port) (newline port)]
     [(null) *unspecified*]
     [else
        (for-each (lambda (warning)
@@ -153,6 +158,84 @@ changed, and a hash table would not promise that."
                                        (lint-warning-severity warning))) ","
        "\"message\":" (json-escape (lint-warning-message warning))
        "}")))
+
+;;; ===== SARIF =====
+;;;
+;;; SARIF 2.1.0 is what GitHub code scanning, DefectDojo and a dozen other
+;;; tools read.  A result names the rule that fired, its level, the message
+;;; and the place; the rules it refers to are described once, in the order
+;;; they first appear, which is what `ruleIndex' points at.
+
+(define (sarif-level severity)
+  (case severity
+    [(error) "error"]
+    [(warning) "warning"]
+    [else "note"]))
+
+(define* (rules-of warnings)
+  "Return the checkers the run mentioned, in the order they first appear."
+  (let ((seen '()))
+    (reverse
+       (filter-map
+          (lambda (warning)
+            (let ((name (lint-warning-checker warning)))
+              (unless (memq name seen)
+                (set! seen (cons name seen))
+                (find-checker name))))
+          warnings))))
+
+(define (sarif-rule checker)
+  (string-append
+     "{\"id\":" (json-escape (or (lint-checker-code checker) "")) ","
+     "\"name\":" (json-escape (symbol->string (lint-checker-name checker))) ","
+     "\"shortDescription\":{\"text\":"
+     (json-escape (lint-checker-description checker)) "},"
+     "\"defaultConfiguration\":{\"level\":"
+     (json-escape (sarif-level (lint-checker-severity checker))) "},"
+     "\"properties\":{\"tags\":["
+     (json-escape (dialects->string checker)) "]}}"))
+
+(define* (warning->sarif warning #:optional (rules '()))
+  (let* ((location (lint-warning-location warning))
+         (checker (lint-warning-checker warning))
+         (index (list-index (lambda (rule)
+                              (eq? (lint-checker-name rule) checker))
+                  rules)))
+    (string-append
+       "{"
+       "\"ruleId\":" (json-escape (or (rule-code checker) "")) ","
+       (if index
+         (string-append "\"ruleIndex\":" (number->string index) ",")
+         "")
+       "\"level\":" (json-escape (sarif-level (lint-warning-severity warning)))
+       ","
+       "\"message\":{\"text\":"
+       (json-escape (format #f "~a [~a]"
+                      (lint-warning-message warning) checker))
+       "},"
+       "\"locations\":[{\"physicalLocation\":{"
+       "\"artifactLocation\":{\"uri\":"
+       (json-escape (or (source-location-file location) "<stdin>")) "},"
+       "\"region\":{\"startLine\":" (number->string (source-location-line location))
+       ",\"startColumn\":" (number->string (source-location-column location)) "}}}]"
+       "}")))
+
+(define* (warnings->sarif warnings)
+  "Return @var{warnings} as a SARIF 2.1.0 document."
+  (let* ((rules (rules-of warnings))
+         (results (map (lambda (warning) (warning->sarif warning rules))
+                    warnings)))
+    (string-append
+       "{\"$schema\":\"https://json.schemastore.org/sarif-2.1.0.json\","
+       "\"version\":\"2.1.0\","
+       "\"runs\":[{\"tool\":{\"driver\":{"
+       "\"name\":\"sift\","
+       "\"version\":" (json-escape sift-version) ","
+       "\"informationUri\":\"https://codeberg.org/jjba23/sift\","
+       "\"rules\":[" (string-join (map sarif-rule rules) ",") "]"
+       "}},"
+       "\"results\":[" (string-join results ",") "]"
+       "}]}")))
 
 (define* (warning->github warning)
   "Return one warning as a GitHub Actions workflow command.

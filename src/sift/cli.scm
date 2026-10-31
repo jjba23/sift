@@ -36,13 +36,13 @@
   #:use-module (sift lint)
   #:use-module (sift render)
   #:use-module (sift config)
+  ;; `sift-version' lives in (sift records); re-exporting it is how the
+  ;; executable and the library agree about which version this is
+  #:re-export (sift-version)
   #:export (sift-main
-              sift-version
               usage-text
               parse-options
               build-overrides))
-
-(define sift-version "0.2.0")
 
 (define usage-text
   "Usage:
@@ -52,6 +52,7 @@
   sift fix [OPTIONS] [FILE...]        # lint --fix
   sift ci [OPTIONS] [FILE-OR-DIR...]  # format check + lint; exits 1 if either fails
   sift install-hooks [--force]        # a pre-commit hook that runs `sift ci`
+  sift doctor                         # what ran, what it read, what it decided
   sift list-checkers [--dialect DIALECT]
   sift explain CHECKER-NAME
   sift config show|explain|trust ...
@@ -243,21 +244,21 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
             (and value
               (let ((severity (string->severity value)))
                 (unless severity
-                  (usage-error "unknown severity `~a'; supported severities are error, warning and info"
+                  (usage-error "unknown severity `~a'; sift knows error, warning and info"
                     value))
                 (cons 'severity severity))))
           (let ((value (assq-ref state 'format)))
             (and value
               (let ((output (string->symbol value)))
-                (unless (memq output '(human json null github))
-                  (usage-error "unknown output format `~a'; supported formats are human, json and null"
+                (unless (memq output '(human json null github sarif))
+                  (usage-error "unknown format `~a'; sift knows human, json, null, github and sarif"
                     value))
                 (cons 'format output))))
           (let ((value (assq-ref state 'brackets)))
             (and value
               (let ((brackets (string->brackets value)))
                 (unless brackets
-                  (usage-error "unknown bracket style `~a'; supported styles are square, parens and preserve"
+                  (usage-error "unknown bracket style `~a'; sift knows square, parens and preserve"
                     value))
                 (cons 'brackets brackets))))
           (let ((value (number-option 'line-length "--line-length")))
@@ -364,7 +365,7 @@ rather than guesses, and says which dialects it knows."
   (or (config-ref config 'dialect)
     (and path (detect-dialect #:file path #:source source))
     (and source (detect-dialect #:source source))
-    (usage-error "cannot tell which dialect ~a is written in; pass --dialect with one of scheme, elisp or cl"
+    (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|elisp|cl"
       (or label path "the input"))))
 
 (define (parse-error-count warnings)
@@ -400,7 +401,7 @@ delimiter goes, and sift does not guess."
             (begin
               (print-parse-errors errors)
               (format (current-error-port)
-                "sift: ~a has parse errors; nothing was formatted (use --force to format what can be read)~%"
+                "sift: ~a has parse errors; nothing was written (see --force)~%"
                 (or path "<stdin>"))
               2)))))))
 
@@ -457,15 +458,19 @@ delimiter goes, and sift does not guess."
                           (json-escape (or path "<stdin>")))]
                        [(null) *unspecified*]
                        [(github)
-                        (format #t "::error file=~a,line=1,title=sift format::~a would be reformatted by `sift format --write`~%"
-                          (or path label "<stdin>")
-                          (or path label "<stdin>"))]
+                        (let ((name (or path label "<stdin>")))
+                          (format #t
+                            "::error file=~a,line=1,title=sift format::~a would be reformatted~%"
+                            name name))]
                        [else
-                          (display (unified-diff source formatted
-                                     #:path (or path "<stdin>")
-                                     #:color? (color-enabled?
-                                                 #:no-color (eq? (config-ref config 'color) 'never)))
-                            (current-output-port))])
+                          (let ((color?
+                                   (color-enabled?
+                                      #:no-color
+                                      (eq? (config-ref config 'color) 'never))))
+                            (display (unified-diff source formatted
+                                       #:path (or path "<stdin>")
+                                       #:color? color?)
+                              (current-output-port)))])
                      1))]
               [write?
                  (write-string-to path formatted)
@@ -657,21 +662,26 @@ only has to answer with the usage status."
               (begin
                 (report-warnings config warnings #:files 1)
                 (max status (if (findings? warnings) 1 0)))))))
-      (fold (lambda (path status)
-              (if (= status 2)
-                status
+      ;; the status of the *run* is the worst status any file produced, so
+      ;; the accumulator is what carries it from one file to the next
+      (fold (lambda (path run-status)
+              (if (= run-status 2)
+                run-status
                 (call-with-values (lambda () (safe-read-file path))
                   (lambda (source failure)
                     (if failure failure
                       (call-with-values
                         (lambda () (lint-text config source #:path path))
-                        (lambda (warnings dialect status)
+                        (lambda (warnings dialect file-status)
                           (cond
                             [fix?
-                               (lint-with-fixes config path source warnings)]
+                               (max run-status
+                                 (lint-with-fixes config path source warnings))]
                             [else
                                (report-warnings config warnings #:files 1)
-                               (max status (if (findings? warnings) 1 0))]))))))))
+                               (max run-status
+                                 (max file-status
+                                   (if (findings? warnings) 1 0)))]))))))))
         0
         files))))
 
@@ -755,8 +765,7 @@ the tree it is judging is a CI job nobody trusts."
 A worktree has a `.git' *file* holding `gitdir: <path>', so both shapes are
 followed; nothing is assumed about where the repository lives."
   (let loop ((directory directory))
-    (if (not directory)
-      #f
+    (and directory
       (let ((dot-git (string-append directory "/.git")))
         (cond
           [(file-exists? dot-git)
@@ -792,6 +801,62 @@ followed; nothing is assumed about where the repository lives."
       (chmod path #o755)
       (format #t "installed ~a~%" path)
       0)))
+
+;;; ===== doctor =====
+
+(define (library-directory)
+  "Return the directory the sift modules were loaded from, if it can be told."
+  (or (find (lambda (directory)
+              (file-exists? (string-append directory "/sift/cli.scm")))
+        %load-path)
+    "unknown"))
+
+(define* (command-doctor args)
+  "Say what sift this is, what it found to configure itself, and what it decided.
+
+Adopting a tool is mostly asking why it is doing what it is doing: which
+executable ran, which configuration files were found in which order, which
+settings a layer won, and whether a Scheme configuration is sitting there
+untrusted.  That is what this prints."
+  (let* ((state (parse-options args))
+         (overrides (build-overrides state)))
+    (with-config overrides state
+      (lambda (config)
+        (let* ((layers (discover-config-files #:cwd (getcwd)))
+               (rules (all-checkers))
+               (changed (filter (lambda (entry)
+                                  (not (equal? (cdr entry) "default")))
+                          (config-provenance->alist config))))
+          (format #t "sift ~a~%" sift-version)
+          (format #t "  guile       ~a~%" (version))
+          (format #t "  library     ~a~%" (library-directory))
+          (format #t "  rules       ~a~%" (length rules))
+          (format #t "  dialects    scheme, elisp, cl~%")
+          (newline)
+          (format #t "Configuration~%")
+          (if (null? layers)
+            (format #t "  no file found; the defaults are in effect~%")
+            (for-each (lambda (layer)
+                        (let* ((kind (car layer))
+                               (path (cdr layer))
+                               (trusted?
+                                  (or (not (scheme-config? path))
+                                    (trusted-config-file? path))))
+                          (format #t "  ~a  ~a~a~%" kind path
+                            (if trusted? "" "  (not trusted: not loaded)"))))
+              layers))
+          (newline)
+          (format #t "Settings that are not the default~%")
+          (if (null? changed)
+            (format #t "  none~%")
+            (for-each (lambda (entry)
+                        (format #t "  ~a: ~s  # ~a~%"
+                          (car entry) (config-ref config (car entry))
+                          (cdr entry)))
+              changed))
+          (newline)
+          (format #t "Try `sift ci .' to check a tree, or `sift explain RULE' to read a rule.~%")
+          0)))))
 
 ;;; ===== list-checkers, explain, version =====
 
@@ -836,9 +901,12 @@ followed; nothing is assumed about where the repository lives."
        (case [string->symbol sub]
          [(show)
           (let* ((format-name (or (assq-ref state 'format) "yaml"))
-                 (output-format (cond [(member format-name '("yaml" "yml")) 'yaml]
-                                      [(string=? format-name "scheme") 'scheme]
-                                      [else (usage-error "config show --format must be yaml or scheme")]))
+                 (output-format (cond
+                                  [(member format-name '("yaml" "yml")) 'yaml]
+                                  [(string=? format-name "scheme") 'scheme]
+                                  [else
+                                     (usage-error
+                                        "config show --format is yaml or scheme")]))
                  ;; `--format' means "how to render the configuration" for
                  ;; this subcommand, so it is taken out before the rest of
                  ;; the command line is turned into settings
@@ -888,6 +956,7 @@ followed; nothing is assumed about where the repository lives."
        [(config) (command-config rest)]
        [(fix) (command-lint (cons "--fix" rest))]
        [(ci) (command-ci rest)]
+       [(doctor) (command-doctor rest)]
        [(install-hooks) (command-install-hooks rest)]
        [(version --version -V) (command-version rest)]
        [(help --help -h) (display usage-text) 0]

@@ -1,0 +1,233 @@
+#+title: sift in editors and pipelines
+#+author: Josep Bigorra
+#+options: toc:2 num:nil
+#+language: en
+
+sift was built to be *called*, not to be a monolith: every integration below
+is a few lines, because the program already speaks the three shapes an editor
+or a pipeline needs.
+
+| Shape              | What it is for                                              |
+|--------------------+-------------------------------------------------------------|
+| human              | ~file:line:column: severity: [rule] message~, which every editor's =:make=, =compilation-mode= and every CI log understands |
+| =--format=json=    | one array for the run: =file=, =line=, =column=, =checker=, =code=, =severity=, =message= |
+| =--format=sarif=   | SARIF 2.1.0, which GitHub code scanning, DefectDojo and the rest read |
+| =--format=github=  | workflow commands: =::warning file=…,line=…,col=…,title=SIFT012 [rule]::…= |
+| =--format=null=    | nothing at all, for a script that only wants the exit status |
+
+Two habits make any integration a pleasant one: pass =--stdin= with a
+=--label= so that an unsaved buffer can be checked with the right name in the
+diagnostics, and pass =--dialect= when the file is new or has no extension.
+
+* Emacs
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
+
+=emacs/sift.el= is the full integration: a Flymake backend, code actions and a
+minor mode.  It is described in the README; the short version is
+
+#+begin_src elisp
+(add-to-list 'load-path "/path/to/sift/emacs")
+(require 'sift)
+(sift-setup)
+(sift-flymake-setup)
+#+end_src
+
+and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
+x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
+whole-project check.
+
+If you would rather not load the package, =compile= is enough:
+
+#+begin_src elisp
+(setq compile-command "sift ci .")
+#+end_src
+
+* Neovim
+:PROPERTIES:
+:CUSTOM_ID: neovim
+:END:
+
+The human format is what =:make= and =:compiler= parse, so the simplest
+integration is a compiler definition and a format-on-write autocommand:
+
+#+begin_src lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "scheme", "lisp", "clojure" },
+  callback = function(args)
+    vim.bo[args.buf].makeprg = "sift lint --severity=warning %"
+    vim.bo[args.buf].errorformat = "%f:%l:%c: %t%*[^:]: [%n] %m"
+  end,
+})
+#+end_src
+
+=:make= then fills the quickfix list, and =:cnext= jumps between findings.
+For formatting on save, format through stdin so the buffer keeps its undo
+history:
+
+#+begin_src lua
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = { "*.scm", "*.el", "*.lisp", "*.cl" },
+  callback = function()
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    local formatted = vim.fn.systemlist("sift format --stdin --stdout", lines)
+    if vim.v.shell_error == 0 then
+      vim.api.nvim_buf_set_lines(0, 0, -1, false, formatted)
+    end
+  end,
+})
+#+end_src
+
+Editors that would rather talk LSP-style JSON than parse a line can read
+=--format=json= and map =severity= onto their own diagnostic levels:
+
+#+begin_src json
+[{"file":"src/foo.scm","line":12,"column":5,"checker":"empty-body",
+  "code":"SIFT005","severity":"warning","message":"`cond` clause has no body"}]
+#+end_src
+
+* Helix
+:PROPERTIES:
+:CUSTOM_ID: helix
+:END:
+
+Helix speaks LSP, so it cannot call sift directly; what works is formatting on
+save through a small wrapper that reads the buffer on stdin, and keeping the
+linter in a terminal or in the pipeline:
+
+#+begin_src toml
+# languages.toml
+[[language]]
+name = "scheme"
+formatter = { command = "sift", args = ["format", "--stdin", "--stdout", "--dialect", "scheme"] }
+auto-format = true
+#+end_src
+
+* Visual Studio Code
+:PROPERTIES:
+:CUSTOM_ID: vscode
+:END:
+
+The =sift= extension for VS Code reads =--format=json= as a diagnostics array;
+the settings are the executable and an optional dialect override:
+
+#+begin_src json
+{
+  "sift.executable": "sift",
+  "sift.dialect": "",
+  "sift.checkOnSave": true,
+  "sift.fixOnSave": false
+}
+#+end_src
+
+Any extension that reads a compiler line works with the human format instead;
+the =errorformat= is the same one Neovim uses.
+
+* Git hooks
+:PROPERTIES:
+:CUSTOM_ID: hooks
+:END:
+
+=sift install-hooks= writes a =pre-commit= hook that runs ~sift ci~ over the
+repository.  For a hook that checks only what is being committed:
+
+#+begin_src shell
+#!/bin/sh
+files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(scm|ss|sld|sls|el|lisp|cl|asd)$' || true)
+[ -z "$files" ] && exit 0
+sift check $files || {
+  echo "sift: run \`sift format --write $files' and stage the result"
+  exit 1
+}
+#+end_src
+
+With the [[https://pre-commit.com][pre-commit]] framework, the repository's
+=.pre-commit-hooks.yaml= declares =sift-format= (rewrites), =sift-check=
+(fails) and =sift-lint=:
+
+#+begin_src yaml
+repos:
+  - repo: https://codeberg.org/jjba23/sift
+    rev: v0.3.0
+    hooks: [{id: sift-format}, {id: sift-lint}]
+#+end_src
+
+* Continuous integration
+:PROPERTIES:
+:CUSTOM_ID: ci
+:END:
+
+One command asks both questions, and the exit status is the answer:
+
+#+begin_src shell
+sift ci src/ tests/
+#+end_src
+
+=--format=github= turns each finding into an annotation on the pull request:
+
+#+begin_src yaml
+- name: sift
+  run: ./bin/sift ci --format=github src/
+#+end_src
+
+=--format=sarif= writes a document that GitHub code scanning reads, which is
+what puts the findings in the repository's Security tab:
+
+#+begin_src yaml
+- name: sift (SARIF)
+  run: ./bin/sift lint --format=sarif src/ > sift.sarif
+
+- name: Upload SARIF
+  uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: sift.sarif
+#+end_src
+
+The job that only needs a pass or a fail uses =--format=null=, which prints
+nothing and keeps the status:
+
+#+begin_src shell
+sift ci --format=null . || exit 1
+#+end_src
+
+* Deciding what fails
+:PROPERTIES:
+:CUSTOM_ID: thresholds
+:END:
+
+A pipeline should fail on what the project calls wrong, and only on that.  The
+dial is the severity:
+
+#+begin_src shell
+sift ci --severity=error .    # only errors stop the build
+sift ci --severity=warning .  # warnings too; the usual choice
+sift ci .                     # everything, suggestions included
+#+end_src
+
+Most projects settle on =warning= and put it in the repository rather than in
+a flag, so that the local run and the CI run agree:
+
+#+begin_src yaml
+# sift.yaml
+severity: warning
+#+end_src
+
+That is what this repository does, and =sift doctor= is how you check which
+layer decided it:
+
+#+begin_src shell
+$ sift doctor
+sift 0.3.0
+  guile       3.0.11
+  library     /home/joe/Hacking/sift/src
+  rules       39
+  dialects    scheme, elisp, cl
+
+Configuration
+  project  /home/joe/Hacking/sift/sift.yaml
+
+Settings that are not the default
+  brackets: square  # /home/joe/Hacking/sift/sift.yaml
+  severity: warning  # /home/joe/Hacking/sift/sift.yaml
+#+end_src

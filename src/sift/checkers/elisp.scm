@@ -54,7 +54,7 @@
 
 (define (docstring-missing-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head
@@ -90,7 +90,7 @@
         (cons (make-lint-warning 'docstring-first-line 'warning message
                 (node-start node))
           warnings)))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let ((doc (docstring-node node)))
@@ -100,15 +100,15 @@
                  (unless (string-null? first)
                    (when (> (string-length first) 74)
                      (report doc
-                       (format #f "the first line of the docstring is ~a columns long, over the 74 the manual recommends"
+                       (format #f "the first line is ~a columns long; the manual asks for 74"
                          (string-length first))))
                    (let ((initial (car (string->list first))))
                      (when (and initial (char-lower-case? initial))
-                       (report doc "the first line of the docstring does not start with a capital letter")))
+                       (report doc "the first line does not start with a capital letter")))
                    (let ((last (car (reverse (string->list (string-trim-right first))))))
                      (when (and last
                              (not (memv last '(#\. #\? #\! #\:))))
-                       (report doc "the first line of the docstring does not end with a period")))))))))
+                       (report doc "the first line does not end with a period")))))))))
        ast)
     (reverse warnings)))
 
@@ -125,7 +125,7 @@
 
 (define (docstring-indent-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let ((doc (docstring-node node)))
@@ -187,7 +187,7 @@
 
 (define (interactive-without-docstring-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head (memq head '(defun defmacro)))
@@ -224,7 +224,7 @@
 
 (define (checkdoc-style-verb-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let ((doc (docstring-node node)))
@@ -235,7 +235,7 @@
                    (set! warnings
                      (cons (make-lint-warning
                               'checkdoc-style-verb 'info
-                              (format #f "the docstring opens with `~a`; the manual asks for the imperative"
+                              (format #f "the docstring opens with `~a`; use the imperative"
                                 word)
                               (node-start doc))
                        warnings))))))))
@@ -290,7 +290,7 @@
 
 (define (declare-indent-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (and (node-list? node)
                  (head-is-one-of? node '(defun defmacro defsubst
@@ -303,7 +303,7 @@
                     ;; opener's column plus two, and it starts that many
                     ;; characters in from the beginning of the line
                     (let ((expected (+ open-column 2)))
-                      (when (not (= (node-column element) expected))
+                      (unless (= (node-column element) expected)
                         (let* ((previous (previous-element node element))
                                (start (if previous (node-end-index previous)
                                         (node-index element))))
@@ -351,20 +351,20 @@
           [(or (null? rest) (>= n 3)) #f]
           [(string-atom? (car rest)) (car rest)]
           [else (loop (cdr rest) (+ n 1))])))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head (memq head '(defun defmacro defsubst cl-defun
                                          cl-defmacro)))
              ;; Emacs reads a docstring from the first form of the body only, so
              ;; a string after `interactive` or `declare` documents nothing
-             (when (not (docstring-node node))
+             (unless (docstring-node node)
                (let ((string (displaced-docstring (body-elements node 3))))
                  (when string
                    (set! warnings
                      (cons (make-lint-warning 'docstring-before-interactive
                              'warning
-                             "this string is in the body, where Emacs does not read it as a docstring; it belongs first"
+                             "this string is in the body, not at its head"
                              (node-start string))
                        warnings))))))))
        ast)
@@ -392,8 +392,7 @@ optional argument contributes @code{name}, and a marker such as
   (let* ((arguments (form-arguments node))
          (formals (and (pair? arguments) (pair? (cdr arguments))
                     (cadr arguments))))
-    (if (not (node-list? formals))
-      '()
+    (when (node-list? formals)
       (append-map
          (lambda (element)
            (cond
@@ -431,7 +430,7 @@ does, and what a reader does."
 
 (define (docstring-arguments-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head (memq head '(defun defmacro defsubst cl-defun
@@ -444,7 +443,7 @@ does, and what a reader does."
                         (unless (member (string-downcase parameter) words)
                           (set! warnings
                             (cons (make-lint-warning 'docstring-arguments 'info
-                                    (format #f "the docstring does not mention the argument `~a`; Emacs shows it in `C-h f`"
+                                    (format #f "the docstring does not mention the argument `~a`"
                                       parameter)
                                     (node-start doc))
                               warnings))))

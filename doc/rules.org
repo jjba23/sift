@@ -9,7 +9,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 38 rules in sift 0.2.0.
+There are 39 rules in sift 0.2.0.
 
 * Summary
 
@@ -51,6 +51,7 @@ There are 38 rules in sift 0.2.0.
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
 | unless-without-body | SIFT014 | scheme, cl | warning | ~unless~ form with no body |
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
+| unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
 | when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
 
@@ -469,7 +470,7 @@ A call with more positional arguments than a reader can keep in mind
 
 - *Dialects:* all
 - *Severity:* info
-- *Fix:* no automatic fix; name the arguments in the callee and pass them as keywords
+- *Fix:* no automatic fix; name the arguments and pass them as keywords
 
 #+begin_src scheme
 (make-window a b c d e f g)
@@ -813,6 +814,26 @@ Run ~sift explain unmatched-parens~ at the command line, or ~M-x sift-explain-at
 #+end_quote
 
 
+** SIFT039 unused-binding
+:PROPERTIES:
+:CUSTOM_ID: unused-binding
+:END:
+
+A binding whose name is never referenced in the form that binds it
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* no automatic fix; remove the binding or use it
+
+#+begin_src scheme
+(let ((x 1) (y 2)) x)
+#+end_src
+
+#+begin_quote
+Run ~sift explain unused-binding~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT013 when-without-body
 :PROPERTIES:
 :CUSTOM_ID: when-without-body
@@ -846,8 +867,7 @@ A body form that is too deep or too long to read as one expression
 
 #+begin_src scheme
 (define (f x)
-  (list (car (cdr (assq 'a (cdr x)))))
-  (car (cdr (assq 'b (cdr x))))))
+  (list (car (cdr (assq 'a (cdr x))))))
 #+end_src
 
 #+begin_quote

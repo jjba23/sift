@@ -22,7 +22,8 @@
               letrec-single-binding-checker
               quasiquote-unquote-constant-checker
               clause-brackets-checker
-              docstring-texinfo-checker))
+              docstring-texinfo-checker
+              unused-binding-checker))
 
 ;;; ===== internal-define =====
 
@@ -104,7 +105,7 @@ first expression, where it silently gets the wrong scope."
 
 (define (if-without-else-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (and (list-headed-by? node 'if)
                  (= 2 (argument-count node)))
@@ -141,7 +142,7 @@ first expression, where it silently gets the wrong scope."
 
 (define (letrec-single-binding-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (head-is-one-of? node '(letrec letrec*))
            (let* ((args (form-arguments node))
@@ -158,7 +159,7 @@ first expression, where it silently gets the wrong scope."
                    (set! warnings
                      (cons (make-lint-warning
                               'letrec-single-binding 'info
-                              (format #f "`~a` with a single binding that does not refer to itself; `let` is enough"
+                              (format #f "`~a` with one binding that is not recursive; use `let`"
                                 (node-head-name node))
                               (node-start node))
                        warnings))))))))
@@ -260,7 +261,7 @@ first expression, where it silently gets the wrong scope."
                           (cdr wanted))))
                 warnings))))))
     (when wanted
-      (for-each-node
+      (for-each-form
          (lambda (node)
            (when (and (node-list? node)
                    (memq (node-head-name node) '(cond case)))
@@ -302,7 +303,7 @@ first expression, where it silently gets the wrong scope."
 
 (define (docstring-texinfo-warnings ast source dialect)
   (let ((warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let ((doc (docstring-node node))
@@ -315,7 +316,7 @@ first expression, where it silently gets the wrong scope."
                                 (string-append "@var{" parameter "}"))
                         (set! warnings
                           (cons (make-lint-warning 'docstring-texinfo 'info
-                                  (format #f "the docstring does not document `@var{~a}`; Guile renders it in `C-h f` and in the manual"
+                                  (format #f "the docstring does not document `@var{~a}`"
                                     parameter)
                                   (node-start doc))
                             warnings))))
@@ -332,6 +333,108 @@ first expression, where it silently gets the wrong scope."
     #:example '((input . "(define (f x) \"Return X.\" x)")
                 (fix . "(define (f x) \"Return @var{x}.\" x)"))))
 
+;;; ===== unused-binding =====
+
+(define binding-form-heads
+  '(let let* letrec letrec* let-values let*-values))
+
+(define (binding-pair-names binding)
+  "Return the names a @var{binding} binds, as (name-node . text) pairs.
+
+A binding is `(name value)', `((a b) value)' in `let-values', or a bare name
+in a `do' or a `let' that only declares."
+  (cond
+    [(node-atom? binding)
+     (if (eq? (node-atom-type binding) 'symbol)
+       (list (cons binding (node-value binding)))
+       '())]
+    [(node-list? binding)
+     (let ((head (node-head binding)))
+       (cond
+         [(and head (node-atom? head) (eq? (node-atom-type head) 'symbol))
+          (list (cons head (node-value head)))]
+         ;; a list of formals: take the symbols out of it, one level deep
+         [(node-list? head) (formals-names head)]
+         [else '()]))]
+    [else '()]))
+
+(define (formals-names formals)
+  "Return the symbol names in a formal list, markers and destructuring aside."
+  (append-map
+     (lambda (element)
+       (cond
+         [(and (node-atom? element)
+            (eq? (node-atom-type element) 'symbol)
+            (not (string-prefix? "&" (node-value element))))
+          (list (cons element (node-value element)))]
+         [(node-list? element) (formals-names element)]
+         [else '()]))
+     (node-elements (if (node-list? formals) formals '()))))
+
+(define (binding-list-of form)
+  "Return the binding list of a @var{form}, or @code{#f}."
+  (let ((arguments (form-arguments form)))
+    (and (pair? arguments) (car arguments))))
+
+(define (ignored-name? name)
+  "Return @code{#t} for a name that says it is not meant to be used."
+  (or (string-prefix? "_" name)
+    (string=? name "-")
+    (string=? name "ignored")))
+
+(define (symbol-uses form name)
+  "Return how many times the symbol @var{name} appears under @var{form}."
+  (fold-nodes
+     (lambda (node count)
+       (if (and (node-atom? node)
+             (eq? (node-atom-type node) 'symbol)
+             (string=? (node-value node) name))
+         (+ count 1)
+         count))
+     0
+     (list form)))
+
+(define (unused-binding-warnings ast source dialect)
+  (let ((warnings '()))
+    (walk-with-ancestors
+       (lambda (node ancestors)
+         (when (and (code-position? node ancestors)
+                 (node-list? node)
+                 (memq (node-head-name node) binding-form-heads))
+           (let ((bindings (binding-list-of node)))
+             (when (node-list? bindings)
+               (for-each
+                  (lambda (binding)
+                    (for-each
+                       (lambda (pair)
+                         (let ((name (cdr pair)))
+                           (unless (ignored-name? name)
+                             ;; the defining occurrence counts once; anything
+                             ;; else is a use, which is what makes `set!' and a
+                             ;; recursive reference count
+                             (when (< (symbol-uses node name) 2)
+                               (set! warnings
+                                 (cons (make-lint-warning 'unused-binding
+                                         'warning
+                                         (format #f
+                                           "`~a` is bound here and never used"
+                                           name)
+                                         (node-start (car pair)))
+                                   warnings))))))
+                       (binding-pair-names binding)))
+                  (node-elements bindings))))))
+       ast)
+    (reverse warnings)))
+
+(define unused-binding-checker
+  (checker 'unused-binding
+    "A binding whose name is never referenced in the form that binds it"
+    '(scheme elisp cl)
+    unused-binding-warnings
+    #:severity 'warning
+    #:example '((input . "(let ((x 1) (y 2)) x)")
+                (fix . "no automatic fix; remove the binding or use it"))))
+
 ;;; ===== The list =====
 
 (define scheme-checkers
@@ -340,4 +443,5 @@ first expression, where it silently gets the wrong scope."
     letrec-single-binding-checker
     quasiquote-unquote-constant-checker
     clause-brackets-checker
-    docstring-texinfo-checker))
+    docstring-texinfo-checker
+    unused-binding-checker))

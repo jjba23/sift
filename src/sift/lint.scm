@@ -176,8 +176,7 @@ all of them) and the line it sits on."
 A `disable` covers from where it is written to where the top-level form it
 sits in ends, or to the end of the file when it sits between forms.  An
 `enable` closes the matching interval at the comment that carries it."
-  (let ((intervals '())
-        (open '())
+  (let ((open '())
         (next-lines '()))
     (for-each
        (lambda (directive)

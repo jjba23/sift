@@ -43,7 +43,7 @@
           warnings)))
     (walk-with-ancestors
        (lambda (node ancestors)
-         (let ((head (and (not (case-datum? node ancestors))
+         (let ((head (and (code-position? node ancestors)
                        (node-list? node)
                        (node-head-name node))))
            (case head
@@ -120,7 +120,7 @@
                            (node-index progn) (node-end-index progn)
                            (lambda (source start end) replacement))
                     warnings))))))))
-    (for-each-node check ast)
+    (for-each-form check ast)
     (reverse warnings)))
 
 (define redundant-progn-checker
@@ -139,7 +139,7 @@
     (let ((warnings '()))
       (walk-with-ancestors
          (lambda (node ancestors)
-           (when (and (not (case-datum? node ancestors))
+           (when (and (code-position? node ancestors)
                    (list-headed-by? node head-name)
                    (< (length (form-elements node)) 3))
              (set! warnings
@@ -188,7 +188,7 @@
                 (node-index node) (node-end-index node)
                 (lambda (source start end) replacement))
           warnings)))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let ((head (node-head-name node))
@@ -221,27 +221,6 @@
                 (fix . "(unless (ready?) (wait) (go))"))))
 
 ;;; ===== empty-form =====
-
-(define (quoted-context? ancestors)
-  "Return @code{#t} when the innermost quoted form is still in effect.
-
-Walking up from a node, the first ancestor that is a quote, a quasiquote or
-a `quote` form decides: inside it the node is data, and `()` is the empty
-list rather than a call with no value."
-  (let loop ((rest ancestors))
-    (cond
-      [(null? rest) #f]
-      [(and (node-prefix? (car rest))
-         (member (node-token (car rest)) '("'" "`")))
-       #t]
-      [(and (node-list? (car rest))
-         (memq (node-head-name (car rest)) '(quote quasiquote)))
-       #t]
-      [(and (node-prefix? (car rest))
-         (member (node-token (car rest)) '("," ",@")))
-       ;; an unquote ends the data: what is inside is evaluated again
-       (loop (cdr rest))]
-      [else (loop (cdr rest))])))
 
 ;; Forms whose first argument is a parameter list, where `()` is the empty
 ;; one: the rule is about `()` in *value* position, and an empty formal list

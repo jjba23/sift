@@ -20,7 +20,10 @@
   #:use-module (srfi srfi-9)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:export (;; --- source locations -------------------------------------------
+  #:export (;; --- what this is ----------------------------------------------
+              sift-version
+
+              ;; --- source locations -------------------------------------------
               <source-location>
               make-source-location
               make-source-location*
@@ -278,6 +281,8 @@ cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
     proc severity example))
 
+(define sift-version "0.3.0")
+
 (define dialects '(scheme elisp cl))
 
 ;;; ===== Rule codes =====
@@ -326,7 +331,8 @@ cannot move when the list is re-sorted."
     (docstring-texinfo . "SIFT035")
     (clause-brackets . "SIFT036")
     (duplicate-binding . "SIFT037")
-    (docstring-before-interactive . "SIFT038")))
+    (docstring-before-interactive . "SIFT038")
+    (unused-binding . "SIFT039")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

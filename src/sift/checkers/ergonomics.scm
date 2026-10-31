@@ -57,7 +57,7 @@ form is written as one long expression instead of a few named steps."
       (set! warnings
         (cons (make-lint-warning 'wrap-in-let 'info message (node-start node))
           warnings)))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (when (and head (memq head (body-owner-heads)))
@@ -69,11 +69,11 @@ form is written as one long expression instead of a few named steps."
                       (cond
                         [(> depth max-depth)
                          (report form
-                           (format #f "this body form nests ~a levels deep; bind part of it in a `let` (or `let*` when the bindings depend on each other)"
+                           (format #f "this body form nests ~a deep; bind part of it"
                              depth))]
                         [(> elements max-elements)
                          (report form
-                           (format #f "this body form has ~a elements; bind part of it in a `let` (or `let*` when the bindings depend on each other)"
+                           (format #f "this body form has ~a elements; bind part of it in a `let`"
                              elements))]))))
                 (body-elements node (body-skip head))))))
        ast)
@@ -85,7 +85,7 @@ form is written as one long expression instead of a few named steps."
     'all
     wrap-in-let-warnings
     #:severity 'info
-    #:example '((input . "(define (f x)\n  (list (car (cdr (assq 'a (cdr x)))))\n  (car (cdr (assq 'b (cdr x))))))")
+    #:example '((input . "(define (f x)\n  (list (car (cdr (assq 'a (cdr x))))))")
                 (fix . "no automatic fix; bind the repeated part in a `let`"))))
 
 ;;; ===== keyword-arguments =====
@@ -101,7 +101,7 @@ form is written as one long expression instead of a few named steps."
 (define (keyword-arguments-warnings ast source dialect)
   (let ((max-positional (or (option 'max-positional 5)))
         (warnings '()))
-    (for-each-node
+    (for-each-form
        (lambda (node)
          (when (node-list? node)
            (let* ((name (node-head-name node))
@@ -115,7 +115,7 @@ form is written as one long expression instead of a few named steps."
                      (not (any keyword-node? arguments)))
                (set! warnings
                  (cons (make-lint-warning 'keyword-arguments 'info
-                         (format #f "`~a` takes ~a positional arguments; consider `:key` arguments for the ones that are not obvious"
+                         (format #f "`~a` takes ~a positional arguments; consider `:key`"
                            name (length arguments))
                          (node-start node))
                    warnings))))))
@@ -133,7 +133,7 @@ form is written as one long expression instead of a few named steps."
     keyword-arguments-warnings
     #:severity 'info
     #:example '((input . "(make-window a b c d e f g)")
-                (fix . "no automatic fix; name the arguments in the callee and pass them as keywords"))))
+                (fix . "no automatic fix; name the arguments and pass them as keywords"))))
 
 ;;; ===== The list =====
 

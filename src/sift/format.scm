@@ -365,14 +365,51 @@ A comment is never moved to another line than the one it was on."
 (define* (render-node node out ctx #:optional (clause-style #f))
   (cond
     [(node-verbatim? node)
-     ;; A datum comment, a "#<...>" object or a "#." form is copied exactly as
-     ;; it was written: formatting inside something the reader was told not to
-     ;; enter would be a guess, and sift does not guess.
-     (emit! out (or (node-raw node) (node-value node)))]
+     ;; A datum comment, a "#<...>" object or a "#." form is copied as it was
+     ;; written: formatting *inside* something the reader was told not to enter
+     ;; would be a guess, and sift does not guess.  What it does do is move the
+     ;; block with the code around it: the whole text shifts by however much
+     ;; its first line moved, so a multi-line `#;' keeps the shape its author
+     ;; gave it instead of ending up half outside the form it belongs to.
+     (emit-verbatim! out node)]
     [(node-list? node) (render-list node out ctx clause-style)]
     [(node-prefix? node) (render-prefix node out ctx)]
     [(node-conditional? node) (render-conditional node out ctx)]
     [else (emit! out (node-value node))]))
+
+(define (emit-verbatim! out node)
+  "Write a verbatim @var{node}, shifting its continuation lines with it.
+
+The first line is written where the renderer has arrived; every later line
+moves by the same number of columns, so the block keeps its internal shape.
+A line that had less indentation than the shift removes is left at column
+zero rather than pushed through it."
+  (let* ((text (or (node-raw node) (node-value node)))
+         (original (- (source-location-column (node-start node)) 1))
+         (delta (- (out-column out) original)))
+    (if (or (zero? delta) (not (string-index text #\newline)))
+      (emit! out text)
+      (emit! out (shift-block text delta)))))
+
+(define (shift-block text delta)
+  "Return @var{text} with its continuation lines moved by @var{delta} columns."
+  (let ((lines (string-split text #\newline)))
+    (string-join
+       (cons (car lines)
+         (map (lambda (line) (shift-line line delta)) (cdr lines)))
+       "\n")))
+
+(define (shift-line line delta)
+  (cond
+    [(zero? delta) line]
+    [(> delta 0) (string-append (make-string delta #\space) line)]
+    [else
+       (let loop ((rest (string->list line)) (left (- delta)))
+         (if (or (zero? left) (null? rest))
+           (list->string rest)
+           (if (memv (car rest) '(#\space #\tab))
+             (loop (cdr rest) (- left 1))
+             (list->string rest))))]))
 
 (define (render-prefix node out ctx)
   (emit! out (node-token node))
@@ -413,9 +450,7 @@ dialect asks for -- square in Scheme -- and every other list keeps the
 delimiters it was read with, because `#(' and `{' are not round brackets by
 another name."
   (let ((open (node-open node))
-        (close (node-close node))
-        (style (or clause-style
-                 (and (eq? (node-kind node) 'list) #f))))
+        (close (node-close node)))
     (if (and clause-style (round-or-square? open close))
       (case clause-style
         [(square) (cons "[" "]")]

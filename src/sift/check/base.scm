@@ -26,9 +26,13 @@
                 source-location-column source-location-file
                 make-lint-warning make-lint-warning/range)
   #:export (for-each-node
+              for-each-form
               for-each-top-level
               fold-nodes
               node-source
+              quoted-context?
+              in-formals?
+              code-position?
               case-datum?
               case-form-heads
               list-headed-by?
@@ -91,6 +95,21 @@ told not to read as code."
   "Call @var{proc} on the data nodes of @var{ast} that are not inside anything."
   (for-each (lambda (node) (when (node-data? node) (proc node))) ast))
 
+(define (for-each-form proc ast)
+  "Call @var{proc} on every node that is a form, outermost first.
+
+A *form* is a node in a position where code is evaluated.  Three places are
+not: anything inside a quote, the datum of a `case` clause, and a parameter
+list.  A rule about the shape of a form asks this walker and never has to ask
+whether what it is looking at is code at all -- which is what stops
+`(if . 2)' in an alist from being reported as an `if` with no else branch."
+  (walk-with-ancestors
+     (lambda (node ancestors)
+       (when (and (not (node-trivia? node))
+               (code-position? node ancestors))
+         (proc node)))
+     ast))
+
 (define (fold-nodes kons knil ast)
   "Fold @var{kons} over every datum in @var{ast}."
   (let ((acc knil))
@@ -144,6 +163,60 @@ form; it is a datum, and no rule should treat it as code."
         (node-list? form)
         (memq (node-head-name form) case-form-heads)
         (eq? (node-head clause) node)))))
+
+(define (quoted-context? ancestors)
+  "Return @code{#t} when the innermost quoted form is still in effect.
+
+Walking up from a node, the first ancestor that is a quote, a quasiquote or a
+`quote` form decides: inside it the node is data, and a list that happens to
+start with `cond` is not a `cond` form."
+  (let loop ((rest ancestors))
+    (cond
+      [(null? rest) #f]
+      [(and (node-prefix? (car rest))
+         (member (node-token (car rest)) '("'" "`")))
+       #t]
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest)) '(quote quasiquote)))
+       #t]
+      [(and (node-prefix? (car rest))
+         (member (node-token (car rest)) '("," ",@")))
+       ;; an unquote ends the data: what is inside it is evaluated again
+       (loop (cdr rest))]
+      [else (loop (cdr rest))])))
+
+(define (in-formals? node ancestors)
+  "Return @code{#t} when @var{node} sits inside a parameter list.
+
+`(define* (f (labels #f)) ...)' has a pair in its formals that looks exactly
+like a `labels` form; it is a parameter with a default, and no rule about
+bodies has any business reading it as code."
+  (let loop ((rest ancestors))
+    (cond
+      [(null? rest) #f]
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest))
+           '(lambda define define* define-public defun defmacro defsubst
+              cl-defun cl-defmacro defmethod defgeneric)))
+       (let* ((elements (node-elements (car rest)))
+              (formals
+                 (and (pair? elements)
+                   (pair? (cdr elements))
+                   (cadr elements))))
+         (and formals
+           (<= (node-index formals) (node-index node))
+           (<= (node-end-index node) (node-end-index formals))))]
+      [else (loop (cdr rest))])))
+
+(define (code-position? node ancestors)
+  "Return @code{#t} when a rule may read @var{node} as a form.
+
+Three places are data rather than code: anything inside a quote, the datum of
+a `case` clause, and a parameter list.  Every rule that asks about the shape
+of a form asks this first."
+  (not (or (quoted-context? ancestors)
+         (case-datum? node ancestors)
+         (in-formals? node ancestors))))
 
 (define (node-source source node)
   "Return the source text @var{node} was read from."

@@ -242,6 +242,23 @@
         (assert-contains #:expect output #:got "::warning file=")
         (assert-contains #:expect output #:got "title=SIFT001 [trailing-whitespace]")))
 
+    (test "lint --format=sarif writes a SARIF document"
+      (let* ((result (run-sift '("lint" "--format=sarif"
+                                 "tests/fixtures/lint/dirty.scm")))
+             (output (cadr result)))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect output #:got "\"version\":\"2.1.0\"")
+        (assert-contains #:expect output #:got "\"rules\":")
+        (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")
+        (assert-contains #:expect output #:got "\"artifactLocation\"")))
+
+    (test "doctor says what ran and what it decided"
+      (let ((result (run-sift '("doctor"))))
+        (assert-status #:expect 0 #:got result)
+        (assert-contains #:expect (cadr result) #:got "sift 0.3.0")
+        (assert-contains #:expect (cadr result) #:got "rules")
+        (assert-contains #:expect (cadr result) #:got "sift.yaml")))
+
     (test "ci passes on a clean file"
       (let ((result (run-sift '("ci" "tests/fixtures/lint/clean.scm"))))
         (assert-status #:expect 0 #:got result)))

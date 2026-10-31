@@ -148,6 +148,25 @@
          #:source "(with-my-thing x\ny)\n"
          #:name "the project rule formats the same way twice"))
 
+    (test "a multi-line datum comment moves with the code around it"
+      (assert-same-text
+         #:expect "(define (f)\n  #;(ignore\n  this)\n  x)\n"
+         #:got (format-string "(define (f)\n#;(ignore\nthis)\nx)\n")))
+
+    (test "a datum comment that moves left keeps its internal shape"
+      (assert-same-text
+         #:expect "(let ((a 1))\n  #;(b\n      c)\n  a)\n"
+         #:got (format-string "(let ((a 1))\n        #;(b\n            c)\n  a)\n")))
+
+    (test "moving a verbatim block is idempotent"
+      (assert-idempotent
+         #:source "(define (f)\n#;(ignore\nthis)\nx)\n"
+         #:name "the shifted block is the same on the second pass"))
+
+    (test "a single-line datum comment is untouched"
+      (assert-same-text #:expect "(a #;(b c) d)"
+        #:got (format-string "(a  #;(b c)  d)")))
+
     (test "a file without a final newline keeps that shape"
       (assert-same-text #:expect "(a b)"
         #:got (format-string "(a  b)")))))
