@@ -259,8 +259,13 @@ one to trust with anyone else's."
 (define version-quotations
   '(("emacs/sift.el" . "Version: ~a")
     ("README.org" . "v~a")
+    ;; The `sift doctor' transcript a reader compares their own machine to, and
+    ;; the name of the extension the packaging command writes: both are the
+    ;; version as a reader sees it, not as a tag.
+    ("README.org" . "sift ~a")
     ("doc/editors.org" . "v~a")
     ("doc/editors.org" . "sift ~a")
+    ("doc/editors.org" . "sift-~a")
     (".pre-commit-hooks.yaml" . "v~a")
     ("action.yml" . "v~a")
     (".github/workflows/sift.yml" . "v~a")
