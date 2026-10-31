@@ -3,6 +3,9 @@ reports/
 *.go
 *.log
 
+# generated pages: a document is the source, the export is a byproduct
+*.html
+
 # byte-compiled copies Guile and Emacs leave next to the sources
 *.scm.go
 *.elc
