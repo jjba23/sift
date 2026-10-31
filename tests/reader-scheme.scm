@@ -28,7 +28,7 @@
   (call-with-values (lambda () (read-source-string source))
     (lambda (ast errors)
       (map (lambda (node) (node-atom-type node))
-        (filter node-atom? ast)))))
+           (filter node-atom? ast)))))
 
 (define (comment-texts source)
   (call-with-values (lambda () (read-source-string source))
@@ -73,7 +73,7 @@
       (assert-same-text #:expect "(a . b)" #:got (round-trip "(a . b)"))
       (assert-equal #:expect '("a" "." "b")
         #:got (map (lambda (node) (node-value node))
-                (node-elements (car (read-sexps-node "(a . b)"))))))
+                   (node-elements (car (read-sexps-node "(a . b)"))))))
 
     (test "vectors and bytevectors are read with their own opener"
       (assert-equal #:expect '(#(1 2 3))
@@ -99,21 +99,21 @@
 
     (test "block comments nest, and none of them is lost"
       (assert-same-text #:expect "#| a #| b |# c |# x"
-        #:got (round-trip "#| a #| b |# c |# x")))
+                        #:got (round-trip "#| a #| b |# c |# x")))
 
     (test "a block comment between two elements is preserved"
       (assert-same-text #:expect "(a #| note |# b)"
-        #:got (round-trip "(a #| note |# b)")))
+                        #:got (round-trip "(a #| note |# b)")))
 
     (test "a datum comment holds exactly one datum"
       (assert-equal #:expect '(a b)
         #:got (read-sexps "#;foo a b"))
       (assert-same-text #:expect "#;foo a"
-        #:got (round-trip "#;foo a")))
+                        #:got (round-trip "#;foo a")))
 
     (test "the datum comment may hold a datum with a datum comment"
       (assert-same-text #:expect "#;#;a b c"
-        #:got (round-trip "#;#;a b c")))
+                        #:got (round-trip "#;#;a b c")))
 
     (test "a datum comment inside a list comments out one element"
       (assert-equal #:expect '((a c))
@@ -125,20 +125,20 @@
           (let ((inner (node-child (car ast))))
             (assert-true (node-commented-out? inner) #:name "the datum itself")
             (assert-true (node-commented-out?
-                            (car (node-elements inner)))
+                          (car (node-elements inner)))
               #:name "its children")))))
 
     (test "a shebang is a node, not a reader directive"
       (assert-same-text #:expect "#!/usr/bin/env guile\n(foo)\n"
-        #:got (round-trip "#!/usr/bin/env guile\n(foo)\n")))
+                        #:got (round-trip "#!/usr/bin/env guile\n(foo)\n")))
 
     (test "string escapes are kept exactly as they were written"
       (assert-same-text #:expect "(display \"a \\\" b\\n\\t\\x41;\")"
-        #:got (round-trip "(display \"a \\\" b\\n\\t\\x41;\")")))
+                        #:got (round-trip "(display \"a \\\" b\\n\\t\\x41;\")")))
 
     (test "a backslash-newline inside a string is kept"
       (assert-same-text #:expect "\"one \\\ntwo\""
-        #:got (round-trip "\"one \\\ntwo\"")))
+                        #:got (round-trip "\"one \\\ntwo\"")))
 
     (test "character literals keep their spelling"
       (assert-equal #:expect '("#\\a" "#\\space" "#\\newline" "#\\x41")
@@ -166,7 +166,7 @@
 
     (test "CRLF is read as one newline per line"
       (assert-same-text #:expect "(a\n b)\n"
-        #:got (round-trip "(a\r\n b)\r\n")))
+                        #:got (round-trip "(a\r\n b)\r\n")))
 
     (test "locations count characters, not bytes"
       (call-with-values (lambda () (read-source-string "(ä b)"))
@@ -189,7 +189,7 @@
 
     (test "blank lines are nodes, so they survive a round trip"
       (assert-same-text #:expect "(a)\n\n\n(b)\n"
-        #:got (round-trip "(a)\n\n\n(b)\n")))
+                        #:got (round-trip "(a)\n\n\n(b)\n")))
 
     (test "a whole file of trivia round-trips byte for byte"
       (let ((source ";; a comment\n\n;; another\n"))

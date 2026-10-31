@@ -25,24 +25,24 @@
 
     (test "reports a file with no header"
       (assert-warnings #:source ";;; f.el --- a package\n" #:dialect 'elisp
-        #:checker 'lexical-binding-missing #:expect '((1 1))))
+                       #:checker 'lexical-binding-missing #:expect '((1 1))))
 
     (test "accepts a header on the first line"
       (assert-warnings
-         #:source ";;; f.el --- a package -*- lexical-binding: t; -*-\n"
-         #:dialect 'elisp #:checker 'lexical-binding-missing #:expect '()))
+       #:source ";;; f.el --- a package -*- lexical-binding: t; -*-\n"
+       #:dialect 'elisp #:checker 'lexical-binding-missing #:expect '()))
 
     (test "accepts a header on the second line"
       (assert-warnings
-         #:source ";;; f.el --- a package\n;; -*- lexical-binding: t; -*-\n"
-         #:dialect 'elisp #:checker 'lexical-binding-missing #:expect '()))
+       #:source ";;; f.el --- a package\n;; -*- lexical-binding: t; -*-\n"
+       #:dialect 'elisp #:checker 'lexical-binding-missing #:expect '()))
 
     (test "the fix inserts the header"
       (assert-fix #:source ";;; f.el --- a package\n" #:dialect 'elisp
-        #:checker 'lexical-binding-missing
-        #:expected ";;; -*- lexical-binding: t; -*-\n;;; f.el --- a package\n"))
+                  #:checker 'lexical-binding-missing
+                  #:expected ";;; -*- lexical-binding: t; -*-\n;;; f.el --- a package\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source ";;; f.el --- a package\n"
-        #:dialect 'elisp
-        #:checker 'lexical-binding-missing))))
+                               #:dialect 'elisp
+                               #:checker 'lexical-binding-missing))))

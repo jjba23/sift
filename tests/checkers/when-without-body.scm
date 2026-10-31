@@ -23,12 +23,12 @@
 
     (test "reports a when with no body"
       (assert-warnings #:source "(when (ready?))\n" #:checker 'when-without-body
-        #:expect '((1 1))))
+                       #:expect '((1 1))))
 
     (test "reports a when with no body in Common Lisp"
       (assert-warnings #:source "(when x)\n" #:dialect 'cl
-        #:checker 'when-without-body #:expect '((1 1))))
+                       #:checker 'when-without-body #:expect '((1 1))))
 
     (test "accepts a when with a body"
       (assert-warnings #:source "(when (ready?) (go))\n"
-        #:checker 'when-without-body #:expect '()))))
+                       #:checker 'when-without-body #:expect '()))))

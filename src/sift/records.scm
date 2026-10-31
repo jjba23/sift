@@ -22,100 +22,100 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:export (;; --- what this is ----------------------------------------------
-              sift-version
+            sift-version
 
-              ;; --- source locations -------------------------------------------
-              <source-location>
-              make-source-location
-              make-source-location*
-              source-location?
-              source-location-file
-              source-location-line
-              source-location-column
-              source-location-offset
-              source-location-index
-              source-location->string
-              source-location<?
-              null-source-location
+            ;; --- source locations -------------------------------------------
+            <source-location>
+            make-source-location
+            make-source-location*
+            source-location?
+            source-location-file
+            source-location-line
+            source-location-column
+            source-location-offset
+            source-location-index
+            source-location->string
+            source-location<?
+            null-source-location
 
-              ;; --- lint warnings --------------------------------------------
-              <lint-warning>
-              make-lint-warning
-              make-lint-warning/range
-              lint-warning?
-              lint-warning-checker
-              lint-warning-severity
-              lint-warning-message
-              lint-warning-location
-              lint-warning-fix
-              lint-warning-range
-              lint-warning->string
-              lint-warning<?
-              severity-rank
-              severity->string
-              string->severity
+            ;; --- lint warnings --------------------------------------------
+            <lint-warning>
+            make-lint-warning
+            make-lint-warning/range
+            lint-warning?
+            lint-warning-checker
+            lint-warning-severity
+            lint-warning-message
+            lint-warning-location
+            lint-warning-fix
+            lint-warning-range
+            lint-warning->string
+            lint-warning<?
+            severity-rank
+            severity->string
+            string->severity
 
-              ;; --- lint checkers --------------------------------------------
-              <lint-checker>
-              make-lint-checker
-              lint-checker?
-              lint-checker-name
-              lint-checker-description
-              lint-checker-dialects
-              lint-checker-proc
-              lint-checker-severity
-              lint-checker-example
-              lint-checker-code
-              lint-checker-for-dialect?
-              lint-checker->string
+            ;; --- lint checkers --------------------------------------------
+            <lint-checker>
+            make-lint-checker
+            lint-checker?
+            lint-checker-name
+            lint-checker-description
+            lint-checker-dialects
+            lint-checker-proc
+            lint-checker-severity
+            lint-checker-example
+            lint-checker-code
+            lint-checker-for-dialect?
+            lint-checker->string
 
-              ;; --- dialects -------------------------------------------------
-              dialects
-              rule-codes
-              rule-code
-              valid-dialect?
-              dialect->string
-              string->dialect
+            ;; --- dialects -------------------------------------------------
+            dialects
+            rule-codes
+            rule-code
+            valid-dialect?
+            dialect->string
+            string->dialect
 
-              ;; --- AST nodes ------------------------------------------------
-              <node>
-              make-node
-              node?
-              node-kind
-              node-value
-              node-start
-              node-end
-              node-fields
-              node-field
-              node-field/node
+            ;; --- AST nodes ------------------------------------------------
+            <node>
+            make-node
+            node?
+            node-kind
+            node-value
+            node-start
+            node-end
+            node-fields
+            node-field
+            node-field/node
 
-              node-atom? node-list? node-vector? node-bytevector?
-              node-string? node-comment? node-block-comment?
-              node-whitespace? node-prefix? node-datum-comment?
-              node-conditional? node-shebang? node-opaque?
-              node-stray-delimiter?
-              node-data? ; a datum, as opposed to trivia
-              node-trivia? ; whitespace or a comment
-              node-verbatim?
+            node-atom? node-list? node-vector? node-bytevector?
+            node-string? node-comment? node-block-comment?
+            node-whitespace? node-prefix? node-datum-comment?
+            node-conditional? node-shebang? node-opaque?
+            node-stray-delimiter?
+            node-data? ; a datum, as opposed to trivia
+            node-trivia? ; whitespace or a comment
+            node-verbatim?
 
-              node-token
-              node-child
-              node-feature
-              node-guarded-form
-              node-children ; every child of a list node
-              node-elements ; only the child data nodes
-              node-open
-              node-close
-              node-inline?
-              node-newlines
-              node-commented-out?
-              node-atom-type
-              node-package-marker
-              node-raw
+            node-token
+            node-child
+            node-feature
+            node-guarded-form
+            node-children ; every child of a list node
+            node-elements ; only the child data nodes
+            node-open
+            node-close
+            node-inline?
+            node-newlines
+            node-commented-out?
+            node-atom-type
+            node-package-marker
+            node-raw
 
-              node-head
-              node-head-name
-              node->string))
+            node-head
+            node-head-name
+            node->string))
 
 ;;; ===== Source locations =====
 ;;;
@@ -155,9 +155,9 @@ pass both."
 (define (source-location->string location)
   "Format @var{location} the way a compiler does: file:line:column."
   (format #f "~a:~a:~a"
-    (or (source-location-file location) "<stdin>")
-    (source-location-line location)
-    (source-location-column location)))
+          (or (source-location-file location) "<stdin>")
+          (source-location-line location)
+          (source-location-column location)))
 
 (define (source-location<? a b)
   "Order two locations by file, then line, then column.
@@ -187,7 +187,7 @@ one about a named file in the same run."
   (range lint-warning-range)) ; #f or (start . end) character offsets
 
 (define* (make-lint-warning checker severity message location
-           #:optional (fix #f) (range #f))
+                            #:optional (fix #f) (range #f))
   "Return a warning about @var{checker} at @var{location}.
 
 @var{fix}, when given, is a procedure of three arguments -- the whole source
@@ -199,8 +199,8 @@ applied safely."
   (%make-lint-warning checker severity message location fix range))
 
 (define* (make-lint-warning/range checker severity message location
-           start end
-           #:optional (fix #f))
+                                  start end
+                                  #:optional (fix #f))
   "Return a warning whose fix, when applied, replaces the range START..END."
   (%make-lint-warning checker severity message location fix (cons start end)))
 
@@ -232,10 +232,10 @@ finding; the checker is bracketed so that a filter can find it; the message
 is a complete sentence, lowercase after the bracket and without a trailing
 period, so that several findings read as a list."
   (format #f "~a: ~a: [~a] ~a"
-    (source-location->string (lint-warning-location warning))
-    (severity->string (lint-warning-severity warning))
-    (lint-warning-checker warning)
-    (lint-warning-message warning)))
+          (source-location->string (lint-warning-location warning))
+          (severity->string (lint-warning-severity warning))
+          (lint-warning-checker warning)
+          (lint-warning-message warning)))
 
 (define (lint-warning<? a b)
   "Order two warnings by file, line, column and checker name.
@@ -247,15 +247,15 @@ the formatter and the linter promise the same output on every run."
     (cond
       [(and (source-location-file loc-a) (source-location-file loc-b)
          (not (string=? (source-location-file loc-a)
-                (source-location-file loc-b))))
+                        (source-location-file loc-b))))
        (string<? (source-location-file loc-a) (source-location-file loc-b))]
       [(not (eqv? (source-location-line loc-a) (source-location-line loc-b)))
        (< (source-location-line loc-a) (source-location-line loc-b))]
       [(not (eqv? (source-location-column loc-a) (source-location-column loc-b)))
        (< (source-location-column loc-a) (source-location-column loc-b))]
       [else
-         (string<? (symbol->string (lint-warning-checker a))
-           (symbol->string (lint-warning-checker b)))])))
+        (string<? (symbol->string (lint-warning-checker a))
+                  (symbol->string (lint-warning-checker b)))])))
 
 ;;; ===== Lint checkers =====
 
@@ -271,7 +271,7 @@ the formatter and the linter promise the same output on every run."
   (example lint-checker-example)) ; #f or an alist for `explain`
 
 (define* (make-lint-checker name description dialects proc severity example
-           #:optional (code #f))
+                            #:optional (code #f))
   "Return a checker record, with its rule code.
 
 A checker's *name* is what a person types; its *code* is what an editor
@@ -280,7 +280,7 @@ documentation.  The code is derived from the name through @code{rule-codes}
 when it is not given, so a checker cannot be written without one and a code
 cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
-    proc severity example))
+                      proc severity example))
 
 (define sift-version "1.0.1")
 
@@ -378,10 +378,10 @@ Both the editor-facing names and the everyday ones are accepted, so
 (define (lint-checker->string checker)
   "Render @var{checker} as one line of the @code{list-checkers} table."
   (format #f "~a ~a ~a ~a"
-    (string-pad-right (symbol->string (lint-checker-name checker)) 24)
-    (string-pad-right (format #f "~a" (lint-checker-dialects checker)) 15)
-    (string-pad-right (symbol->string (lint-checker-severity checker)) 10)
-    (lint-checker-description checker)))
+          (string-pad-right (symbol->string (lint-checker-name checker)) 24)
+          (string-pad-right (format #f "~a" (lint-checker-dialects checker)) 15)
+          (string-pad-right (symbol->string (lint-checker-severity checker)) 10)
+          (lint-checker-description checker)))
 
 ;;; ===== AST nodes =====
 ;;;

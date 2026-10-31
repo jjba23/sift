@@ -46,9 +46,9 @@
   #:use-module (sift json)
   #:use-module (sift render)
   #:export (lsp-serve
-              lsp-diagnostics
-              lsp-code-actions
-              lsp-formatting))
+            lsp-diagnostics
+            lsp-code-actions
+            lsp-formatting))
 
 ;;; ===== The wire =====
 ;;;
@@ -104,35 +104,35 @@ from sending one bad message."
          (cond
            [(not length) (cons 'malformed "a message without a Content-Length")]
            [else
-              (let ((bytes (get-bytevector-n in length)))
-                (cond
-                  [(not (bytevector? bytes))
-                   (cons 'malformed "the input ended inside a message")]
-                  [(< (bytevector-length bytes) length)
-                   (cons 'malformed
-                     (format #f "the message was ~a bytes long and ~a arrived"
-                       length (bytevector-length bytes)))]
-                  [else
-                     (catch 'sift-json-error
-                       (lambda ()
-                         (cons 'ok (json-read (utf8->string bytes) #:path "lsp")))
-                       (lambda (key value)
-                         (cons 'malformed
-                           (format #f "the message is not JSON: ~a"
-                             ;; the error is (path line column message), and
-                             ;; the sentence is the last of them
-                             (if (pair? value)
-                               (car (last-pair value))
-                               value)))))]))])]
+             (let ((bytes (get-bytevector-n in length)))
+               (cond
+                 [(not (bytevector? bytes))
+                  (cons 'malformed "the input ended inside a message")]
+                 [(< (bytevector-length bytes) length)
+                  (cons 'malformed
+                        (format #f "the message was ~a bytes long and ~a arrived"
+                                length (bytevector-length bytes)))]
+                 [else
+                   (catch 'sift-json-error
+                          (lambda ()
+                            (cons 'ok (json-read (utf8->string bytes) #:path "lsp")))
+                          (lambda (key value)
+                            (cons 'malformed
+                                  (format #f "the message is not JSON: ~a"
+                                          ;; the error is (path line column message), and
+                                          ;; the sentence is the last of them
+                                          (if (pair? value)
+                                            (car (last-pair value))
+                                            value)))))]))])]
         [else
-           (loop (or (frame-length line) length))]))))
+          (loop (or (frame-length line) length))]))))
 
 (define* (send! out message)
   "Write @var{message} to @var{out} as one framed JSON-RPC message."
   (let* ((body (string->utf8 (json-write message)))
          (header (string->utf8
-                    (format #f "Content-Length: ~a\r\n\r\n"
-                      (bytevector-length body)))))
+                  (format #f "Content-Length: ~a\r\n\r\n"
+                          (bytevector-length body)))))
     (put-bytevector out header)
     (put-bytevector out body)
     (force-output out)))
@@ -169,34 +169,34 @@ from sending one bad message."
       [(>= i (string-length text)) i]
       [(and (= current-line line) (>= current-column column)) i]
       [else
-         (let ((c (string-ref text i)))
-           (if (char=? c #\newline)
-             (loop (+ i 1) (+ current-line 1) 0)
-             (loop (+ i 1) current-line (+ current-column (utf16-width c)))))])))
+        (let ((c (string-ref text i)))
+          (if (char=? c #\newline)
+            (loop (+ i 1) (+ current-line 1) 0)
+            (loop (+ i 1) current-line (+ current-column (utf16-width c)))))])))
 
 (define (json-position text index)
   (let ((position (position-of text index)))
     (json-object
-       (field "line" (car position))
-       (field "character" (cdr position)))))
+     (field "line" (car position))
+     (field "character" (cdr position)))))
 
 (define (json-range text start end)
   "Return the LSP range from @var{start} to @var{end} in @var{text}."
   (json-object
-     (field "start" (json-position text start))
-     (field "end" (json-position text end))))
+   (field "start" (json-position text start))
+   (field "end" (json-position text end))))
 
 (define (index-of-text-position text position)
   "Return the character index of an LSP @var{position} in @var{text}."
   (index-of-position text
-    (json-ref position "line" 0)
-    (json-ref position "character" 0)))
+                     (json-ref position "line" 0)
+                     (json-ref position "character" 0)))
 
 (define (range-of-request text params)
   "Return @code{(start . end)} character indices for a request's range."
   (let ((range (json-ref params "range" (json-object))))
     (cons (index-of-text-position text (json-ref range "start" (json-object)))
-      (index-of-text-position text (json-ref range "end" (json-object))))))
+          (index-of-text-position text (json-ref range "end" (json-object))))))
 
 (define (document-range text)
   "Return the range that covers all of @var{text}."
@@ -243,8 +243,8 @@ a URI is."
           (if (and (char=? c #\%) (< (+ i 3) (string-length text)))
             (begin
               (display (integer->char
-                          (string->number (substring text (+ i 1) (+ i 3)) 16))
-                out)
+                        (string->number (substring text (+ i 1) (+ i 3)) 16))
+                       out)
               (loop (+ i 3)))
             (begin (display c out) (loop (+ i 1)))))))))
 
@@ -257,21 +257,21 @@ a URI is."
 
 (define (lint-options-of config)
   (list (cons 'line-length (config-ref config 'line-length))
-    (cons 'indent (config-ref config 'indent))
-    (cons 'loop-keywords (config-ref config 'loop-keywords))
-    (cons 'brackets (config-ref config 'brackets))
-    (cons 'max-depth (config-ref config 'max-depth))
-    (cons 'max-elements (config-ref config 'max-elements))
-    (cons 'max-positional (config-ref config 'max-positional))
-    (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
+        (cons 'indent (config-ref config 'indent))
+        (cons 'loop-keywords (config-ref config 'loop-keywords))
+        (cons 'brackets (config-ref config 'brackets))
+        (cons 'max-depth (config-ref config 'max-depth))
+        (cons 'max-elements (config-ref config 'max-elements))
+        (cons 'max-positional (config-ref config 'max-positional))
+        (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
 
 (define* (warnings-for config text #:key (dialect 'scheme) (uri #f))
   "Return the warnings @var{text} earns, as the editor should see them."
   (lint-source text #:dialect dialect #:file (and uri (strip-uri uri))
-    #:checkers (config-ref config 'checkers)
-    #:exclude-checkers (config-ref config 'exclude-checkers)
-    #:severity (config-ref config 'severity)
-    #:options (lint-options-of config)))
+               #:checkers (config-ref config 'checkers)
+               #:exclude-checkers (config-ref config 'exclude-checkers)
+               #:severity (config-ref config 'severity)
+               #:options (lint-options-of config)))
 
 (define (lsp-severity severity)
   "Return the LSP number for a sift @var{severity}: errors are 1, notes 3."
@@ -298,13 +298,13 @@ position covers one character, which is what an editor can highlight."
          (code (or (rule-code checker) (symbol->string checker)))
          (span (warning-span warning text)))
     (json-object
-       (field "range" (json-range text (car span) (cdr span)))
-       (field "severity" (lsp-severity (lint-warning-severity warning)))
-       (field "code" code)
-       (field "codeDescription"
-         (json-object (field "href" (rule-documentation-uri code))))
-       (field "source" "sift")
-       (field "message" (lint-warning-message warning)))))
+     (field "range" (json-range text (car span) (cdr span)))
+     (field "severity" (lsp-severity (lint-warning-severity warning)))
+     (field "code" code)
+     (field "codeDescription"
+            (json-object (field "href" (rule-documentation-uri code))))
+     (field "source" "sift")
+     (field "message" (lint-warning-message warning)))))
 
 (define (rule-documentation-uri code)
   "Return the page that documents the rule @var{code}."
@@ -313,8 +313,8 @@ position covers one character, which is what an editor can highlight."
 (define* (lsp-diagnostics config text #:key (dialect 'scheme) (uri #f))
   "Return the diagnostics for @var{text}, as the array an editor expects."
   (list->vector
-     (map (lambda (warning) (diagnostic-of warning text))
-       (warnings-for config text #:dialect dialect #:uri uri))))
+   (map (lambda (warning) (diagnostic-of warning text))
+        (warnings-for config text #:dialect dialect #:uri uri))))
 
 ;;; ===== Code actions =====
 ;;;
@@ -330,7 +330,7 @@ position covers one character, which is what an editor can highlight."
 
 (define (warning-line warning text)
   (car (position-of text (source-location-index
-                            (lint-warning-location warning)))))
+                          (lint-warning-location warning)))))
 
 (define (select-warnings warnings start end text)
   "Return the warnings a request for @var{start}..@var{end} is about.
@@ -340,12 +340,12 @@ asking about the line the cursor is on, which is what a person means by
 \"fix this\"; an editor that asks with a selection is asking about that."
   (let ((touching (filter (lambda (warning)
                             (warning-overlaps? warning start end text))
-                    warnings)))
+                          warnings)))
     (if (pair? touching)
       touching
       (let ((line (car (position-of text start))))
         (filter (lambda (warning) (= (warning-line warning text) line))
-          warnings)))))
+                warnings)))))
 
 (define (code-action-of warning text uri version)
   "Return @var{warning} as a quickfix code action about @var{text}."
@@ -354,37 +354,37 @@ asking about the line the cursor is on, which is what a person means by
          (code (or (rule-code (lint-warning-checker warning))
                  (symbol->string (lint-warning-checker warning))))
          (title (format #f "sift ~a: ~a" code
-                  (lint-warning-message warning))))
+                        (lint-warning-message warning))))
     (json-object
-       (field "title" title)
-       (field "kind" "quickfix")
-       (field "diagnostics" (vector (diagnostic-of warning text)))
-       (field "edit"
-         (json-object
-            (field "documentChanges"
-              (vector
-                 (json-object
-                    (field "textDocument"
-                      (json-object
-                         (field "uri" uri)
-                         (field "version" version)))
-                    (field "edits"
-                      (vector
-                         (json-object
-                            (field "range" (json-range text (car span) (cdr span)))
-                            (field "newText" replacement))))))))))))
+     (field "title" title)
+     (field "kind" "quickfix")
+     (field "diagnostics" (vector (diagnostic-of warning text)))
+     (field "edit"
+            (json-object
+             (field "documentChanges"
+                    (vector
+                     (json-object
+                      (field "textDocument"
+                             (json-object
+                              (field "uri" uri)
+                              (field "version" version)))
+                      (field "edits"
+                             (vector
+                              (json-object
+                               (field "range" (json-range text (car span) (cdr span)))
+                               (field "newText" replacement))))))))))))
 
 (define* (lsp-code-actions config text start end #:key (dialect 'scheme)
-           (uri #f) (version #f))
+                           (uri #f) (version #f))
   "Return the code actions that apply to @var{start}..@var{end} of @var{text}."
   (let ((warnings (warnings-for config text #:dialect dialect #:uri uri)))
     (list->vector
-       (filter-map
-          (lambda (warning)
-            (and (lint-warning-fix warning)
-              (lint-warning-range warning)
-              (code-action-of warning text (or uri "") version)))
-          (select-warnings warnings start end text)))))
+     (filter-map
+      (lambda (warning)
+        (and (lint-warning-fix warning)
+          (lint-warning-range warning)
+          (code-action-of warning text (or uri "") version)))
+      (select-warnings warnings start end text)))))
 
 ;;; ===== Formatting =====
 ;;;
@@ -394,11 +394,11 @@ asking about the line the cursor is on, which is what a person means by
 (define* (format-text config text #:key (dialect 'scheme) (uri #f))
   "Return @code{(values formatted errors)} for @var{text}."
   (format-source text #:dialect dialect #:file (and uri (strip-uri uri))
-    #:style (config-ref config 'style)
-    #:indent (config-ref config 'indent)
-    #:comment-align (config-ref config 'comment-align)
-    #:brackets (config-ref config 'brackets)
-    #:indent-rules (config-ref config 'indent-rules)))
+                 #:style (config-ref config 'style)
+                 #:indent (config-ref config 'indent)
+                 #:comment-align (config-ref config 'comment-align)
+                 #:brackets (config-ref config 'brackets)
+                 #:indent-rules (config-ref config 'indent-rules)))
 
 (define* (lsp-formatting config text #:key (dialect 'scheme) (uri #f))
   "Return @code{(values edits refusal)} for formatting @var{text}.
@@ -413,23 +413,23 @@ Every other answer here is computed from a buffer sift can read the *whole* of
 or not at all; a half-written form is the normal state of a buffer being
 typed, and the findings for the part that could be read are still reported."
   (call-with-values (lambda () (format-text config text #:dialect dialect
-                                 #:uri uri))
+                                            #:uri uri))
     (lambda (formatted errors)
       (cond
         [(pair? errors)
          (values (vector)
-           (format #f "sift cannot format this buffer: ~a"
-             (lint-warning-message (car errors))))]
+                 (format #f "sift cannot format this buffer: ~a"
+                         (lint-warning-message (car errors))))]
         [(string=? formatted text) (values (vector) #f)]
         [else
-           (values
-              (vector
-                 (json-object
-                    (field "range"
-                      (json-range text (car (document-range text))
-                        (cdr (document-range text))))
-                    (field "newText" formatted)))
-              #f)]))))
+          (values
+           (vector
+            (json-object
+             (field "range"
+                    (json-range text (car (document-range text))
+                                (cdr (document-range text))))
+             (field "newText" formatted)))
+           #f)]))))
 
 ;;; ===== The hover =====
 ;;;
@@ -441,15 +441,15 @@ typed, and the findings for the part that could be read are still reported."
   (let* ((checker (lint-warning-checker warning))
          (code (or (rule-code checker) (symbol->string checker))))
     (json-object
-       (field "contents"
-         (json-object
-            (field "kind" "markdown")
-            (field "value"
-              (format #f "**sift ~a — ~a**~%~%~a~%~%[Rule ~a](~a)"
-                code (lint-warning-checker warning)
-                (or (find-checker-description checker)
-                  (lint-warning-message warning))
-                code (rule-documentation-uri code))))))))
+     (field "contents"
+            (json-object
+             (field "kind" "markdown")
+             (field "value"
+                    (format #f "**sift ~a — ~a**~%~%~a~%~%[Rule ~a](~a)"
+                            code (lint-warning-checker warning)
+                            (or (find-checker-description checker)
+                              (lint-warning-message warning))
+                            code (rule-documentation-uri code))))))))
 
 (define (find-checker-description name)
   (let ((checker (find-checker name)))
@@ -460,7 +460,7 @@ typed, and the findings for the part that could be read are still reported."
   (let ((warnings (warnings-for config text #:dialect dialect #:uri uri)))
     (let ((found (find (lambda (warning)
                          (warning-overlaps? warning index index text))
-                   warnings)))
+                       warnings)))
       (and found (hover-of found)))))
 
 ;;; ===== The server =====
@@ -481,21 +481,21 @@ typed, and the findings for the part that could be read are still reported."
 (define (initialize-result)
   "Return the capabilities sift's server offers."
   (json-object
-     (field "capabilities"
-       (json-object
-          ;; 1 is "full": the editor sends the whole buffer after every change.
-          (field "textDocumentSync" 1)
-          (field "documentFormattingProvider" #t)
-          (field "codeActionProvider"
-            (json-object
-               (field "codeActionKinds" (list->vector (list "quickfix")))
-               (field "resolveProvider" #f)))
-          (field "hoverProvider" #t)
-          (field "positionEncoding" "utf-16")))
-     (field "serverInfo"
-       (json-object
-          (field "name" "sift")
-          (field "version" sift-version)))))
+   (field "capabilities"
+          (json-object
+           ;; 1 is "full": the editor sends the whole buffer after every change.
+           (field "textDocumentSync" 1)
+           (field "documentFormattingProvider" #t)
+           (field "codeActionProvider"
+                  (json-object
+                   (field "codeActionKinds" (list->vector (list "quickfix")))
+                   (field "resolveProvider" #f)))
+           (field "hoverProvider" #t)
+           (field "positionEncoding" "utf-16")))
+   (field "serverInfo"
+          (json-object
+           (field "name" "sift")
+           (field "version" sift-version)))))
 
 ;;; --- the conversation's own bookkeeping ---------------------------------
 ;;;
@@ -521,19 +521,19 @@ typed, and the findings for the part that could be read are still reported."
 (define (reply! out id result)
   "Answer the request @var{id} with @var{result}."
   (send! out (json-object
-                (field "jsonrpc" "2.0")
-                (field "id" id)
-                (field "result" result))))
+              (field "jsonrpc" "2.0")
+              (field "id" id)
+              (field "result" result))))
 
 (define (reply-error! out id code message)
   "Answer the request @var{id} with a JSON-RPC error."
   (send! out (json-object
-                (field "jsonrpc" "2.0")
-                (field "id" id)
-                (field "error"
-                  (json-object
-                     (field "code" code)
-                     (field "message" message))))))
+              (field "jsonrpc" "2.0")
+              (field "id" id)
+              (field "error"
+                     (json-object
+                      (field "code" code)
+                      (field "message" message))))))
 
 (define (show-message! out type message)
   "Show @var{message} in the editor's own log.
@@ -542,25 +542,25 @@ typed, and the findings for the part that could be read are still reported."
 A server that cannot do what it was asked says so here, because a request
 that answers with nothing looks like a request that worked."
   (send! out
-    (json-object
-       (field "jsonrpc" "2.0")
-       (field "method" "window/showMessage")
-       (field "params"
          (json-object
-            (field "type" type)
-            (field "message" message))))))
+          (field "jsonrpc" "2.0")
+          (field "method" "window/showMessage")
+          (field "params"
+                 (json-object
+                  (field "type" type)
+                  (field "message" message))))))
 
 (define (publish-diagnostics! out uri version diagnostics)
   "Tell the editor what @var{diagnostics} the document at @var{uri} has."
   (send! out
-    (json-object
-       (field "jsonrpc" "2.0")
-       (field "method" "textDocument/publishDiagnostics")
-       (field "params"
          (json-object
-            (field "uri" uri)
-            (field "version" version)
-            (field "diagnostics" diagnostics))))))
+          (field "jsonrpc" "2.0")
+          (field "method" "textDocument/publishDiagnostics")
+          (field "params"
+                 (json-object
+                  (field "uri" uri)
+                  (field "version" version)
+                  (field "diagnostics" diagnostics))))))
 
 (define* (publish! config out document)
   "Send the diagnostics of @var{document} to the editor.
@@ -569,12 +569,12 @@ A buffer that does not parse is a buffer with findings -- the reader's own,
 with severity `error` and the code `reader` -- so this works the same way
 whether the text is a program or half of one."
   (publish-diagnostics! out
-    (document-uri document)
-    (document-version document)
-    (lsp-diagnostics config
-      (document-text document)
-      #:dialect (document-dialect document)
-      #:uri (document-uri document))))
+                        (document-uri document)
+                        (document-version document)
+                        (lsp-diagnostics config
+                                         (document-text document)
+                                         #:dialect (document-dialect document)
+                                         #:uri (document-uri document))))
 
 ;;; --- reading a change ---------------------------------------------------
 ;;;
@@ -589,18 +589,18 @@ whether the text is a program or half of one."
       [(not (string? replacement)) text]
       [(not (json-ref change "range" #f)) replacement]
       [else
-         (let* ((range (json-ref change "range"))
-                (start (index-of-text-position text
-                         (json-ref range "start" (json-object))))
-                (end (index-of-text-position text
-                       (json-ref range "end" (json-object))))
-                (from (min start end))
-                (to (max start end)))
-           ;; A range past the end of the buffer is a client that has not caught
-           ;; up; clamping is the only answer that keeps the text usable.
-           (string-append (substring text 0 (min from (string-length text)))
-             replacement
-             (substring text (min to (string-length text)))))])))
+        (let* ((range (json-ref change "range"))
+               (start (index-of-text-position text
+                                              (json-ref range "start" (json-object))))
+               (end (index-of-text-position text
+                                            (json-ref range "end" (json-object))))
+               (from (min start end))
+               (to (max start end)))
+          ;; A range past the end of the buffer is a client that has not caught
+          ;; up; clamping is the only answer that keeps the text usable.
+          (string-append (substring text 0 (min from (string-length text)))
+                         replacement
+                         (substring text (min to (string-length text)))))])))
 
 (define (apply-changes text changes)
   "Return @var{text} with every entry of @var{changes} applied, in order."
@@ -639,7 +639,7 @@ dead server."
          (request?)
          (not (string=? method "shutdown")))
        (reply-error! out id -32002
-         "sift: the server has not been initialized")
+                     "sift: the server has not been initialized")
        'continue]
 
       [(string=? method "initialized")
@@ -655,10 +655,10 @@ dead server."
               (uri (json-ref item "uri" ""))
               (language (json-ref item "languageId" #f))
               (document (make-document uri
-                          (json-ref item "text" "")
-                          language
-                          (json-ref item "version" #f)
-                          (dialect-of language uri))))
+                                       (json-ref item "text" "")
+                                       language
+                                       (json-ref item "version" #f)
+                                       (dialect-of language uri))))
          (hash-set! documents uri document)
          (publish! config out document)
          'continue)]
@@ -667,10 +667,10 @@ dead server."
        (let ((document (document-of)))
          (when document
            (set-document-text! document
-             (apply-changes (document-text document)
-               (json-ref (params) "contentChanges" (vector))))
+                               (apply-changes (document-text document)
+                                              (json-ref (params) "contentChanges" (vector))))
            (set-document-version! document
-             (json-ref (json-ref (params) "textDocument") "version" #f))
+                                  (json-ref (json-ref (params) "textDocument") "version" #f))
            (publish! config out document))
          'continue)]
 
@@ -689,14 +689,14 @@ dead server."
       [(string=? method "textDocument/codeAction")
        (let ((document (document-of)))
          (reply! out id
-           (if document
-             (let ((span (range-of-request (document-text document) (params))))
-               (lsp-code-actions config
-                 (document-text document) (car span) (cdr span)
-                 #:dialect (document-dialect document)
-                 #:uri (document-uri document)
-                 #:version (document-version document)))
-             (vector)))
+                 (if document
+                   (let ((span (range-of-request (document-text document) (params))))
+                     (lsp-code-actions config
+                                       (document-text document) (car span) (cdr span)
+                                       #:dialect (document-dialect document)
+                                       #:uri (document-uri document)
+                                       #:version (document-version document)))
+                   (vector)))
          'continue)]
 
       [(string=? method "textDocument/formatting")
@@ -705,8 +705,8 @@ dead server."
            (call-with-values
              (lambda ()
                (lsp-formatting config (document-text document)
-                 #:dialect (document-dialect document)
-                 #:uri (document-uri document)))
+                               #:dialect (document-dialect document)
+                               #:uri (document-uri document)))
              (lambda (edits refusal)
                ;; Format Document that does nothing with no explanation is the
                ;; worst answer a formatter can give; say why instead.
@@ -718,15 +718,15 @@ dead server."
       [(string=? method "textDocument/hover")
        (let ((document (document-of)))
          (reply! out id
-           (if document
-             (let* ((text (document-text document))
-                    (position (json-ref (params) "position" (json-object)))
-                    (index (index-of-text-position text position)))
-               (or (lsp-hover config text index
-                     #:dialect (document-dialect document)
-                     #:uri (document-uri document))
-                 json-null))
-             json-null))
+                 (if document
+                   (let* ((text (document-text document))
+                          (position (json-ref (params) "position" (json-object)))
+                          (index (index-of-text-position text position)))
+                     (or (lsp-hover config text index
+                                    #:dialect (document-dialect document)
+                                    #:uri (document-uri document))
+                       json-null))
+                   json-null))
          'continue)]
 
       [(string-prefix? "$/" method)
@@ -740,9 +740,9 @@ dead server."
        'continue]
 
       [else
-         (reply-error! out id -32601
-           (format #f "sift does not answer `~a'" method))
-         'continue])))
+        (reply-error! out id -32601
+                      (format #f "sift does not answer `~a'" method))
+        'continue])))
 
 ;;; --- one message, and one mistake at a time -----------------------------
 ;;;
@@ -755,16 +755,16 @@ dead server."
   "Answer @var{message}, turning a raised condition into an error response."
   (let ((id (json-ref message "id" *no-id*)))
     (catch #t
-      (lambda () (handle config session documents message out))
-      (lambda (key . arguments)
-        (let ((reason (format #f "sift: internal error (~a)~@[: ~a~]"
-                        key (and (pair? arguments) (car arguments)))))
-          ;; A request is answered with an error response; a notification has
-          ;; no id to answer, so the reason goes to the editor's own log.
-          (if (eq? id *no-id*)
-            (show-message! out 1 reason)
-            (reply-error! out id -32603 reason)))
-        'continue))))
+           (lambda () (handle config session documents message out))
+           (lambda (key . arguments)
+             (let ((reason (format #f "sift: internal error (~a)~@[: ~a~]"
+                                   key (and (pair? arguments) (car arguments)))))
+               ;; A request is answered with an error response; a notification has
+               ;; no id to answer, so the reason goes to the editor's own log.
+               (if (eq? id *no-id*)
+                 (show-message! out 1 reason)
+                 (reply-error! out id -32603 reason)))
+             'continue))))
 
 ;;; --- the loop -----------------------------------------------------------
 
@@ -798,8 +798,8 @@ should show a finding."
            (reply-error! port-out json-null -32700 (cdr frame))
            (loop status)]
           [else
-             (let ((outcome (serve-one config session documents (cdr frame)
-                              port-out)))
-               (if (eq? outcome 'exit)
-                 (if (session-shutdown? session) 0 1)
-                 (loop status)))])))))
+            (let ((outcome (serve-one config session documents (cdr frame)
+                                      port-out)))
+              (if (eq? outcome 'exit)
+                (if (session-shutdown? session) 0 1)
+                (loop status)))])))))

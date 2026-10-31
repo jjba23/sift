@@ -34,16 +34,16 @@
   #:use-module (sift records)
   #:re-export (node->string)
   #:export (read-source
-              read-source-string
-              read-source/file
-              ast->text
-              detect-dialect
-              dialect-marker
-              string->ast-list
-              source-lines
-              line-count
-              line-of
-              source-line))
+            read-source-string
+            read-source/file
+            ast->text
+            detect-dialect
+            dialect-marker
+            string->ast-list
+            source-lines
+            line-count
+            line-of
+            source-line))
 
 ;;; ===== Reader state =====
 
@@ -64,7 +64,7 @@
   (let ((starts (compute-line-starts source))
         (bytes (compute-byte-offsets source)))
     (%make-reader source file dialect (string-length source)
-      starts bytes 0 '())))
+                  starts bytes 0 '())))
 
 ;; --- source indexing ---------------------------------------------------
 
@@ -83,7 +83,7 @@ after a `dos2unix'."
                      [(and (char=? (string-ref source i) #\return)
                         (or (>= (+ i 1) n)
                           (not (char=? (string-ref source (+ i 1))
-                                 #\newline))))
+                                       #\newline))))
                       (loop (+ i 1) (cons (+ i 1) acc))]
                      [else (loop (+ i 1) acc)]))))
     (list->vector starts)))
@@ -102,7 +102,7 @@ after a `dos2unix'."
               [(and (char=? c #\return)
                  (or (>= (+ i 1) n)
                    (not (char=? (string-ref source (+ i 1))
-                          #\newline))))
+                                #\newline))))
                (loop (+ i 1) (+ count 1))]
               [else (loop (+ i 1) count)])))))))
 
@@ -199,10 +199,10 @@ built once per file so the conversion costs nothing per node."
          (line (line-index starts index))
          (line-start (vector-ref starts line)))
     (make-source-location* (reader-file r)
-      (+ line 1)
-      (+ 1 (- index line-start))
-      (vector-ref (reader-byte-offsets r) index)
-      index)))
+                           (+ line 1)
+                           (+ 1 (- index line-start))
+                           (vector-ref (reader-byte-offsets r) index)
+                           index)))
 
 (define (line-index starts index)
   "Return the 0-based line of @var{index}, given the vector of line starts."
@@ -217,9 +217,9 @@ built once per file so the conversion costs nothing per node."
 (define (record-error! r index severity message)
   "Record a parse problem at character @var{index} in @var{r}."
   (set-reader-errors!
-     r (cons (make-lint-warning 'reader severity message
-               (index->location r index))
-         (reader-errors r))))
+   r (cons (make-lint-warning 'reader severity message
+                              (index->location r index))
+           (reader-errors r))))
 
 ;; --- character classes ------------------------------------------------
 
@@ -247,19 +247,19 @@ of a token, and a symbol such as `foo#bar' (Scheme) is one atom."
 
 (define (whitespace-node r start-index end-index newlines)
   (make-node 'whitespace
-    (if (> newlines 0)
-      (make-string newlines #\newline)
-      (substring (reader-source r) start-index end-index))
-    (index->location r start-index)
-    (index->location r end-index)
-    (list (cons 'newlines newlines))))
+             (if (> newlines 0)
+               (make-string newlines #\newline)
+               (substring (reader-source r) start-index end-index))
+             (index->location r start-index)
+             (index->location r end-index)
+             (list (cons 'newlines newlines))))
 
 (define (comment-node r start-index end-index inline?)
   (make-node 'comment
-    (substring (reader-source r) start-index end-index)
-    (index->location r start-index)
-    (index->location r end-index)
-    (list (cons 'inline inline?))))
+             (substring (reader-source r) start-index end-index)
+             (index->location r start-index)
+             (index->location r end-index)
+             (list (cons 'inline inline?))))
 
 (define* (span-node r kind start end #:optional (fields '()))
   "Return a node of @var{kind} holding the source text from @var{start} to @var{end}.
@@ -269,7 +269,7 @@ of the source as it was written and nothing else, so the node that stands
 for one is nothing but its kind, its span and whatever the kind needs on
 top.  The reader has already advanced past @var{end} when it asks for one."
   (make-node kind (substring (reader-source r) start end)
-    (index->location r start) (index->location r end) fields))
+             (index->location r start) (index->location r end) fields))
 
 (define (literal-node r start end atom-type)
   "Return an atom of @var{atom-type} for the source text from @var{start} to @var{end}.
@@ -339,42 +339,42 @@ without a closer: the reader never invents a `)'."
   (let* ((start (reader-index r))
          (close-char (matching-close (or open-char
                                        (string-ref open-text
-                                         (- (string-length open-text)
-                                           1))))))
+                                                   (- (string-length open-text)
+                                                      1))))))
     (advance-by! r (string-length open-text))
     (let loop ((children '()))
       (cond
         [(at-end? r)
          (record-error! r start 'error
-           "unterminated form: the file ends before this form is closed")
+                        "unterminated form: the file ends before this form is closed")
          (make-node 'list (reverse children)
-           (index->location r start)
-           (index->location r (reader-index r))
-           (list (cons 'open open-text)
-             (cons 'close #f)))]
+                    (index->location r start)
+                    (index->location r (reader-index r))
+                    (list (cons 'open open-text)
+                          (cons 'close #f)))]
         [(eqv? (peek r) close-char)
          (advance! r)
          (make-node 'list (reverse children)
-           (index->location r start)
-           (index->location r (reader-index r))
-           (list (cons 'open open-text)
-             (cons 'close (string close-char))))]
+                    (index->location r start)
+                    (index->location r (reader-index r))
+                    (list (cons 'open open-text)
+                          (cons 'close (string close-char))))]
         [else
-           (let ((node (read-node r)))
-             (if (eq? node '*eof*)
-               (loop children)
-               (loop (cons node children))))]))))
+          (let ((node (read-node r)))
+            (if (eq? node '*eof*)
+              (loop children)
+              (loop (cons node children))))]))))
 
 (define (read-stray-close r)
   (let ((start (reader-index r))
         (c (peek r)))
     (advance! r)
     (record-error! r start 'error
-      (format #f "unmatched closing delimiter `~a'" c))
+                   (format #f "unmatched closing delimiter `~a'" c))
     (make-node 'atom (string c)
-      (index->location r start)
-      (index->location r (reader-index r))
-      (list (cons 'atom-type 'stray-delimiter)))))
+               (index->location r start)
+               (index->location r (reader-index r))
+               (list (cons 'atom-type 'stray-delimiter)))))
 
 ;;; ===== Strings and characters =====
 
@@ -490,11 +490,11 @@ is kept exactly as it was written."
                  [else 'symbol]))
          (marker (and (eq? type 'symbol) (package-marker-of text))))
     (make-node 'atom text
-      (index->location r start)
-      (index->location r end)
-      (append (list (cons 'atom-type type)
-                (cons 'value number))
-        (if marker (list (cons 'package-marker marker)) '())))))
+               (index->location r start)
+               (index->location r end)
+               (append (list (cons 'atom-type type)
+                             (cons 'value number))
+                       (if marker (list (cons 'package-marker marker)) '())))))
 
 (define (package-marker-of text)
   "Return the package marker of a Common Lisp symbol name, or @code{#f}.
@@ -538,20 +538,20 @@ is what reports it."
            ;; the prefix without losing it, so the prefix ends here: the
            ;; comment is left for the caller to read as the next node.
            (record-error! r start 'error
-             (format #f "reader prefix `~a' is not followed by a datum"
-               token))
+                          (format #f "reader prefix `~a' is not followed by a datum"
+                                  token))
            (set-reader-index! r child-start)
            (make-node 'prefix token
-             (index->location r start)
-             (index->location r child-start)
-             (list (cons 'child #f)
-               (cons 'gap "")))]
+                      (index->location r start)
+                      (index->location r child-start)
+                      (list (cons 'child #f)
+                            (cons 'gap "")))]
           [else
-             (make-node 'prefix token
-               (index->location r start)
-               (index->location r (child-end child))
-               (list (cons 'child child)
-                 (cons 'gap gap)))])))))
+            (make-node 'prefix token
+                       (index->location r start)
+                       (index->location r (child-end child))
+                       (list (cons 'child child)
+                             (cons 'gap gap)))])))))
 
 (define (child-end node)
   "Return the character index just past @var{node}."
@@ -561,7 +561,7 @@ is what reports it."
   (let ((start (reader-index r)))
     (when (eq? (reader-dialect r) 'elisp)
       (record-error! r start 'warning
-        "block comments are not Emacs Lisp syntax"))
+                     "block comments are not Emacs Lisp syntax"))
     (advance-by! r 2)
     (let loop ((depth 1))
       (cond
@@ -584,21 +584,21 @@ is what reports it."
     (cond
       [(node-list? node)
        (make-node 'list (map walk (node-children node))
-         (node-start node) (node-end node)
-         (cons (cons 'commented-out #t) (node-fields node)))]
+                  (node-start node) (node-end node)
+                  (cons (cons 'commented-out #t) (node-fields node)))]
       [(node-prefix? node)
        (make-node 'prefix (node-value node)
-         (node-start node) (node-end node)
-         (cons (cons 'commented-out #t)
-           (map (lambda (field)
-                  (if (and (eq? (car field) 'child) (cdr field))
-                    (cons 'child (walk (cdr field)))
-                    field))
-             (node-fields node))))]
+                  (node-start node) (node-end node)
+                  (cons (cons 'commented-out #t)
+                        (map (lambda (field)
+                               (if (and (eq? (car field) 'child) (cdr field))
+                                 (cons 'child (walk (cdr field)))
+                                 field))
+                             (node-fields node))))]
       [else
-         (make-node (node-kind node) (node-value node)
-           (node-start node) (node-end node)
-           (cons (cons 'commented-out #t) (node-fields node)))]))
+        (make-node (node-kind node) (node-value node)
+                   (node-start node) (node-end node)
+                   (cons (cons 'commented-out #t) (node-fields node)))]))
   (walk node))
 
 (define (read-datum-comment r)
@@ -610,7 +610,7 @@ to stay out and the formatter to copy it verbatim."
   (let ((start (reader-index r)))
     (when (eq? (reader-dialect r) 'elisp)
       (record-error! r start 'warning
-        "the #; datum comment is not Emacs Lisp syntax"))
+                     "the #; datum comment is not Emacs Lisp syntax"))
     (advance-by! r 2)
     (let loop ()
       (when (space-or-newline? (peek r))
@@ -621,16 +621,16 @@ to stay out and the formatter to copy it verbatim."
                    (child-end child)
                    (reader-index r))))
         (make-node 'prefix "#;"
-          (index->location r start)
-          (index->location r end)
-          (list (cons 'child (if (and child
-                                   (not (eq? child '*eof*)))
-                               (mark-commented-out child)
-                               #f))
-            (cons 'gap "")
-            (cons 'verbatim #t)
-            (cons 'raw (substring (reader-source r)
-                         start end))))))))
+                   (index->location r start)
+                   (index->location r end)
+                   (list (cons 'child (if (and child
+                                            (not (eq? child '*eof*)))
+                                        (mark-commented-out child)
+                                        #f))
+                         (cons 'gap "")
+                         (cons 'verbatim #t)
+                         (cons 'raw (substring (reader-source r)
+                                               start end))))))))
 
 (define (read-read-time-eval r)
   "\"#.\" is Common Lisp read-time evaluation: parsed, never evaluated, copied."
@@ -645,10 +645,10 @@ to stay out and the formatter to copy it verbatim."
                    (child-end child)
                    (reader-index r))))
         (span-node r 'opaque start end
-          (list (cons 'verbatim #t)
-            (cons 'child (if (and child
-                               (not (eq? child '*eof*)))
-                           child #f))))))))
+                   (list (cons 'verbatim #t)
+                         (cons 'child (if (and child
+                                            (not (eq? child '*eof*)))
+                                        child #f))))))))
 
 (define (read-unreadable r)
   "Read \"#<...>\" verbatim, tracking `<'-and-`>' nesting outside strings."
@@ -659,23 +659,23 @@ to stay out and the formatter to copy it verbatim."
         [(at-end? r)
          (record-error! r start 'error "unterminated #<...> object")
          (span-node r 'opaque start (reader-index r)
-           (list (cons 'verbatim #t)))]
+                    (list (cons 'verbatim #t)))]
         [else
-           (let ((c (peek r)))
-             (cond
-               [escaped? (advance! r) (loop depth in-string? #f)]
-               [(and in-string? (eqv? c #\\))
-                (advance! r) (loop depth #t #t)]
-               [(eqv? c #\") (advance! r) (loop depth (not in-string?) #f)]
-               [in-string? (advance! r) (loop depth #t #f)]
-               [(eqv? c #\<) (advance! r) (loop (+ depth 1) #f #f)]
-               [(eqv? c #\>)
-                (advance! r)
-                (if (= depth 1)
-                  (span-node r 'opaque start (reader-index r)
-                    (list (cons 'verbatim #t)))
-                  (loop (- depth 1) #f #f))]
-               [else (advance! r) (loop depth #f #f)]))]))))
+          (let ((c (peek r)))
+            (cond
+              [escaped? (advance! r) (loop depth in-string? #f)]
+              [(and in-string? (eqv? c #\\))
+               (advance! r) (loop depth #t #t)]
+              [(eqv? c #\") (advance! r) (loop depth (not in-string?) #f)]
+              [in-string? (advance! r) (loop depth #t #f)]
+              [(eqv? c #\<) (advance! r) (loop (+ depth 1) #f #f)]
+              [(eqv? c #\>)
+               (advance! r)
+               (if (= depth 1)
+                 (span-node r 'opaque start (reader-index r)
+                            (list (cons 'verbatim #t)))
+                 (loop (- depth 1) #f #f))]
+              [else (advance! r) (loop depth #f #f)]))]))))
 
 (define (read-conditional r)
   "Read \"#+feature form\" or \"#-feature form\" as one conditional node.
@@ -687,7 +687,7 @@ is still a form the author wrote."
          (token (if (eqv? (peek-at r 1) #\+) "#+" "#-")))
     (unless (eq? (reader-dialect r) 'cl)
       (record-error! r start 'warning
-        (format #f "~a conditionals are Common Lisp syntax" token)))
+                     (format #f "~a conditionals are Common Lisp syntax" token)))
     (advance-by! r 2)
     (let* ((gap-start (reader-index r)))
       (let loop ()
@@ -709,15 +709,15 @@ is still a form the author wrote."
                            (child-end feature)]
                           [else (reader-index r)])))
           (make-node 'conditional token
-            (index->location r start)
-            (index->location r end)
-            (list (cons 'feature (if (eq? feature '*eof*)
-                                   #f feature))
-              (cons 'guarded-form
-                (if (eq? guarded '*eof*)
-                  #f guarded))
-              (cons 'gap gap)
-              (cons 'gap2 gap2))))))))
+                     (index->location r start)
+                     (index->location r end)
+                     (list (cons 'feature (if (eq? feature '*eof*)
+                                            #f feature))
+                           (cons 'guarded-form
+                                 (if (eq? guarded '*eof*)
+                                   #f guarded))
+                           (cons 'gap gap)
+                           (cons 'gap2 gap2))))))))
 
 (define (read-hash r)
   (let ((start (reader-index r))
@@ -732,7 +732,7 @@ is still a form the author wrote."
       [(and (memv c '(#\u #\U)) (eqv? (peek-at r 2) #\8) (eqv? (peek-at r 3) #\())
        (when (eq? (reader-dialect r) 'elisp)
          (record-error! r start 'warning
-           "bytevectors are not Emacs Lisp syntax"))
+                        "bytevectors are not Emacs Lisp syntax"))
        (read-balanced r "#u8(")]
       [(and (memv c '(#\s #\S)) (eqv? (peek-at r 2) #\())
        (read-prefix r "#s")]
@@ -784,8 +784,8 @@ is still a form the author wrote."
 ;;; ===== Whole-file interface =====
 
 (define* (read-source #:key (dialect 'scheme) (file #f)
-           (port (current-input-port)) (source #f)
-           #:allow-other-keys)
+                      (port (current-input-port)) (source #f)
+                      #:allow-other-keys)
   "Read @var{source} (or all of @var{port}) and return the AST and the errors.
 
 Two values come back: a list of top-level nodes, each carrying its
@@ -815,8 +815,8 @@ read, and never abandons the rest of the file because one form is broken."
 (define* (read-source/file path #:key (dialect 'scheme))
   "Read the file at @var{path}."
   (read-source #:source (call-with-input-file path get-string-all)
-    #:dialect dialect
-    #:file path))
+               #:dialect dialect
+               #:file path))
 
 (define (ast->text ast)
   "Render @var{ast} back to source text, byte for byte.
@@ -853,8 +853,8 @@ The first 200 lines are searched, because a library's `define-module' or
 `in-package' appears before any code it describes, and a file that names
 its dialect that early has already told us what it is."
   (let* ((head (string-join (take (source-lines source) (min 200
-                                                          (length (source-lines source))))
-                 "\n"))
+                                                             (length (source-lines source))))
+                            "\n"))
          (trimmed (string-trim-both head)))
     (cond
       [(string-contains head "lexical-binding: t") 'elisp]

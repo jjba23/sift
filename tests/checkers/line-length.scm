@@ -24,18 +24,18 @@
 
     (test "reports a line over the Scheme limit"
       (assert-warnings #:source (string-append "(" (make-string 120 #\x) ")\n")
-        #:checker 'line-length #:expect '((1 101))))
+                       #:checker 'line-length #:expect '((1 101))))
 
     (test "reports a line over the Emacs Lisp limit, which is 80"
       (assert-warnings #:source (string-append "(" (make-string 90 #\x) ")\n")
-        #:checker 'line-length #:dialect 'elisp
-        #:expect '((1 81))))
+                       #:checker 'line-length #:dialect 'elisp
+                       #:expect '((1 81))))
 
     (test "accepts a short line"
       (assert-warnings #:source "(define x 1)\n" #:checker 'line-length
-        #:expect '()))
+                       #:expect '()))
 
     (test "the limit can be configured"
       (assert-warnings #:source "(define x 1)\n" #:checker 'line-length
-        #:options '((line-length . 5))
-        #:expect '((1 6))))))
+                       #:options '((line-length . 5))
+                       #:expect '((1 6))))))

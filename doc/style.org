@@ -64,7 +64,27 @@ standard's examples show, and what every Lisp I have read for thirty years
 does.  Four columns make a nested form run off the right edge; one column
 is not a step at all.
 
-The one exception is a *data list* — a binding list, a vector, a quoted
+The exception is a form whose operator has arguments on its own line: those
+arguments line up under the first one, because they are a column of arguments
+and not a body.
+
+#+begin_src scheme
+(list (car x)
+      (cdr x))
+
+(make-window title
+             :width 10
+             :height 20)
+#+end_src
+
+*Why?*  It is what every Lisp editor does with a call, it is what Emacs does
+by default, and it keeps a list of arguments readable however long the
+operator is — `(with-something-long ...)` does not push its arguments six
+columns in, it puts them where the first one is.  An operator alone on its
+line has nothing to line up under, so what follows it goes one column in from
+the opener.
+
+The same exception covers a *data list* — a binding list, a vector, a quoted
 structure — whose elements line up under the first element:
 
 #+begin_src scheme
@@ -75,6 +95,19 @@ structure — whose elements line up under the first element:
 
 *Why?*  Those elements are not a body; they are a column of things, and a
 column is easier to scan when it is aligned.
+
+A *clause* is the exception to the exception.  The clause of a `cond`,
+`case`, `handler-case` or `condition-case` is a condition and a body, so its
+body indents two columns even when its condition is a plain symbol:
+
+#+begin_src scheme
+(cond [else
+        (fallback)])
+
+(handler-case (run)
+  (error (e)
+    (report e)))
+#+end_src
 
 ** One blank line between top-level forms
 :PROPERTIES:
@@ -97,9 +130,9 @@ blank lines mean the same as one, at four times the cost.
 #+begin_src scheme
 (define (f x)
   (if (null? x)
-      '()
-      (cons (car x)
-            (f (cdr x)))))
+    '()
+    (cons (car x)
+          (f (cdr x)))))
 #+end_src
 
 The alternative, `--style=dangling`, puts each closer on its own line,
@@ -108,10 +141,10 @@ aligned with its opener:
 #+begin_src scheme
 (define (f x)
   (if (null? x)
-      '()
-      (cons (car x)
-            (f (cdr x))
-      )
+    '()
+    (cons (car x)
+          (f (cdr x))
+    )
   )
 )
 #+end_src

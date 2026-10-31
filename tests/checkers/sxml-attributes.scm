@@ -22,29 +22,29 @@
 
     (test "accepts an element whose attributes come first"
       (assert-warnings #:source "(div (@ (class \"x\")) (p \"a\"))\n"
-        #:checker 'sxml-attributes
-        #:expect '()))
+                       #:checker 'sxml-attributes
+                       #:expect '()))
 
     (test "accepts an element with no attributes at all"
       (assert-warnings #:source "(div (p \"a\"))\n" #:checker 'sxml-attributes
-        #:expect '()))
+                       #:expect '()))
 
     (test "reports attributes that come after a child"
       (assert-warnings #:source "(div (p \"a\") (@ (class \"x\")))\n"
-        #:checker 'sxml-attributes
-        #:expect '((1 14))))
+                       #:checker 'sxml-attributes
+                       #:expect '((1 14))))
 
     (test "reports a second attribute list"
       (assert-warnings #:source "(div (@ (class \"x\")) (@ (id \"y\")))\n"
-        #:checker 'sxml-attributes
-        #:expect '((1 22))))
+                       #:checker 'sxml-attributes
+                       #:expect '((1 22))))
 
     (test "reports an empty attribute list"
       (assert-warnings #:source "(div (@) (p \"a\"))\n" #:checker 'sxml-attributes
-        #:expect '((1 6))))
+                       #:expect '((1 6))))
 
     (test "accepts a document of nested elements"
       (assert-warnings
-         #:source "(ul (@ (id \"x\"))\n    (li (@ (class \"a\")) \"one\")\n    (li \"two\"))\n"
-         #:checker 'sxml-attributes
-         #:expect '()))))
+       #:source "(ul (@ (id \"x\"))\n    (li (@ (class \"a\")) \"one\")\n    (li \"two\"))\n"
+       #:checker 'sxml-attributes
+       #:expect '()))))

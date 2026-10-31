@@ -33,26 +33,26 @@
 
     (test "reports a body form that nests too deeply"
       (assert-warnings #:source deep-source #:checker 'wrap-in-let
-        #:options '((max-depth . 4)) #:expect '((2 3))))
+                       #:options '((max-depth . 4)) #:expect '((2 3))))
 
     (test "reports a body form with too many elements"
       (assert-warnings #:source wide-source #:checker 'wrap-in-let
-        #:options '((max-elements . 12)) #:expect '((2 3))))
+                       #:options '((max-elements . 12)) #:expect '((2 3))))
 
     (test "accepts a body form that is already split up"
       (assert-warnings #:source "(define (f x)\n  (let ((y (cdr x)))\n    (list (car y))))\n"
-        #:checker 'wrap-in-let #:expect '()))
+                       #:checker 'wrap-in-let #:expect '()))
 
     (test "the depth limit is configuration"
       (assert-warnings #:source deep-source #:checker 'wrap-in-let
-        #:options '((max-depth . 8)) #:expect '()))
+                       #:options '((max-depth . 8)) #:expect '()))
 
     (test "the element limit is configuration"
       (assert-warnings #:source wide-source #:checker 'wrap-in-let
-        #:options '((max-elements . 40)) #:expect '()))
+                       #:options '((max-elements . 40)) #:expect '()))
 
     (test "there is no automatic fix"
       (assert-equal #:expect #f
         #:got (lint-warning-fix
-                 (car (warnings-of deep-source #:checker 'wrap-in-let
-                        #:options '((max-depth . 4)))))))))
+               (car (warnings-of deep-source #:checker 'wrap-in-let
+                                 #:options '((max-depth . 4)))))))))

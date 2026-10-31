@@ -49,8 +49,8 @@
       ;; a string atom keeps its quotes: the reader never decodes an escape,
       ;; so what comes back is the text the author typed
       (assert-equal #:expect '((defun add (a b)
-                                 "\"Add A and B.\""
-                                 (+ a b)))
+                                      "\"Add A and B.\""
+                                      (+ a b)))
         #:got (read-elisp "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))")))
 
     (test "vectors are read as vectors"
@@ -64,25 +64,25 @@
       (assert-equal #:expect '((1 1 block))
         #:got (errors-elisp "#| not elisp |# x"))
       (assert-same-text #:expect "#| not elisp |# x"
-        #:got (round-trip "#| not elisp |# x")))
+                        #:got (round-trip "#| not elisp |# x")))
 
     (test "a datum comment is reported, and still kept"
       (assert-equal #:expect '((1 1 the))
         #:got (errors-elisp "#;foo bar"))
       (assert-same-text #:expect "#;foo bar"
-        #:got (round-trip "#;foo bar")))
+                        #:got (round-trip "#;foo bar")))
 
     (test "the lexical-binding header is an ordinary comment"
       (assert-same-text #:expect ";;; foo.el --- a package -*- lexical-binding: t; -*-\n"
-        #:got (round-trip ";;; foo.el --- a package -*- lexical-binding: t; -*-\n")))
+                        #:got (round-trip ";;; foo.el --- a package -*- lexical-binding: t; -*-\n")))
 
     (test "a shebang line is kept"
       (assert-same-text #:expect "#!/usr/bin/env emacs --script\n(message \"hi\")\n"
-        #:got (round-trip "#!/usr/bin/env emacs --script\n(message \"hi\")\n")))
+                        #:got (round-trip "#!/usr/bin/env emacs --script\n(message \"hi\")\n")))
 
     (test "docstrings with escapes are not respelled"
       (assert-same-text #:expect "(defun f ()\n  \"Say \\\"hi\\\".\"\n  nil)"
-        #:got (round-trip "(defun f ()\n  \"Say \\\"hi\\\".\"\n  nil)")))
+                        #:got (round-trip "(defun f ()\n  \"Say \\\"hi\\\".\"\n  nil)")))
 
     (test "the dialect is detected from the extension"
       (assert-equal #:expect 'elisp

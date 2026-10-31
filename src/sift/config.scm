@@ -37,30 +37,30 @@
   #:use-module (sift format)
   #:use-module (sift yaml)
   #:export (<config>
-              make-config
-              config?
-              config-values
-              config-provenance
-              config-ref
-              config-set
-              config->alist
-              config-provenance->alist
-              config-defaults
-              config-keys
-              config-key-documented?
-              load-config-file
-              discover-config-files
-              load-config
-              config-cli-overrides
-              config-show
-              config-explain
-              trust-config-file!
-              trusted-config-file?
-              scheme-config?
-              config-error?
-              config-error->string
-              with-config-error-handler
-              effective-options))
+            make-config
+            config?
+            config-values
+            config-provenance
+            config-ref
+            config-set
+            config->alist
+            config-provenance->alist
+            config-defaults
+            config-keys
+            config-key-documented?
+            load-config-file
+            discover-config-files
+            load-config
+            config-cli-overrides
+            config-show
+            config-explain
+            trust-config-file!
+            trusted-config-file?
+            scheme-config?
+            config-error?
+            config-error->string
+            with-config-error-handler
+            effective-options))
 
 ;;; ===== The record =====
 
@@ -85,24 +85,24 @@
 The new value replaces any earlier one for the same key, so the alist holds
 one entry per key and `config-ref' always answers with the winning layer."
   (make-config (acons key value
-                 (filter (lambda (entry) (not (eq? (car entry) key)))
-                   (config-values config)))
-    (acons key provenance
-      (filter (lambda (entry) (not (eq? (car entry) key)))
-        (config-provenance config)))))
+                      (filter (lambda (entry) (not (eq? (car entry) key)))
+                              (config-values config)))
+               (acons key provenance
+                      (filter (lambda (entry) (not (eq? (car entry) key)))
+                              (config-provenance config)))))
 
 (define (config->alist config)
   "Return the effective settings in schema order, one entry per key."
   (map (lambda (entry) (cons (car entry) (config-ref config (car entry))))
-    config-keys))
+       config-keys))
 
 (define* (config-provenance->alist config)
   "Return where each effective setting came from, in schema order."
   (map (lambda (entry)
          (cons (car entry) (or (assq-ref (config-provenance config)
-                                 (car entry))
+                                         (car entry))
                              "default")))
-    config-keys))
+       config-keys))
 
 ;;; ===== The schema =====
 ;;;
@@ -111,112 +111,112 @@ one entry per key and `config-ref' always answers with the winning layer."
 
 (define config-keys
   '((dialect
-       (type . dialect)
-       (default . #f)
-       (flag . "--dialect")
-       (description . "Dialect to read the file as: scheme, elisp or cl."))
+     (type . dialect)
+     (default . #f)
+     (flag . "--dialect")
+     (description . "Dialect to read the file as: scheme, elisp or cl."))
     (style
-       (type . style)
-       (default . community)
-       (flag . "--style")
-       (description . "Formatting style: community or dangling."))
+     (type . style)
+     (default . community)
+     (flag . "--style")
+     (description . "Formatting style: community or dangling."))
     (line-length
-       (type . integer)
-       (default . #f)
-       (flag . "--line-length")
-       (description . "Soft line limit; #f means 100, or 80 for Emacs Lisp."))
+     (type . integer)
+     (default . #f)
+     (flag . "--line-length")
+     (description . "Soft line limit; #f means 100, or 80 for Emacs Lisp."))
     (indent
-       (type . integer)
-       (default . 2)
-       (flag . "--indent")
-       (description . "Indentation width in columns."))
+     (type . integer)
+     (default . 2)
+     (flag . "--indent")
+     (description . "Indentation width in columns."))
     (indent-rules
-       (type . rules)
-       (default . ())
-       (flag . #f)
-       (description . "Indentation for a project's own macros: (symbol . columns) pairs."))
+     (type . rules)
+     (default . ())
+     (flag . #f)
+     (description . "Indentation for a project's own macros: (symbol . columns) pairs."))
     (brackets
-       (type . brackets)
-       (default . #f)
-       (flag . "--brackets")
-       (description . "Bracket style for clause lists: square, parens or preserve."))
+     (type . brackets)
+     (default . #f)
+     (flag . "--brackets")
+     (description . "Bracket style for clause lists: square, parens or preserve."))
     (max-depth
-       (type . integer)
-       (default . 6)
-       (flag . #f)
-       (description . "Depth at which wrap-in-let suggests a binding. Config-only."))
+     (type . integer)
+     (default . 6)
+     (flag . #f)
+     (description . "Depth at which wrap-in-let suggests a binding. Config-only."))
     (max-elements
-       (type . integer)
-       (default . 20)
-       (flag . #f)
-       (description . "Size at which wrap-in-let suggests a binding. Config-only."))
+     (type . integer)
+     (default . 20)
+     (flag . #f)
+     (description . "Size at which wrap-in-let suggests a binding. Config-only."))
     (max-definition-depth
-       (type . integer)
-       (default . 6)
-       (flag . #f)
-       (description . "Conditionals deep at which nesting-depth warns. Config-only."))
+     (type . integer)
+     (default . 6)
+     (flag . #f)
+     (description . "Conditionals deep at which nesting-depth warns. Config-only."))
     (max-positional
-       (type . integer)
-       (default . 5)
-       (flag . #f)
-       (description . "Positional arguments before keyword-arguments suggests :key. Config-only."))
+     (type . integer)
+     (default . 5)
+     (flag . #f)
+     (description . "Positional arguments before keyword-arguments suggests :key. Config-only."))
     (comment-align
-       (type . boolean)
-       (default . #f)
-       (flag . "--comment-align")
-       (description . "Align inline comments in contiguous runs."))
+     (type . boolean)
+     (default . #f)
+     (flag . "--comment-align")
+     (description . "Align inline comments in contiguous runs."))
     (checkers
-       (type . names)
-       (default . #f)
-       (flag . "--checker")
-       (description . "The checkers to run, or #f for every applicable one."))
+     (type . names)
+     (default . #f)
+     (flag . "--checker")
+     (description . "The checkers to run, or #f for every applicable one."))
     (exclude-checkers
-       (type . names)
-       (default . ())
-       (flag . "--exclude-checker")
-       (description . "Checkers to skip."))
+     (type . names)
+     (default . ())
+     (flag . "--exclude-checker")
+     (description . "Checkers to skip."))
     (severity
-       (type . severity)
-       (default . info)
-       (flag . "--severity")
-       (description . "Minimum severity to report: error, warning or info."))
+     (type . severity)
+     (default . info)
+     (flag . "--severity")
+     (description . "Minimum severity to report: error, warning or info."))
     (format
-       (type . output-format)
-       (default . human)
-       (flag . "--format")
-       (description . "Output format: human, json or null."))
+     (type . output-format)
+     (default . human)
+     (flag . "--format")
+     (description . "Output format: human, json or null."))
     (color
-       (type . color)
-       (default . auto)
-       (flag . "--no-color")
-       (description . "Colour output: auto (a terminal, without NO_COLOR), always or never."))
+     (type . color)
+     (default . auto)
+     (flag . "--no-color")
+     (description . "Colour output: auto (a terminal, without NO_COLOR), always or never."))
     (quiet
-       (type . boolean)
-       (default . #f)
-       (flag . "--quiet")
-       (description . "Suppress the summary line."))
+     (type . boolean)
+     (default . #f)
+     (flag . "--quiet")
+     (description . "Suppress the summary line."))
     (verbose
-       (type . boolean)
-       (default . #f)
-       (flag . "--verbose")
-       (description . "Print per-file processing details."))
+     (type . boolean)
+     (default . #f)
+     (flag . "--verbose")
+     (description . "Print per-file processing details."))
     (force
       (type . boolean)
       (default . #f)
       (flag . "--force")
       (description . "Format a file that has parse errors, leaving the broken part verbatim."))
     (loop-keywords
-       (type . loop-style)
-       (default . either)
-       (flag . #f)
-       (description . "LOOP keyword style: either, literal or symbolic. Config-only."))))
+     (type . loop-style)
+     (default . either)
+     (flag . #f)
+     (description . "LOOP keyword style: either, literal or symbolic. Config-only."))))
 
 (define (config-defaults)
   "Return the default configuration as a <config>."
   (make-config (map (lambda (entry) (cons (car entry) (assq-ref (cdr entry) 'default)))
-                 config-keys)
-    (map (lambda (entry) (cons (car entry) "default"))
-      config-keys)))
+                    config-keys)
+               (map (lambda (entry) (cons (car entry) "default"))
+                    config-keys)))
 
 (define (config-key-documented? key)
   (and (assq key config-keys) #t))
@@ -249,12 +249,12 @@ validator; the caller reports both the same way."
   (cond
     [(yaml-error? error)
      (format #f "~a:~a:~a: ~a"
-       (yaml-error-path error) (yaml-error-line error)
-       (yaml-error-column error) (yaml-error-message error))]
+             (yaml-error-path error) (yaml-error-line error)
+             (yaml-error-column error) (yaml-error-message error))]
     [(config-error-object? error)
      (format #f "~a:~a:~a: ~a"
-       (config-error-path error) (config-error-line error)
-       (config-error-column error) (config-error-message error))]
+             (config-error-path error) (config-error-line error)
+             (config-error-column error) (config-error-message error))]
     [else (format #f "~a" error)]))
 
 (define* (with-config-error-handler thunk #:key (port (current-error-port)))
@@ -263,10 +263,10 @@ validator; the caller reports both the same way."
 The caller decides the exit status; a malformed configuration is a usage
 error, and every caller treats it as one."
   (catch 'sift-config-error
-    thunk
-    (lambda (key object)
-      (format port "sift: ~a~%" (config-error->string object))
-      #f)))
+         thunk
+         (lambda (key object)
+           (format port "sift: ~a~%" (config-error->string object))
+           #f)))
 
 (define (names-setting value bad)
   "Return @var{value} as a list of symbols, or raise a configuration error.
@@ -278,15 +278,15 @@ would be the wrong thing to say to a user who typed `--checker=a'."
     [(not value) '()]
     [(or (string? value) (symbol? value))
      (map string->symbol
-       (filter (lambda (part) (not (string-null? part)))
-         (string-split (if (symbol? value) (symbol->string value) value)
-           #\,)))]
+          (filter (lambda (part) (not (string-null? part)))
+                  (string-split (if (symbol? value) (symbol->string value) value)
+                                #\,)))]
     [(list? value)
      (map (lambda (item)
             (cond [(symbol? item) item]
                   [(string? item) (string->symbol item)]
                   [else (bad "a list of checker names")]))
-       value)]
+          value)]
     [else (bad "a list of checker names")]))
 
 (define (dialect-setting value bad)
@@ -356,7 +356,7 @@ setting that does not exist."
       [else #f]))
   (define (as-symbol pair)
     (cons (if (symbol? (car pair)) (car pair) (string->symbol (car pair)))
-      (cdr pair)))
+          (cdr pair)))
   (let ((pairs (and (list? value) (map as-pair value))))
     (if (and pairs (every identity pairs))
       (map as-symbol pairs)
@@ -385,12 +385,12 @@ setting that does not exist."
   "Return @var{value} in its canonical form, or raise a configuration error."
   (define (bad expected)
     (raise-config-error path line column
-      (format #f "~a must be ~a, got ~s" key expected value)))
+                        (format #f "~a must be ~a, got ~s" key expected value)))
   (unless (config-key-documented? key)
     (raise-config-error path line column
-      (format #f "unknown configuration key `~a'" key)))
+                        (format #f "unknown configuration key `~a'" key)))
   (let ((validator (assq-ref setting-validators
-                     (assq-ref (config-key-doc key) 'type))))
+                             (assq-ref (config-key-doc key) 'type))))
     (if validator (validator value bad) value)))
 
 ;;; ===== Loading =====
@@ -407,19 +407,19 @@ setting is reported where the user can see it."
          (root (yaml->nodes source #:path path)))
     (unless (eq? (vector-ref root 0) 'mapping)
       (raise-config-error path (node-line-of root) 1
-        "a configuration file must be a mapping of keys to values"))
+                          "a configuration file must be a mapping of keys to values"))
     (map (lambda (entry)
            (let* ((key-name (car entry))
                   (node (cdr entry))
                   (key (string->symbol key-name)))
              (unless (memq (vector-ref node 0) '(scalar sequence))
                (raise-config-error path (node-line-of node) (node-column-of node)
-                 (format #f "~a must be a scalar or a list" key)))
+                                   (format #f "~a must be a scalar or a list" key)))
              (cons key (validate-setting key (node->value node)
-                         #:path path
-                         #:line (node-line-of node)
-                         #:column (node-column-of node)))))
-      (vector-ref root 1))))
+                                         #:path path
+                                         #:line (node-line-of node)
+                                         #:column (node-column-of node)))))
+         (vector-ref root 1))))
 
 (define (node-line-of node) (vector-ref node 2))
 (define (node-column-of node) (vector-ref node 3))
@@ -447,15 +447,15 @@ they trusted it."
          (result (apply eval-string (list source #:filename path))))
     (unless (and (list? result) (every pair? result))
       (raise-config-error path 1 1
-        (format #f "~a must evaluate to an alist of settings" path)))
+                          (format #f "~a must evaluate to an alist of settings" path)))
     (map (lambda (entry)
            (let ((key (cond [(symbol? (car entry)) (car entry)]
                             [(string? (car entry)) (string->symbol (car entry))]
                             [else (raise-config-error path 1 1
-                                    "a setting name must be a symbol")])))
+                                                      "a setting name must be a symbol")])))
              (cons key (validate-setting key (cdr entry)
-                         #:path path #:line 1 #:column 1))))
-      result)))
+                                         #:path path #:line 1 #:column 1))))
+         result)))
 
 (define (scheme-config? path)
   (string-suffix? ".scm" path))
@@ -467,9 +467,9 @@ they trusted it."
   (unless (or (file-exists? path) (string=? path "/") (string-null? path))
     (make-directories (dirname path))
     (catch 'system-error
-      (lambda () (mkdir path))
-      (lambda (key . args)
-        (unless (file-exists? path) (apply throw key args))))))
+           (lambda () (mkdir path))
+           (lambda (key . args)
+             (unless (file-exists? path) (apply throw key args))))))
 
 (define (user-config-directory)
   (or (getenv "XDG_CONFIG_HOME")
@@ -483,8 +483,8 @@ they trusted it."
   (let ((path (trust-file-path)))
     (if (file-exists? path)
       (filter (lambda (line) (not (string-null? line)))
-        (map string-trim-both
-          (string-split (read-file path) #\newline)))
+              (map string-trim-both
+                   (string-split (read-file path) #\newline)))
       '())))
 
 (define* (trusted-config-file? path #:key (explicit #f))
@@ -513,9 +513,9 @@ writes.  A YAML file is always trusted, because reading data runs nothing."
       (let ((target (trust-file-path)))
         (make-directories (dirname target))
         (call-with-output-file target
-          (lambda (out)
-            (for-each (lambda (line) (display line out) (newline out))
-              (cons directory known))))))
+                               (lambda (out)
+                                 (for-each (lambda (line) (display line out) (newline out))
+                                           (cons directory known))))))
     (format port "trusted ~a~%" directory)))
 
 ;;; ===== Loading a file =====
@@ -529,10 +529,10 @@ files that do."
     (if (trusted-config-file? path #:explicit explicit)
       (load-scheme-config path)
       (raise-config-error path 1 1
-        (string-append
-           (format #f "~a is a Scheme config file, which runs code, " path)
-           (format #f "and it is not trusted; run `sift config trust ~a'"
-             path))))
+                          (string-append
+                           (format #f "~a is a Scheme config file, which runs code, " path)
+                           (format #f "and it is not trusted; run `sift config trust ~a'"
+                                   path))))
     (load-yaml-config path)))
 
 ;;; ===== Discovery =====
@@ -544,7 +544,7 @@ files that do."
 (define (existing-config-in directory)
   (let ((name (find (lambda (name)
                       (file-exists? (string-append directory "/" name)))
-                config-file-names)))
+                    config-file-names)))
     (and name (string-append directory "/" name))))
 
 (define (parent-directory directory)
@@ -571,30 +571,30 @@ The project file is the nearest one walking up from @var{cwd}, and the walk
 stops at the repository root: a `sift.yaml' in the parent of a checkout
 belongs to a different project and must not be applied to this one."
   (let* ((system (find (lambda (path) (file-exists? path))
-                   '("/etc/sift/config.yaml" "/etc/sift/config.yml"
-                     "/etc/sift/config.scm")))
+                       '("/etc/sift/config.yaml" "/etc/sift/config.yml"
+                         "/etc/sift/config.scm")))
          (user (existing-config-in
-                  (string-append (user-config-directory) "/sift")))
+                (string-append (user-config-directory) "/sift")))
          (root (repository-root cwd))
          (project
-            (let loop ((directory (string-trim-right cwd #\/)))
-              (cond
-                [(not directory) #f]
-                [(string-null? directory) #f]
-                ;; `=>' keeps the value the test produced without giving the
-                ;; clause a body that would just be the test again
-                [(existing-config-in directory) => identity]
-                [(and root (string=? directory root)) #f]
-                [else (loop (parent-directory directory))]))))
+          (let loop ((directory (string-trim-right cwd #\/)))
+            (cond
+              [(not directory) #f]
+              [(string-null? directory) #f]
+              ;; `=>' keeps the value the test produced without giving the
+              ;; clause a body that would just be the test again
+              [(existing-config-in directory) => identity]
+              [(and root (string=? directory root)) #f]
+              [else (loop (parent-directory directory))]))))
     (filter identity
-      (list (and system (cons 'system system))
-        (and user (cons 'user user))
-        (and project (cons 'project project))))))
+            (list (and system (cons 'system system))
+                  (and user (cons 'user user))
+                  (and project (cons 'project project))))))
 
 ;;; ===== Merging =====
 
 (define* (load-config #:key (cwd (getcwd)) (cli '()) (config-file #f)
-           (trust #f))
+                      (trust #f))
   "Return the effective <config>, and the layers it was built from.
 
 @var{cli} is an alist of options given on the command line; those win over
@@ -606,32 +606,32 @@ is what a caller who says `--config' means."
          (config (config-defaults))
          (loaded '()))
     (for-each
-       (lambda (layer)
-         (let* ((kind (car layer))
-                (path (cdr layer))
-                (settings (load-config-file path
-                            #:explicit (memq kind
-                                         '(explicit)))))
-           (set! loaded (append loaded (list (cons kind path))))
-           (for-each (lambda (setting)
-                       (set! config
-                         (config-set config (car setting) (cdr setting)
-                           path)))
-             settings)))
-       layers)
+     (lambda (layer)
+       (let* ((kind (car layer))
+              (path (cdr layer))
+              (settings (load-config-file path
+                                          #:explicit (memq kind
+                                                           '(explicit)))))
+         (set! loaded (append loaded (list (cons kind path))))
+         (for-each (lambda (setting)
+                     (set! config
+                           (config-set config (car setting) (cdr setting)
+                                       path)))
+                   settings)))
+     layers)
     (for-each (lambda (setting)
                 (set! config
-                  (config-set config (car setting) (cdr setting)
-                    (format #f "command line (~a)"
-                      (or (assq-ref (config-key-doc (car setting)) 'flag)
-                        "option")))))
-      cli)
+                      (config-set config (car setting) (cdr setting)
+                                  (format #f "command line (~a)"
+                                          (or (assq-ref (config-key-doc (car setting)) 'flag)
+                                            "option")))))
+              cli)
     (values config loaded)))
 
 ;;; ===== Showing =====
 
 (define* (config-show config #:key (output-format 'yaml) (source? #f)
-           (port (current-output-port)))
+                      (port (current-output-port)))
   "Write the effective configuration in @var{format}, with provenance.
 
 With @var{source?}, every value is followed by where it came from, which is
@@ -641,37 +641,37 @@ expect."
     [(scheme)
      (display "(\n" port)
      (for-each
-        (lambda (entry)
-          (let ((key (car entry)) (value (cdr entry)))
-            (format port "  (~a . ~s)" key value)
-            (if source?
-              (format port "  ; ~a~%"
-                (assq-ref (config-provenance->alist config) key))
-              (newline port))))
-        (config->alist config))
+      (lambda (entry)
+        (let ((key (car entry)) (value (cdr entry)))
+          (format port "  (~a . ~s)" key value)
+          (if source?
+            (format port "  ; ~a~%"
+                    (assq-ref (config-provenance->alist config) key))
+            (newline port))))
+      (config->alist config))
      (display ")\n" port)]
     [else
-       (for-each
-          (lambda (entry)
-            (let ((key (car entry)) (value (cdr entry)))
-              (format port "~a: " key)
-              (cond [(eq? value #t) (display "true" port)]
-                    [(eq? value #f) (display "false" port)]
-                    [(null? value) (display "[]" port)]
-                    [(list? value)
-                     (format port "[~a]" (string-join (map (lambda (item)
-                                                             (format #f "~a" item))
+      (for-each
+       (lambda (entry)
+         (let ((key (car entry)) (value (cdr entry)))
+           (format port "~a: " key)
+           (cond [(eq? value #t) (display "true" port)]
+                 [(eq? value #f) (display "false" port)]
+                 [(null? value) (display "[]" port)]
+                 [(list? value)
+                  (format port "[~a]" (string-join (map (lambda (item)
+                                                          (format #f "~a" item))
                                                         value)
-                                           ", "))]
-                    [else (format port "~a" value)])
-              (when source?
-                (format port "   # ~a"
-                  (assq-ref (config-provenance->alist config) key)))
-              (newline port)))
-          (config->alist config))
-       (when source?
-         (newline port)
-         (format port "# provenance: defaults < system < user < project < command line~%"))]))
+                                                   ", "))]
+                 [else (format port "~a" value)])
+           (when source?
+             (format port "   # ~a"
+                     (assq-ref (config-provenance->alist config) key)))
+           (newline port)))
+       (config->alist config))
+      (when source?
+        (newline port)
+        (format port "# provenance: defaults < system < user < project < command line~%"))]))
 
 (define* (config-explain key #:key (port (current-output-port)))
   "Explain one configuration key: what it does, its default and its flag."
@@ -684,17 +684,17 @@ expect."
         (format port "  type:    ~a~%" (assq-ref doc 'type))
         (format port "  default: ~s~%" (assq-ref doc 'default))
         (format port "  flag:    ~a~%"
-          (or (assq-ref doc 'flag) "none (config-only)"))
+                (or (assq-ref doc 'flag) "none (config-only)"))
         #t))))
 
 (define* (effective-options config)
   "Return the alist the checkers and the formatter read their knobs from."
   (list (cons 'line-length (config-ref config 'line-length))
-    (cons 'indent (config-ref config 'indent))
-    (cons 'loop-keywords (config-ref config 'loop-keywords))
-    (cons 'indent-rules (config-ref config 'indent-rules))
-    (cons 'brackets (config-ref config 'brackets))
-    (cons 'max-depth (config-ref config 'max-depth))
-    (cons 'max-elements (config-ref config 'max-elements))
-    (cons 'max-positional (config-ref config 'max-positional))
-    (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
+        (cons 'indent (config-ref config 'indent))
+        (cons 'loop-keywords (config-ref config 'loop-keywords))
+        (cons 'indent-rules (config-ref config 'indent-rules))
+        (cons 'brackets (config-ref config 'brackets))
+        (cons 'max-depth (config-ref config 'max-depth))
+        (cons 'max-elements (config-ref config 'max-elements))
+        (cons 'max-positional (config-ref config 'max-positional))
+        (cons 'max-definition-depth (config-ref config 'max-definition-depth))))

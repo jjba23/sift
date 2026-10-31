@@ -22,22 +22,22 @@
 
     (test "reports each argument the docstring does not mention"
       (assert-warnings #:source "(defun add (a b)\n  \"Add two numbers.\"\n  (+ a b))\n"
-        #:dialect 'elisp #:checker 'docstring-arguments
-        #:expect '((2 3) (2 3))))
+                       #:dialect 'elisp #:checker 'docstring-arguments
+                       #:expect '((2 3) (2 3))))
 
     (test "accepts a docstring that names its arguments"
       (assert-warnings #:source "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))\n"
-        #:dialect 'elisp #:checker 'docstring-arguments #:expect '()))
+                       #:dialect 'elisp #:checker 'docstring-arguments #:expect '()))
 
     (test "accepts any spelling of the name"
       (assert-warnings #:source "(defun add (a b)\n  \"Add a and b.\"\n  (+ a b))\n"
-        #:dialect 'elisp #:checker 'docstring-arguments #:expect '()))
+                       #:dialect 'elisp #:checker 'docstring-arguments #:expect '()))
 
     (test "looks through optional and rest arguments"
       (assert-warnings
-         #:source "(defun go (a &optional b &rest rest)\n  \"Go with A and B.\"\n  nil)\n"
-         #:dialect 'elisp #:checker 'docstring-arguments #:expect '((2 3))))
+       #:source "(defun go (a &optional b &rest rest)\n  \"Go with A and B.\"\n  nil)\n"
+       #:dialect 'elisp #:checker 'docstring-arguments #:expect '((2 3))))
 
     (test "says nothing about a defun with no docstring"
       (assert-warnings #:source "(defun add (a b) (+ a b))\n" #:dialect 'elisp
-        #:checker 'docstring-arguments #:expect '()))))
+                       #:checker 'docstring-arguments #:expect '()))))

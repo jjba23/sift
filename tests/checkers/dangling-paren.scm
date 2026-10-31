@@ -24,16 +24,16 @@
 
     (test "reports a closer that starts a line"
       (assert-warnings #:source "(defun f (x)\n  x\n  )\n" #:dialect 'cl
-        #:checker 'dangling-paren #:expect '((3 3))))
+                       #:checker 'dangling-paren #:expect '((3 3))))
 
     (test "accepts a closer that trails the last element"
       (assert-warnings #:source "(defun f (x)\n  x)\n" #:dialect 'cl
-        #:checker 'dangling-paren #:expect '()))
+                       #:checker 'dangling-paren #:expect '()))
 
     (test "the fix pulls the closer onto the previous line"
       (assert-fix #:source "(defun f (x)\n  x\n  )\n" #:dialect 'cl
-        #:checker 'dangling-paren #:expected "(defun f (x)\n  x)\n"))
+                  #:checker 'dangling-paren #:expected "(defun f (x)\n  x)\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(defun f (x)\n  x\n  )\n"
-        #:dialect 'cl #:checker 'dangling-paren))))
+                               #:dialect 'cl #:checker 'dangling-paren))))

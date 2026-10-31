@@ -31,19 +31,19 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:export (json-read
-              json-write
-              json-object
-              json-object?
-              json-fields
-              json-ref
-              json-ref-path
-              json-get
-              json-array?
-              json-null?
-              json-null
-              json-true
-              json-false
-              json-number->string))
+            json-write
+            json-object
+            json-object?
+            json-fields
+            json-ref
+            json-ref-path
+            json-get
+            json-array?
+            json-null?
+            json-null
+            json-true
+            json-false
+            json-number->string))
 
 ;;; ===== The values =====
 
@@ -165,7 +165,7 @@ so that the caller can say where the bad message came from."
          value]
         [(and (< (input-index in) (string-length (input-text in)))
            (char=? (string-ref (input-text in) (input-index in))
-             (string-ref expected i)))
+                   (string-ref expected i)))
          (advance! in)
          (loop (+ i 1))]
         [else (fail! in "json" (format #f "expected ~a at ~a" expected start))]))))
@@ -210,9 +210,9 @@ so that the caller can say where the bad message came from."
                 (let ((low (begin (advance! in) (read-hex4 in))))
                   (if (and (>= low #xdc00) (<= low #xdfff))
                     (integer->char
-                       (+ #x10000
-                         (* (- code #xd800) #x400)
-                         (- low #xdc00)))
+                     (+ #x10000
+                        (* (- code #xd800) #x400)
+                        (- low #xdc00)))
                     #\xfffd))
                 (begin (set-input-index! in save) #\xfffd)))]
            [(and (>= code #xdc00) (<= code #xdfff)) #\xfffd]
@@ -305,8 +305,8 @@ so that the caller can say where the bad message came from."
                (advance! in)
                (cons json-object-tag (reverse (cons (cons name value) fields)))]
               [else
-                 (fail! in "json"
-                   "an object needs a comma or a closing brace")])))))))
+                (fail! in "json"
+                       "an object needs a comma or a closing brace")])))))))
 
 (define (fail! in path message)
   "Raise a JSON error at the reader's position, naming @var{path}."
@@ -315,7 +315,7 @@ so that the caller can say where the bad message came from."
          (before (substring text 0 (min index (string-length text))))
          (newline (string-rindex before #\newline))
          (line (+ 1 (length (filter (lambda (c) (char=? c #\newline))
-                              (string->list before)))))
+                                    (string->list before)))))
          (line-start (if newline (+ newline 1) 0))
          (column (+ 1 (- index line-start))))
     (throw 'sift-json-error (list path line column message))))
@@ -351,7 +351,7 @@ so that the caller can say where the bad message came from."
          (write-string (if (symbol? (caar fields))
                          (symbol->string (caar fields))
                          (caar fields))
-           out)
+                       out)
          (display ":" out)
          (write-value (cdar fields) out)
          (loop (cdr fields) #f)))
@@ -379,20 +379,20 @@ so that the caller can say where the bad message came from."
 (define (write-string string out)
   (display "\"" out)
   (string-for-each
-     (lambda (c)
-       (case c
-         [(#\") (display "\\\"" out)]
-         [(#\\) (display "\\\\" out)]
-         [(#\newline) (display "\\n" out)]
-         [(#\return) (display "\\r" out)]
-         [(#\tab) (display "\\t" out)]
-         [(#\backspace) (display "\\b" out)]
-         [(#\page) (display "\\f" out)]
-         [else
-            (if (char<? c #\space)
-              (format out "\\u~4,'0x" (char->integer c))
-              (display c out))]))
-     string)
+   (lambda (c)
+     (case c
+       [(#\") (display "\\\"" out)]
+       [(#\\) (display "\\\\" out)]
+       [(#\newline) (display "\\n" out)]
+       [(#\return) (display "\\r" out)]
+       [(#\tab) (display "\\t" out)]
+       [(#\backspace) (display "\\b" out)]
+       [(#\page) (display "\\f" out)]
+       [else
+         (if (char<? c #\space)
+           (format out "\\u~4,'0x" (char->integer c))
+           (display c out))]))
+   string)
   (display "\"" out))
 
 (define (json-number->string number)
@@ -408,7 +408,7 @@ enough digits to be read back as the same number."
            (= (abs as-float) (/ 1.0 0.0))))) ; infinity
      "null"]
     [else
-       (let ((text (format #f "~f" number)))
-         (if (string-contains text ".")
-           (string-trim-right (string-trim-right text #\0) #\.)
-           text))]))
+      (let ((text (format #f "~f" number)))
+        (if (string-contains text ".")
+          (string-trim-right (string-trim-right text #\0) #\.)
+          text))]))

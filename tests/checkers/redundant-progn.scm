@@ -24,21 +24,21 @@
 
     (test "reports a progn that is the only body form"
       (assert-warnings #:source "(define (f) (progn (a) (b)))\n"
-        #:checker 'redundant-progn #:expect '((1 13))))
+                       #:checker 'redundant-progn #:expect '((1 13))))
 
     (test "reports one in a defun"
       (assert-warnings #:source "(defun f () (progn (a)))\n" #:dialect 'elisp
-        #:checker 'redundant-progn #:expect '((1 13))))
+                       #:checker 'redundant-progn #:expect '((1 13))))
 
     (test "accepts a progn with company"
       (assert-warnings #:source "(define (f) (a) (progn (b)))\n"
-        #:checker 'redundant-progn #:expect '()))
+                       #:checker 'redundant-progn #:expect '()))
 
     (test "the fix splices the body"
       (assert-fix #:source "(define (f) (progn (a) (b)))\n"
-        #:checker 'redundant-progn
-        #:expected "(define (f) (a) (b))\n"))
+                  #:checker 'redundant-progn
+                  #:expected "(define (f) (a) (b))\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(define (f) (progn (a) (b)))\n"
-        #:checker 'redundant-progn))))
+                               #:checker 'redundant-progn))))

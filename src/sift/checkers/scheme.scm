@@ -18,13 +18,13 @@
   #:use-module (sift format)
   #:use-module (sift check base)
   #:export (scheme-checkers
-              internal-define-checker
-              if-without-else-checker
-              letrec-single-binding-checker
-              quasiquote-unquote-constant-checker
-              clause-brackets-checker
-              docstring-texinfo-checker
-              unused-binding-checker))
+            internal-define-checker
+            if-without-else-checker
+            letrec-single-binding-checker
+            quasiquote-unquote-constant-checker
+            clause-brackets-checker
+            docstring-texinfo-checker
+            unused-binding-checker))
 
 ;;; ===== internal-define =====
 
@@ -63,118 +63,118 @@ first expression, where it silently gets the wrong scope."
 (define (internal-define-warnings ast source dialect)
   (let ((warnings '()))
     (walk-with-ancestors
-       (lambda (node ancestors)
-         (when (list-headed-by? node 'define)
-           ;; The nearest enclosing form decides: a `let` in between is the
-           ;; nested scope the author meant, so the definition is fine.
-           (let ((owner
-                    (find (lambda (ancestor)
-                            (or (procedure-form? ancestor)
-                              (head-is-one-of? ancestor
-                                '(let let* letrec letrec*
-                                   parameterize))))
+     (lambda (node ancestors)
+       (when (list-headed-by? node 'define)
+         ;; The nearest enclosing form decides: a `let` in between is the
+         ;; nested scope the author meant, so the definition is fine.
+         (let ((owner
+                (find (lambda (ancestor)
+                        (or (procedure-form? ancestor)
+                          (head-is-one-of? ancestor
+                                           '(let let* letrec letrec*
+                                              parameterize))))
                       ancestors)))
-             (when (and owner (procedure-form? owner))
-               (let* ((body (body-of owner))
-                      (index (list-index (lambda (form) (eq? form node)) body))
-                      (before (and index (take body index))))
-                 ;; at the head of the body a definition is exactly what Scheme
-                 ;; allows; after an expression it is a `let` that was written
-                 ;; as a `define`
-                 (when (and index
-                         (> index 0)
-                         (any (lambda (form) (not (definition-before? form)))
-                           before))
-                   (set! warnings
-                     (cons (make-lint-warning 'internal-define 'warning
-                             "`define` inside a procedure body, after the first expression"
-                             (node-start node))
-                       warnings))))))))
-       ast)
+           (when (and owner (procedure-form? owner))
+             (let* ((body (body-of owner))
+                    (index (list-index (lambda (form) (eq? form node)) body))
+                    (before (and index (take body index))))
+               ;; at the head of the body a definition is exactly what Scheme
+               ;; allows; after an expression it is a `let` that was written
+               ;; as a `define`
+               (when (and index
+                       (> index 0)
+                       (any (lambda (form) (not (definition-before? form)))
+                            before))
+                 (set! warnings
+                       (cons (make-lint-warning 'internal-define 'warning
+                                                "`define` inside a procedure body, after the first expression"
+                                                (node-start node))
+                             warnings))))))))
+     ast)
     (reverse warnings)))
 
 (define internal-define-checker
   (checker 'internal-define
-    "`define` inside a procedure body, after the first expression"
-    '(scheme)
-    internal-define-warnings
-    #:severity 'warning
-    #:example '((input . "(define (f)\n  (define y 1)\n  (if y 2 3))")
-                (fix . "no automatic fix; use `let' for a local binding"))))
+           "`define` inside a procedure body, after the first expression"
+           '(scheme)
+           internal-define-warnings
+           #:severity 'warning
+           #:example '((input . "(define (f)\n  (define y 1)\n  (if y 2 3))")
+                       (fix . "no automatic fix; use `let' for a local binding"))))
 
 ;;; ===== if-without-else =====
 
 (define (if-without-else-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (and (list-headed-by? node 'if)
-                 (= 2 (argument-count node)))
-           (let ((head (node-head node)))
-             (set! warnings
-               (cons (make-lint-warning/range
+     (lambda (node)
+       (when (and (list-headed-by? node 'if)
+               (= 2 (argument-count node)))
+         (let ((head (node-head node)))
+           (set! warnings
+                 (cons (make-lint-warning/range
                         'if-without-else 'warning
                         "`if` has no else branch; `when` says it once"
                         (node-start head)
                         (node-index head) (node-end-index head)
                         (lambda (source start end) "when"))
-                 warnings)))))
-       ast)
+                       warnings)))))
+     ast)
     (reverse warnings)))
 
 (define if-without-else-checker
   (checker 'if-without-else
-    "`if` with no else branch, where `when` expresses the intent"
-    '(scheme)
-    if-without-else-warnings
-    #:severity 'warning
-    #:example '((input . "(if (ready?) (go))")
-                (fix . "(when (ready?) (go))"))))
+           "`if` with no else branch, where `when` expresses the intent"
+           '(scheme)
+           if-without-else-warnings
+           #:severity 'warning
+           #:example '((input . "(if (ready?) (go))")
+                       (fix . "(when (ready?) (go))"))))
 
 ;;; ===== letrec-single-binding =====
 
 (define (tree-contains-symbol? node name)
   (let ((found #f))
     (for-each-node
-       (lambda (candidate)
-         (when (symbol-atom? candidate name) (set! found #t)))
-       (list node))
+     (lambda (candidate)
+       (when (symbol-atom? candidate name) (set! found #t)))
+     (list node))
     found))
 
 (define (letrec-single-binding-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (head-is-one-of? node '(letrec letrec*))
-           (let* ((args (form-arguments node))
-                  (bindings (and (pair? args) (car args))))
-             (when (and (node-list? bindings)
-                     (= 1 (length (node-elements bindings))))
-               (let* ((binding (car (node-elements bindings)))
-                      (parts (if (node-list? binding) (form-elements binding) '()))
-                      (name (and (pair? parts) (atom-symbol (car parts))))
-                      (init (and (pair? parts) (pair? (cdr parts))
-                              (cadr parts))))
-                 (when (and name init
-                         (not (tree-contains-symbol? init name)))
-                   (set! warnings
-                     (cons (make-lint-warning
+     (lambda (node)
+       (when (head-is-one-of? node '(letrec letrec*))
+         (let* ((args (form-arguments node))
+                (bindings (and (pair? args) (car args))))
+           (when (and (node-list? bindings)
+                   (= 1 (length (node-elements bindings))))
+             (let* ((binding (car (node-elements bindings)))
+                    (parts (if (node-list? binding) (form-elements binding) '()))
+                    (name (and (pair? parts) (atom-symbol (car parts))))
+                    (init (and (pair? parts) (pair? (cdr parts))
+                            (cadr parts))))
+               (when (and name init
+                       (not (tree-contains-symbol? init name)))
+                 (set! warnings
+                       (cons (make-lint-warning
                               'letrec-single-binding 'info
                               (format #f "`~a` with one binding that is not recursive; use `let`"
-                                (node-head-name node))
+                                      (node-head-name node))
                               (node-start node))
-                       warnings))))))))
-       ast)
+                             warnings))))))))
+     ast)
     (reverse warnings)))
 
 (define letrec-single-binding-checker
   (checker 'letrec-single-binding
-    "`letrec` with a single binding that does not need recursive scope"
-    '(scheme)
-    letrec-single-binding-warnings
-    #:severity 'info
-    #:example '((input . "(letrec ((x 1)) x)")
-                (fix . "no automatic fix; `let` expresses the same thing"))))
+           "`letrec` with a single binding that does not need recursive scope"
+           '(scheme)
+           letrec-single-binding-warnings
+           #:severity 'info
+           #:example '((input . "(letrec ((x 1)) x)")
+                       (fix . "no automatic fix; `let` expresses the same thing"))))
 
 ;;; ===== quasiquote-unquote-constant =====
 
@@ -189,11 +189,11 @@ first expression, where it silently gets the wrong scope."
     ;; `(unquote ...)' forms a macro might generate.
     (define (report node)
       (set! warnings
-        (cons (make-lint-warning
-                 'quasiquote-unquote-constant 'info
-                 "a constant is unquoted inside a quasiquote, where quoting it would do"
-                 (node-start node))
-          warnings)))
+            (cons (make-lint-warning
+                   'quasiquote-unquote-constant 'info
+                   "a constant is unquoted inside a quasiquote, where quoting it would do"
+                   (node-start node))
+                  warnings)))
     (define (check-quasiquote inner)
       (cond
         [(and (node-prefix? inner) (equal? (node-token inner) ","))
@@ -205,25 +205,25 @@ first expression, where it silently gets the wrong scope."
         [(node-list? inner)
          (for-each check-quasiquote (node-elements inner))]))
     (for-each-node
-       (lambda (node)
-         (cond
-           [(and (node-prefix? node) (equal? (node-token node) "`"))
-            (let ((child (node-child node)))
-              (when child (check-quasiquote child)))]
-           [(list-headed-by? node 'quasiquote)
-            (let ((args (form-arguments node)))
-              (when (pair? args) (check-quasiquote (car args))))]))
-       ast)
+     (lambda (node)
+       (cond
+         [(and (node-prefix? node) (equal? (node-token node) "`"))
+          (let ((child (node-child node)))
+            (when child (check-quasiquote child)))]
+         [(list-headed-by? node 'quasiquote)
+          (let ((args (form-arguments node)))
+            (when (pair? args) (check-quasiquote (car args))))]))
+     ast)
     (reverse warnings)))
 
 (define quasiquote-unquote-constant-checker
   (checker 'quasiquote-unquote-constant
-    "`(quasiquote (unquote constant))` can be simplified"
-    '(scheme)
-    quasiquote-unquote-constant-warnings
-    #:severity 'info
-    #:example '((input . "`(1 ,2)")
-                (fix . "no automatic fix; write the constant directly"))))
+           "`(quasiquote (unquote constant))` can be simplified"
+           '(scheme)
+           quasiquote-unquote-constant-warnings
+           #:severity 'info
+           #:example '((input . "`(1 ,2)")
+                       (fix . "no automatic fix; write the constant directly"))))
 
 ;;; ===== clause-brackets =====
 
@@ -249,36 +249,36 @@ first expression, where it silently gets the wrong scope."
                   (or (equal? close ")") (equal? close "]"))
                   (not (equal? open (car wanted))))
             (set! warnings
-              (cons (make-lint-warning/range 'clause-brackets 'warning
-                      (format #f "`~a` clause is written with ~a; this project writes it with ~a"
-                        (or (node-head-name (node-head clause)) 'clause)
-                        (if (equal? open "(") "parentheses" "square brackets")
-                        (if (equal? open "(") "square brackets" "parentheses"))
-                      (node-start clause)
-                      (node-index clause) (node-end-index clause)
-                      (lambda (source start end)
-                        (string-append (car wanted)
-                          (substring source (+ start 1) (- end 1))
-                          (cdr wanted))))
-                warnings))))))
+                  (cons (make-lint-warning/range 'clause-brackets 'warning
+                                                 (format #f "`~a` clause is written with ~a; this project writes it with ~a"
+                                                         (or (node-head-name (node-head clause)) 'clause)
+                                                         (if (equal? open "(") "parentheses" "square brackets")
+                                                         (if (equal? open "(") "square brackets" "parentheses"))
+                                                 (node-start clause)
+                                                 (node-index clause) (node-end-index clause)
+                                                 (lambda (source start end)
+                                                   (string-append (car wanted)
+                                                                  (substring source (+ start 1) (- end 1))
+                                                                  (cdr wanted))))
+                        warnings))))))
     (when wanted
       (for-each-form
-         (lambda (node)
-           (when (and (node-list? node)
-                   (memq (node-head-name node) '(cond case)))
-             ;; the clauses are the children of the form, not the form itself
-             (for-each check (form-arguments node))))
-         ast))
+       (lambda (node)
+         (when (and (node-list? node)
+                 (memq (node-head-name node) '(cond case)))
+           ;; the clauses are the children of the form, not the form itself
+           (for-each check (form-arguments node))))
+       ast))
     (reverse warnings)))
 
 (define clause-brackets-checker
   (checker 'clause-brackets
-    "A `cond` or `case` clause written with the other kind of bracket"
-    '(scheme)
-    clause-brackets-warnings
-    #:severity 'warning
-    #:example '((input . "(cond ((= x 1) 'one)\n      (else 'other))")
-                (fix . "(cond [(= x 1) 'one]\n      [else 'other])"))))
+           "A `cond` or `case` clause written with the other kind of bracket"
+           '(scheme)
+           clause-brackets-warnings
+           #:severity 'warning
+           #:example '((input . "(cond ((= x 1) 'one)\n      (else 'other))")
+                       (fix . "(cond [(= x 1) 'one]\n      [else 'other])"))))
 
 ;;; ===== docstring-texinfo =====
 
@@ -297,42 +297,42 @@ first expression, where it silently gets the wrong scope."
                       (if (and name (not (string-contains name ".")))
                         (list name)
                         '())))
-        (if (pair? (node-elements formals))
-          (cdr (node-elements formals))
-          '()))
+                  (if (pair? (node-elements formals))
+                    (cdr (node-elements formals))
+                    '()))
       '())))
 
 (define (docstring-texinfo-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (node-list? node)
-           (let ((doc (docstring-node node))
-                 (parameters (scheme-parameters node)))
-             (when (and doc (pair? parameters))
-               (let ((text (node-value doc)))
-                 (for-each
-                    (lambda (parameter)
-                      (unless (string-contains text
-                                (string-append "@var{" parameter "}"))
-                        (set! warnings
+     (lambda (node)
+       (when (node-list? node)
+         (let ((doc (docstring-node node))
+               (parameters (scheme-parameters node)))
+           (when (and doc (pair? parameters))
+             (let ((text (node-value doc)))
+               (for-each
+                (lambda (parameter)
+                  (unless (string-contains text
+                                           (string-append "@var{" parameter "}"))
+                    (set! warnings
                           (cons (make-lint-warning 'docstring-texinfo 'info
-                                  (format #f "the docstring does not document `@var{~a}`"
-                                    parameter)
-                                  (node-start doc))
-                            warnings))))
-                    parameters))))))
-       ast)
+                                                   (format #f "the docstring does not document `@var{~a}`"
+                                                           parameter)
+                                                   (node-start doc))
+                                warnings))))
+                parameters))))))
+     ast)
     (reverse warnings)))
 
 (define docstring-texinfo-checker
   (checker 'docstring-texinfo
-    "A Guile docstring that does not document its arguments with `@var{}`"
-    '(scheme)
-    docstring-texinfo-warnings
-    #:severity 'info
-    #:example '((input . "(define (f x) \"Return X.\" x)")
-                (fix . "(define (f x) \"Return @var{x}.\" x)"))))
+           "A Guile docstring that does not document its arguments with `@var{}`"
+           '(scheme)
+           docstring-texinfo-warnings
+           #:severity 'info
+           #:example '((input . "(define (f x) \"Return X.\" x)")
+                       (fix . "(define (f x) \"Return @var{x}.\" x)"))))
 
 ;;; ===== unused-binding =====
 
@@ -362,15 +362,15 @@ in a `do' or a `let' that only declares."
 (define (formals-names formals)
   "Return the symbol names in a formal list, markers and destructuring aside."
   (append-map
-     (lambda (element)
-       (cond
-         [(and (node-atom? element)
-            (eq? (node-atom-type element) 'symbol)
-            (not (string-prefix? "&" (node-value element))))
-          (list (cons element (node-value element)))]
-         [(node-list? element) (formals-names element)]
-         [else '()]))
-     (node-elements (if (node-list? formals) formals '()))))
+   (lambda (element)
+     (cond
+       [(and (node-atom? element)
+          (eq? (node-atom-type element) 'symbol)
+          (not (string-prefix? "&" (node-value element))))
+        (list (cons element (node-value element)))]
+       [(node-list? element) (formals-names element)]
+       [else '()]))
+   (node-elements (if (node-list? formals) formals '()))))
 
 (define (binding-list-of form)
   "Return the binding list of a @var{form}, or @code{#f}."
@@ -386,63 +386,63 @@ in a `do' or a `let' that only declares."
 (define (symbol-uses form name)
   "Return how many times the symbol @var{name} appears under @var{form}."
   (fold-nodes
-     (lambda (node count)
-       (if (and (node-atom? node)
-             (eq? (node-atom-type node) 'symbol)
-             (string=? (node-value node) name))
-         (+ count 1)
-         count))
-     0
-     (list form)))
+   (lambda (node count)
+     (if (and (node-atom? node)
+           (eq? (node-atom-type node) 'symbol)
+           (string=? (node-value node) name))
+       (+ count 1)
+       count))
+   0
+   (list form)))
 
 (define (unused-binding-warnings ast source dialect)
   (let ((warnings '()))
     (walk-with-ancestors
-       (lambda (node ancestors)
-         (when (and (code-position? node ancestors)
-                 (node-list? node)
-                 (memq (node-head-name node) binding-form-heads))
-           (let ((bindings (binding-list-of node)))
-             (when (node-list? bindings)
-               (for-each
-                  (lambda (binding)
-                    (for-each
-                       (lambda (pair)
-                         (let ((name (cdr pair)))
-                           (unless (ignored-name? name)
-                             ;; the defining occurrence counts once; anything
-                             ;; else is a use, which is what makes `set!' and a
-                             ;; recursive reference count
-                             (when (< (symbol-uses node name) 2)
-                               (set! warnings
-                                 (cons (make-lint-warning 'unused-binding
-                                         'warning
-                                         (format #f
-                                           "`~a` is bound here and never used"
-                                           name)
-                                         (node-start (car pair)))
-                                   warnings))))))
-                       (binding-pair-names binding)))
-                  (node-elements bindings))))))
-       ast)
+     (lambda (node ancestors)
+       (when (and (code-position? node ancestors)
+               (node-list? node)
+               (memq (node-head-name node) binding-form-heads))
+         (let ((bindings (binding-list-of node)))
+           (when (node-list? bindings)
+             (for-each
+              (lambda (binding)
+                (for-each
+                 (lambda (pair)
+                   (let ((name (cdr pair)))
+                     (unless (ignored-name? name)
+                       ;; the defining occurrence counts once; anything
+                       ;; else is a use, which is what makes `set!' and a
+                       ;; recursive reference count
+                       (when (< (symbol-uses node name) 2)
+                         (set! warnings
+                               (cons (make-lint-warning 'unused-binding
+                                                        'warning
+                                                        (format #f
+                                                                "`~a` is bound here and never used"
+                                                                name)
+                                                        (node-start (car pair)))
+                                     warnings))))))
+                 (binding-pair-names binding)))
+              (node-elements bindings))))))
+     ast)
     (reverse warnings)))
 
 (define unused-binding-checker
   (checker 'unused-binding
-    "A binding whose name is never referenced in the form that binds it"
-    '(scheme elisp cl)
-    unused-binding-warnings
-    #:severity 'warning
-    #:example '((input . "(let ((x 1) (y 2)) x)")
-                (fix . "no automatic fix; remove the binding or use it"))))
+           "A binding whose name is never referenced in the form that binds it"
+           '(scheme elisp cl)
+           unused-binding-warnings
+           #:severity 'warning
+           #:example '((input . "(let ((x 1) (y 2)) x)")
+                       (fix . "no automatic fix; remove the binding or use it"))))
 
 ;;; ===== The list =====
 
 (define scheme-checkers
   (list internal-define-checker
-    if-without-else-checker
-    letrec-single-binding-checker
-    quasiquote-unquote-constant-checker
-    clause-brackets-checker
-    docstring-texinfo-checker
-    unused-binding-checker))
+        if-without-else-checker
+        letrec-single-binding-checker
+        quasiquote-unquote-constant-checker
+        clause-brackets-checker
+        docstring-texinfo-checker
+        unused-binding-checker))

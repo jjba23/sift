@@ -26,33 +26,33 @@
 
     (test "reports a cond clause written with parentheses"
       (assert-warnings #:source "(cond ((= x 1) 'one)\n      (else 'other))\n"
-        #:checker 'clause-brackets #:expect '((1 7) (2 7))))
+                       #:checker 'clause-brackets #:expect '((1 7) (2 7))))
 
     (test "accepts a cond clause written with square brackets"
       (assert-warnings #:source "(cond [(= x 1) 'one]\n      [else 'other])\n"
-        #:checker 'clause-brackets #:expect '()))
+                       #:checker 'clause-brackets #:expect '()))
 
     (test "reports a case clause written with parentheses"
       (assert-warnings #:source "(case x ((1) 'one)\n  ((2) 'two))\n"
-        #:checker 'clause-brackets #:expect '((1 9) (2 3))))
+                       #:checker 'clause-brackets #:expect '((1 9) (2 3))))
 
     (test "follows a project that writes parentheses"
       (assert-warnings #:source "(cond [(= x 1) 'one])\n" #:checker 'clause-brackets
-        #:options '((brackets . parens)) #:expect '((1 7))))
+                       #:options '((brackets . parens)) #:expect '((1 7))))
 
     (test "says nothing when the project preserves what was written"
       (assert-warnings #:source "(cond ((= x 1) 'one))\n" #:checker 'clause-brackets
-        #:options '((brackets . preserve)) #:expect '()))
+                       #:options '((brackets . preserve)) #:expect '()))
 
     (test "the fix rewrites the delimiters"
       (assert-fix #:source "(cond ((= x 1) 'one)\n      (else 'other))\n"
-        #:checker 'clause-brackets
-        #:expected "(cond [(= x 1) 'one]\n      [else 'other])\n"))
+                  #:checker 'clause-brackets
+                  #:expected "(cond [(= x 1) 'one]\n      [else 'other])\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing
-         #:source "(cond ((= x 1) 'one)\n      (else 'other))\n"
-         #:checker 'clause-brackets))
+       #:source "(cond ((= x 1) 'one)\n      (else 'other))\n"
+       #:checker 'clause-brackets))
 
     (test "the default for Scheme is square"
       (assert-equal #:expect 'square #:got (default-brackets 'scheme)))

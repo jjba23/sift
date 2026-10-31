@@ -25,22 +25,22 @@
 
     (test "reports a first line that starts lowercase"
       (assert-warnings #:source "(defun f (x)\n  \"returns x.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-first-line
-        #:expect '((2 3))))
+                       #:dialect 'elisp #:checker 'docstring-first-line
+                       #:expect '((2 3))))
 
     (test "reports a first line with no full stop"
       (assert-warnings #:source "(defun f (x)\n  \"Return x\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-first-line
-        #:expect '((2 3))))
+                       #:dialect 'elisp #:checker 'docstring-first-line
+                       #:expect '((2 3))))
 
     (test "reports a first line that is too long for apropos"
       (assert-warnings
-         #:source (string-append "(defun f (x)\n  \"" (make-string 80 #\X)
-                    ".\"\n  x)\n")
-         #:dialect 'elisp #:checker 'docstring-first-line
-         #:expect '((2 3))))
+       #:source (string-append "(defun f (x)\n  \"" (make-string 80 #\X)
+                               ".\"\n  x)\n")
+       #:dialect 'elisp #:checker 'docstring-first-line
+       #:expect '((2 3))))
 
     (test "accepts a capitalised sentence with a period"
       (assert-warnings #:source "(defun f (x)\n  \"Return X.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-first-line
-        #:expect '()))))
+                       #:dialect 'elisp #:checker 'docstring-first-line
+                       #:expect '()))))

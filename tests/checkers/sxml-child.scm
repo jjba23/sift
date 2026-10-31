@@ -21,22 +21,22 @@
 
     (test "accepts elements, strings and numbers as children"
       (assert-warnings
-         #:source "(div (@ (class \"x\")) (p \"a\") \"b\" 3)\n"
-         #:checker 'sxml-child
-         #:expect '()))
+       #:source "(div (@ (class \"x\")) (p \"a\") \"b\" 3)\n"
+       #:checker 'sxml-child
+       #:expect '()))
 
     (test "reports a list of elements where elements belong"
       (assert-warnings
-         #:source "(ul (@ (id \"x\")) ((li \"a\") (li \"b\")))\n"
-         #:checker 'sxml-child
-         #:expect '((1 18))))
+       #:source "(ul (@ (id \"x\")) ((li \"a\") (li \"b\")))\n"
+       #:checker 'sxml-child
+       #:expect '((1 18))))
 
     (test "accepts the same list without the extra level"
       (assert-warnings
-         #:source "(ul (@ (id \"x\")) (li \"a\") (li \"b\"))\n"
-         #:checker 'sxml-child
-         #:expect '()))
+       #:source "(ul (@ (id \"x\")) (li \"a\") (li \"b\"))\n"
+       #:checker 'sxml-child
+       #:expect '()))
 
     (test "an element with no attributes is not judged"
       (assert-warnings #:source "(f ((g)))\n" #:checker 'sxml-child
-        #:expect '()))))
+                       #:expect '()))))

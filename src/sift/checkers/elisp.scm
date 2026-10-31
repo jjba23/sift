@@ -22,16 +22,16 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (elisp-checkers
-              docstring-missing-checker
-              docstring-first-line-checker
-              docstring-indent-checker
-              lexical-binding-missing-checker
-              interactive-without-docstring-checker
-              checkdoc-style-verb-checker
-              provide-missing-checker
-              declare-indent-checker
-              docstring-arguments-checker
-              docstring-before-interactive-checker))
+            docstring-missing-checker
+            docstring-first-line-checker
+            docstring-indent-checker
+            lexical-binding-missing-checker
+            interactive-without-docstring-checker
+            checkdoc-style-verb-checker
+            provide-missing-checker
+            declare-indent-checker
+            docstring-arguments-checker
+            docstring-before-interactive-checker))
 
 ;;; ===== helpers =====
 
@@ -56,31 +56,31 @@
 (define (docstring-missing-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
-           (when (and head
-                   (memq head documented-heads)
-                   (not (docstring-node node))
-                   ;; a bare (defvar x) declares without defining, and needs
-                   ;; no docstring
-                   (>= (argument-count node) 2))
-             (set! warnings
-               (cons (make-lint-warning
+     (lambda (node)
+       (let ((head (and (node-list? node) (node-head-name node))))
+         (when (and head
+                 (memq head documented-heads)
+                 (not (docstring-node node))
+                 ;; a bare (defvar x) declares without defining, and needs
+                 ;; no docstring
+                 (>= (argument-count node) 2))
+           (set! warnings
+                 (cons (make-lint-warning
                         'docstring-missing 'warning
                         (format #f "`~a` form has no docstring" head)
                         (node-start node))
-                 warnings)))))
-       ast)
+                       warnings)))))
+     ast)
     (reverse warnings)))
 
 (define docstring-missing-checker
   (checker 'docstring-missing
-    "`defun`, `defmacro`, `defsubst`, `defvar` or `defcustom` without a docstring"
-    '(elisp)
-    docstring-missing-warnings
-    #:severity 'warning
-    #:example '((input . "(defun f (x) (+ x 1))")
-                (fix . "no automatic fix; write the docstring"))))
+           "`defun`, `defmacro`, `defsubst`, `defvar` or `defcustom` without a docstring"
+           '(elisp)
+           docstring-missing-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f (x) (+ x 1))")
+                       (fix . "no automatic fix; write the docstring"))))
 
 ;;; ===== docstring-first-line =====
 
@@ -88,72 +88,72 @@
   (let ((warnings '()))
     (define (report node message)
       (set! warnings
-        (cons (make-lint-warning 'docstring-first-line 'warning message
-                (node-start node))
-          warnings)))
+            (cons (make-lint-warning 'docstring-first-line 'warning message
+                                     (node-start node))
+                  warnings)))
     (for-each-form
-       (lambda (node)
-         (when (node-list? node)
-           (let ((doc (docstring-node node)))
-             (when doc
-               (let* ((text (docstring-text doc))
-                      (first (docstring-first-line text)))
-                 (unless (string-null? first)
-                   (when (> (string-length first) 74)
-                     (report doc
-                       (format #f "the first line is ~a columns long; the manual asks for 74"
-                         (string-length first))))
-                   (let ((initial (car (string->list first))))
-                     (when (and initial (char-lower-case? initial))
-                       (report doc "the first line does not start with a capital letter")))
-                   (let ((last (car (reverse (string->list (string-trim-right first))))))
-                     (when (and last
-                             (not (memv last '(#\. #\? #\! #\:))))
-                       (report doc "the first line does not end with a period")))))))))
-       ast)
+     (lambda (node)
+       (when (node-list? node)
+         (let ((doc (docstring-node node)))
+           (when doc
+             (let* ((text (docstring-text doc))
+                    (first (docstring-first-line text)))
+               (unless (string-null? first)
+                 (when (> (string-length first) 74)
+                   (report doc
+                           (format #f "the first line is ~a columns long; the manual asks for 74"
+                                   (string-length first))))
+                 (let ((initial (car (string->list first))))
+                   (when (and initial (char-lower-case? initial))
+                     (report doc "the first line does not start with a capital letter")))
+                 (let ((last (car (reverse (string->list (string-trim-right first))))))
+                   (when (and last
+                           (not (memv last '(#\. #\? #\! #\:))))
+                     (report doc "the first line does not end with a period")))))))))
+     ast)
     (reverse warnings)))
 
 (define docstring-first-line-checker
   (checker 'docstring-first-line
-    "The first line of a docstring is not a capitalised sentence ending in a period"
-    '(elisp)
-    docstring-first-line-warnings
-    #:severity 'warning
-    #:example '((input . "(defun f (x)\n  \"returns x.\"\n  x)")
-                (fix . "no automatic fix; rewrite the first line"))))
+           "The first line of a docstring is not a capitalised sentence ending in a period"
+           '(elisp)
+           docstring-first-line-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f (x)\n  \"returns x.\"\n  x)")
+                       (fix . "no automatic fix; rewrite the first line"))))
 
 ;;; ===== docstring-indent =====
 
 (define (docstring-indent-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (node-list? node)
-           (let ((doc (docstring-node node)))
-             (when doc
-               (let* ((text (docstring-text doc))
-                      (lines (cdr (string-split text #\newline))))
-                 (when (any (lambda (line)
-                              (and (not (string-null? line))
-                                (memv (string-ref line 0) '(#\space #\tab))))
-                         lines)
-                   (set! warnings
-                     (cons (make-lint-warning
+     (lambda (node)
+       (when (node-list? node)
+         (let ((doc (docstring-node node)))
+           (when doc
+             (let* ((text (docstring-text doc))
+                    (lines (cdr (string-split text #\newline))))
+               (when (any (lambda (line)
+                            (and (not (string-null? line))
+                              (memv (string-ref line 0) '(#\space #\tab))))
+                          lines)
+                 (set! warnings
+                       (cons (make-lint-warning
                               'docstring-indent 'warning
                               "docstring continuation lines are indented; start them at column zero"
                               (node-start doc))
-                       warnings))))))))
-       ast)
+                             warnings))))))))
+     ast)
     (reverse warnings)))
 
 (define docstring-indent-checker
   (checker 'docstring-indent
-    "Docstring continuation lines are indented instead of starting at column zero"
-    '(elisp)
-    docstring-indent-warnings
-    #:severity 'warning
-    #:example '((input . "(defun f (x)\n  \"Doc.\n    More.\"\n  x)")
-                (fix . "no automatic fix; unindent the continuation lines"))))
+           "Docstring continuation lines are indented instead of starting at column zero"
+           '(elisp)
+           docstring-indent-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f (x)\n  \"Doc.\n    More.\"\n  x)")
+                       (fix . "no automatic fix; unindent the continuation lines"))))
 
 ;;; ===== lexical-binding-missing =====
 
@@ -162,57 +162,57 @@
 
 (define (lexical-binding-present? source)
   (any (lambda (line) (string-contains line "lexical-binding: t"))
-    (first-lines source 2)))
+       (first-lines source 2)))
 
 (define (lexical-binding-missing-warnings ast source dialect)
   (if (lexical-binding-present? source)
     '()
     (list (make-lint-warning/range
-             'lexical-binding-missing 'warning
-             "the file does not declare `lexical-binding: t'"
-             (make-source-location #f 1 1 0 0)
-             0 0
-             (lambda (source start end)
-               ";;; -*- lexical-binding: t; -*-\n")))))
+           'lexical-binding-missing 'warning
+           "the file does not declare `lexical-binding: t'"
+           (make-source-location #f 1 1 0 0)
+           0 0
+           (lambda (source start end)
+             ";;; -*- lexical-binding: t; -*-\n")))))
 
 (define lexical-binding-missing-checker
   (checker 'lexical-binding-missing
-    "The file header lacks `-*- lexical-binding: t; -*-`"
-    '(elisp)
-    lexical-binding-missing-warnings
-    #:severity 'warning
-    #:example '((input . ";;; foo.el --- a package\n")
-                (fix . "insert \"-*- lexical-binding: t; -*-\" in the file header"))))
+           "The file header lacks `-*- lexical-binding: t; -*-`"
+           '(elisp)
+           lexical-binding-missing-warnings
+           #:severity 'warning
+           #:example '((input . ";;; foo.el --- a package\n")
+                       (fix . "insert \"-*- lexical-binding: t; -*-\" in the file header"))))
 
 ;;; ===== interactive-without-docstring =====
 
 (define (interactive-without-docstring-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
-           (when (and head (memq head '(defun defmacro)))
-             (let ((interactive (find (lambda (element)
-                                        (list-headed-by? element 'interactive))
-                                  (body-elements node 3))))
-               (when (and interactive (not (docstring-node node)))
-                 (set! warnings
-                   (cons (make-lint-warning
+     (lambda (node)
+       (let ((head (and (node-list? node) (node-head-name node))))
+         (when (and head (memq head '(defun defmacro)))
+           (let ((interactive (find (lambda (element)
+                                      (list-headed-by? element 'interactive))
+                                    (body-elements node 3))))
+             (when (and interactive (not (docstring-node node)))
+               (set! warnings
+                     (cons (make-lint-warning
                             'interactive-without-docstring 'warning
                             "an interactive command without a docstring"
                             (node-start interactive))
-                     warnings)))))))
-       ast)
+                           warnings)))))))
+     ast)
     (reverse warnings)))
 
 (define interactive-without-docstring-checker
   (checker 'interactive-without-docstring
-    "An `interactive` command without a docstring"
-    '(elisp)
-    interactive-without-docstring-warnings
-    #:severity 'warning
-    #:example '((input . "(defun my-command ()\n  (interactive)\n  (message \"hi\"))")
-                (fix . "no automatic fix; document the command"))))
+           "An `interactive` command without a docstring"
+           '(elisp)
+           interactive-without-docstring-warnings
+           #:severity 'warning
+           #:example '((input . "(defun my-command ()\n  (interactive)\n  (message \"hi\"))")
+                       (fix . "no automatic fix; document the command"))))
 
 ;;; ===== checkdoc-style-verb =====
 
@@ -226,103 +226,103 @@
 (define (checkdoc-style-verb-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (node-list? node)
-           (let ((doc (docstring-node node)))
-             (when doc
-               (let* ((first (docstring-first-line (docstring-text doc)))
-                      (word (car (string-split first #\space))))
-                 (when (and word (member word third-person-verbs))
-                   (set! warnings
-                     (cons (make-lint-warning
+     (lambda (node)
+       (when (node-list? node)
+         (let ((doc (docstring-node node)))
+           (when doc
+             (let* ((first (docstring-first-line (docstring-text doc)))
+                    (word (car (string-split first #\space))))
+               (when (and word (member word third-person-verbs))
+                 (set! warnings
+                       (cons (make-lint-warning
                               'checkdoc-style-verb 'info
                               (format #f "the docstring opens with `~a`; use the imperative"
-                                word)
+                                      word)
                               (node-start doc))
-                       warnings))))))))
-       ast)
+                             warnings))))))))
+     ast)
     (reverse warnings)))
 
 (define checkdoc-style-verb-checker
   (checker 'checkdoc-style-verb
-    "Docstring first sentence uses the third person instead of the imperative"
-    '(elisp)
-    checkdoc-style-verb-warnings
-    #:severity 'info
-    #:example '((input . "(defun f (x)\n  \"Returns x.\"\n  x)")
-                (fix . "no automatic fix; write \"Return x.\""))))
+           "Docstring first sentence uses the third person instead of the imperative"
+           '(elisp)
+           checkdoc-style-verb-warnings
+           #:severity 'info
+           #:example '((input . "(defun f (x)\n  \"Returns x.\"\n  x)")
+                       (fix . "no automatic fix; write \"Return x.\""))))
 
 ;;; ===== provide-missing =====
 
 (define (defines-something? ast)
   (let ((found #f))
     (for-each-top-level
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
-           (when (and head (memq head '(defun defmacro defsubst defvar
-                                         defcustom defface define-minor-mode)))
-             (set! found #t))))
-       ast)
+     (lambda (node)
+       (let ((head (and (node-list? node) (node-head-name node))))
+         (when (and head (memq head '(defun defmacro defsubst defvar
+                                            defcustom defface define-minor-mode)))
+           (set! found #t))))
+     ast)
     found))
 
 (define (provide-missing-warnings ast source dialect)
   (if (or (not (defines-something? ast))
         (any (lambda (node) (list-headed-by? node 'provide))
-          (filter node-data? ast)))
+             (filter node-data? ast)))
     '()
     (let* ((last-node (car (reverse (filter node-data? ast))))
            (index (if last-node (node-end-index last-node) 0))
            (line (if last-node (source-location-line (node-end last-node)) 1)))
       (list (make-lint-warning
-               'provide-missing 'warning
-               "the file defines a package but never calls `provide`"
-               (make-source-location #f line 1 index index))))))
+             'provide-missing 'warning
+             "the file defines a package but never calls `provide`"
+             (make-source-location #f line 1 index index))))))
 
 (define provide-missing-checker
   (checker 'provide-missing
-    "The file defines a package but has no final `(provide 'feature)`"
-    '(elisp)
-    provide-missing-warnings
-    #:severity 'warning
-    #:example '((input . "(defun my-f ()\n  \"Do it.\"\n  nil)")
-                (fix . "no automatic fix; add (provide 'my-feature) at the end"))))
+           "The file defines a package but has no final `(provide 'feature)`"
+           '(elisp)
+           provide-missing-warnings
+           #:severity 'warning
+           #:example '((input . "(defun my-f ()\n  \"Do it.\"\n  nil)")
+                       (fix . "no automatic fix; add (provide 'my-feature) at the end"))))
 
 ;;; ===== declare-indent =====
 
 (define (declare-indent-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (and (node-list? node)
-                 (head-is-one-of? node '(defun defmacro defsubst
-                                          cl-defun cl-defmacro)))
-           (let ((open-column (node-column node)))
-             (for-each
-                (lambda (element)
-                  (when (list-headed-by? element 'declare)
-                    ;; node-column is 1-based, so the body's column is the
-                    ;; opener's column plus two, and it starts that many
-                    ;; characters in from the beginning of the line
-                    (let ((expected (+ open-column 2)))
-                      (unless (= (node-column element) expected)
-                        (let* ((previous (previous-element node element))
-                               (start (if previous (node-end-index previous)
-                                        (node-index element))))
-                          (set! warnings
+     (lambda (node)
+       (when (and (node-list? node)
+               (head-is-one-of? node '(defun defmacro defsubst
+                                             cl-defun cl-defmacro)))
+         (let ((open-column (node-column node)))
+           (for-each
+            (lambda (element)
+              (when (list-headed-by? element 'declare)
+                ;; node-column is 1-based, so the body's column is the
+                ;; opener's column plus two, and it starts that many
+                ;; characters in from the beginning of the line
+                (let ((expected (+ open-column 2)))
+                  (unless (= (node-column element) expected)
+                    (let* ((previous (previous-element node element))
+                           (start (if previous (node-end-index previous)
+                                    (node-index element))))
+                      (set! warnings
                             (cons (make-lint-warning/range
-                                     'declare-indent 'info
-                                     (format #f "`declare` should be indented ~a columns from `~a`"
-                                       (- expected open-column)
-                                       (node-head-name node))
-                                     (node-start element)
-                                     start (node-index element)
-                                     (lambda (source s e)
-                                       (string-append "\n"
-                                         (make-string (- expected 1)
-                                           #\space))))
-                              warnings)))))))
-                (body-elements node 3)))))
-       ast)
+                                   'declare-indent 'info
+                                   (format #f "`declare` should be indented ~a columns from `~a`"
+                                           (- expected open-column)
+                                           (node-head-name node))
+                                   (node-start element)
+                                   start (node-index element)
+                                   (lambda (source s e)
+                                     (string-append "\n"
+                                                    (make-string (- expected 1)
+                                                                 #\space))))
+                                  warnings)))))))
+            (body-elements node 3)))))
+     ast)
     (reverse warnings)))
 
 (define (previous-element node element)
@@ -334,12 +334,12 @@
 
 (define declare-indent-checker
   (checker 'declare-indent
-    "`declare` not indented two columns from the enclosing `defun`"
-    '(elisp)
-    declare-indent-warnings
-    #:severity 'info
-    #:example '((input . "(defun f (x)\n    (declare (indent 1))\n  x)")
-                (fix . "indent the `declare` two columns from the `defun`"))))
+           "`declare` not indented two columns from the enclosing `defun`"
+           '(elisp)
+           declare-indent-warnings
+           #:severity 'info
+           #:example '((input . "(defun f (x)\n    (declare (indent 1))\n  x)")
+                       (fix . "indent the `declare` two columns from the `defun`"))))
 
 ;;; ===== docstring-before-interactive =====
 
@@ -353,32 +353,32 @@
           [(string-atom? (car rest)) (car rest)]
           [else (loop (cdr rest) (+ n 1))])))
     (for-each-form
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
-           (when (and head (memq head '(defun defmacro defsubst cl-defun
-                                         cl-defmacro)))
-             ;; Emacs reads a docstring from the first form of the body only, so
-             ;; a string after `interactive` or `declare` documents nothing
-             (unless (docstring-node node)
-               (let ((string (displaced-docstring (body-elements node 3))))
-                 (when string
-                   (set! warnings
-                     (cons (make-lint-warning 'docstring-before-interactive
-                             'warning
-                             "this string is in the body, not at its head"
-                             (node-start string))
-                       warnings))))))))
-       ast)
+     (lambda (node)
+       (let ((head (and (node-list? node) (node-head-name node))))
+         (when (and head (memq head '(defun defmacro defsubst cl-defun
+                                            cl-defmacro)))
+           ;; Emacs reads a docstring from the first form of the body only, so
+           ;; a string after `interactive` or `declare` documents nothing
+           (unless (docstring-node node)
+             (let ((string (displaced-docstring (body-elements node 3))))
+               (when string
+                 (set! warnings
+                       (cons (make-lint-warning 'docstring-before-interactive
+                                                'warning
+                                                "this string is in the body, not at its head"
+                                                (node-start string))
+                             warnings))))))))
+     ast)
     (reverse warnings)))
 
 (define docstring-before-interactive-checker
   (checker 'docstring-before-interactive
-    "A docstring that is not the first form in the body, so Emacs never reads it"
-    '(elisp)
-    docstring-before-interactive-warnings
-    #:severity 'warning
-    #:example '((input . "(defun f ()\n  (interactive)\n  \"Say hi.\"\n  (message \"hi\"))")
-                (fix . "no automatic fix; move the docstring above `interactive`"))))
+           "A docstring that is not the first form in the body, so Emacs never reads it"
+           '(elisp)
+           docstring-before-interactive-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f ()\n  (interactive)\n  \"Say hi.\"\n  (message \"hi\"))")
+                       (fix . "no automatic fix; move the docstring above `interactive`"))))
 
 ;;; ===== docstring-arguments =====
 
@@ -395,23 +395,23 @@ optional argument contributes @code{name}, and a marker such as
                     (cadr arguments))))
     (when (node-list? formals)
       (append-map
-         (lambda (element)
-           (cond
-             [(node-atom? element)
-              (let ((value (node-value element)))
-                (if (or (member value '("&optional" "&rest" "&key" "&aux"
-                                        "&allow-other-keys" "&body"))
-                      (not value))
-                  '()
-                  (list value)))]
-             [(node-list? element)
-              (let ((head (node-head element)))
-                (if (and head (node-atom? head)
-                      (eq? (node-atom-type head) 'symbol))
-                  (list (node-value head))
-                  '()))]
-             [else '()]))
-         (node-elements formals)))))
+       (lambda (element)
+         (cond
+           [(node-atom? element)
+            (let ((value (node-value element)))
+              (if (or (member value '("&optional" "&rest" "&key" "&aux"
+                                      "&allow-other-keys" "&body"))
+                    (not value))
+                '()
+                (list value)))]
+           [(node-list? element)
+            (let ((head (node-head element)))
+              (if (and head (node-atom? head)
+                    (eq? (node-atom-type head) 'symbol))
+                (list (node-value head))
+                '()))]
+           [else '()]))
+       (node-elements formals)))))
 
 (define (docstring-words text)
   "Return the words of a docstring, lower-cased.
@@ -420,57 +420,57 @@ Matching a parameter name as a substring would accept \"Add two numbers.\"
 as mentioning the argument `a`; matching it as a word is what checkdoc
 does, and what a reader does."
   (map string-downcase
-    (remove string-null?
-      (string-split text
-        (char-set-complement
-           (char-set #\a #\b #\c #\d #\e #\f #\g #\h #\i #\j #\k #\l
-             #\m #\n #\o #\p #\q #\r #\s #\t #\u #\v #\w #\x #\y #\z
-             #\A #\B #\C #\D #\E #\F #\G #\H #\I #\J #\K #\L #\M
-             #\N #\O #\P #\Q #\R #\S #\T #\U #\V #\W #\X #\Y #\Z
-             #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\- #\_))))))
+       (remove string-null?
+               (string-split text
+                             (char-set-complement
+                              (char-set #\a #\b #\c #\d #\e #\f #\g #\h #\i #\j #\k #\l
+                                        #\m #\n #\o #\p #\q #\r #\s #\t #\u #\v #\w #\x #\y #\z
+                                        #\A #\B #\C #\D #\E #\F #\G #\H #\I #\J #\K #\L #\M
+                                        #\N #\O #\P #\Q #\R #\S #\T #\U #\V #\W #\X #\Y #\Z
+                                        #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\- #\_))))))
 
 (define (docstring-arguments-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
-           (when (and head (memq head '(defun defmacro defsubst cl-defun
-                                         cl-defmacro cl-defsubst)))
-             (let ((doc (docstring-node node)))
-               (when doc
-                 (let ((words (docstring-words (node-value doc))))
-                   (for-each
-                      (lambda (parameter)
-                        (unless (member (string-downcase parameter) words)
-                          (set! warnings
+     (lambda (node)
+       (let ((head (and (node-list? node) (node-head-name node))))
+         (when (and head (memq head '(defun defmacro defsubst cl-defun
+                                            cl-defmacro cl-defsubst)))
+           (let ((doc (docstring-node node)))
+             (when doc
+               (let ((words (docstring-words (node-value doc))))
+                 (for-each
+                  (lambda (parameter)
+                    (unless (member (string-downcase parameter) words)
+                      (set! warnings
                             (cons (make-lint-warning 'docstring-arguments 'info
-                                    (format #f "the docstring does not mention the argument `~a`"
-                                      parameter)
-                                    (node-start doc))
-                              warnings))))
-                      (parameter-names node))))))))
-       ast)
+                                                     (format #f "the docstring does not mention the argument `~a`"
+                                                             parameter)
+                                                     (node-start doc))
+                                  warnings))))
+                  (parameter-names node))))))))
+     ast)
     (reverse warnings)))
 
 (define docstring-arguments-checker
   (checker 'docstring-arguments
-    "An Emacs Lisp docstring that does not mention one of its arguments"
-    '(elisp)
-    docstring-arguments-warnings
-    #:severity 'info
-    #:example '((input . "(defun add (a b)\n  \"Add two numbers.\"\n  (+ a b))")
-                (fix . "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))"))))
+           "An Emacs Lisp docstring that does not mention one of its arguments"
+           '(elisp)
+           docstring-arguments-warnings
+           #:severity 'info
+           #:example '((input . "(defun add (a b)\n  \"Add two numbers.\"\n  (+ a b))")
+                       (fix . "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))"))))
 
 ;;; ===== The list =====
 
 (define elisp-checkers
   (list docstring-missing-checker
-    docstring-first-line-checker
-    docstring-indent-checker
-    lexical-binding-missing-checker
-    interactive-without-docstring-checker
-    checkdoc-style-verb-checker
-    provide-missing-checker
-    declare-indent-checker
-    docstring-arguments-checker
-    docstring-before-interactive-checker))
+        docstring-first-line-checker
+        docstring-indent-checker
+        lexical-binding-missing-checker
+        interactive-without-docstring-checker
+        checkdoc-style-verb-checker
+        provide-missing-checker
+        declare-indent-checker
+        docstring-arguments-checker
+        docstring-before-interactive-checker))

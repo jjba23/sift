@@ -24,15 +24,15 @@
 
     (test "reports an if with two arguments"
       (assert-warnings #:source "(if a b)\n" #:checker 'if-without-else
-        #:expect '((1 2))))
+                       #:expect '((1 2))))
 
     (test "accepts an if with an else branch"
       (assert-warnings #:source "(if a b c)\n" #:checker 'if-without-else
-        #:expect '()))
+                       #:expect '()))
 
     (test "the fix rewrites it as when"
       (assert-fix #:source "(if a b)\n" #:checker 'if-without-else
-        #:expected "(when a b)\n"))
+                  #:expected "(when a b)\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(if a b)\n" #:checker 'if-without-else))))

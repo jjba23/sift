@@ -25,14 +25,14 @@
 
     (test "reports an exported symbol used without a prefix"
       (assert-warnings
-         #:source "(defpackage :app (:export #:run))\n(defun run () \"Run.\" nil)\n(run)\n"
-         #:dialect 'cl #:checker 'package-prefix #:expect '((3 2))))
+       #:source "(defpackage :app (:export #:run))\n(defun run () \"Run.\" nil)\n(run)\n"
+       #:dialect 'cl #:checker 'package-prefix #:expect '((3 2))))
 
     (test "accepts a prefixed use"
       (assert-warnings
-         #:source "(defpackage :app (:export #:run))\n(app:run)\n"
-         #:dialect 'cl #:checker 'package-prefix #:expect '()))
+       #:source "(defpackage :app (:export #:run))\n(app:run)\n"
+       #:dialect 'cl #:checker 'package-prefix #:expect '()))
 
     (test "accepts a file with no export list"
       (assert-warnings #:source "(defun run () \"Run.\" nil)\n(run)\n"
-        #:dialect 'cl #:checker 'package-prefix #:expect '()))))
+                       #:dialect 'cl #:checker 'package-prefix #:expect '()))))

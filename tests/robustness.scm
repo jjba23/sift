@@ -90,27 +90,27 @@
                       (assert-true (list? warnings) #:name label)
                       (assert-true (string? formatted) #:name label)
                       (assert-true (string? fixed) #:name label)))
-               odd-sources))
-        dialects))
+                  odd-sources))
+           dialects))
 
     (test "formatting an odd source twice changes nothing"
       (map (lambda (source)
              (let* ((once (format-string source))
                     (twice (format-string once)))
                (assert-same-text #:expect once #:got twice
-                 #:name (format #f "idempotent: ~s" source))))
-        odd-sources))
+                                 #:name (format #f "idempotent: ~s" source))))
+           odd-sources))
 
     (test "a case clause whose datum is a list of symbols is not a form"
       ;; this crashed once: `(defun defmacro)` inside a memq list looked like
       ;; a defun to the rules, and a defun with two elements has no body
       (assert-equal #:expect '()
         #:got (lint-source "(memq head '(defun defmacro))"
-                #:dialect 'scheme
-                #:checkers '(docstring-missing empty-body
-                              docstring-before-interactive))))
+                           #:dialect 'scheme
+                           #:checkers '(docstring-missing empty-body
+                                                          docstring-before-interactive))))
 
     (test "an empty body is reported rather than raising"
       (assert-equal #:expect 1
         #:got (length (lint-source "(defun f ())" #:dialect 'elisp
-                        #:checkers '(docstring-missing)))))))
+                                   #:checkers '(docstring-missing)))))))

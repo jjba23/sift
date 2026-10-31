@@ -25,16 +25,16 @@
 
     (test "reports a quote separated from its datum"
       (assert-warnings #:source "'\n(a)\n" #:checker 'reader-prefix-break
-        #:expect '((1 1))))
+                       #:expect '((1 1))))
 
     (test "accepts a quote attached to its datum"
       (assert-warnings #:source "'(a)\n" #:checker 'reader-prefix-break
-        #:expect '()))
+                       #:expect '()))
 
     (test "the fix joins the prefix to the datum"
       (assert-fix #:source "'\n(a)\n" #:checker 'reader-prefix-break
-        #:expected "'(a)\n"))
+                  #:expected "'(a)\n"))
 
     (test "a function quote is covered too"
       (assert-warnings #:source "#'\nfoo\n" #:dialect 'cl
-        #:checker 'reader-prefix-break #:expect '((1 1))))))
+                       #:checker 'reader-prefix-break #:expect '((1 1))))))

@@ -22,8 +22,8 @@
   #:use-module (ice-9 ftw)
   #:use-module (veritas veritas)
   #:export (test-files
-              test-modules
-              run-all!))
+            test-modules
+            run-all!))
 
 ;;; ===== Discovery =====
 
@@ -39,25 +39,25 @@
             (and (scm-file? path)
               (not (member path support-files))
               (not (string-contains path "/fixtures/"))))
-    (sort (find-files* "tests") string<?)))
+          (sort (find-files* "tests") string<?)))
 
 (define (find-files* directory)
   (let ((entries (scandir directory
-                   (lambda (name)
-                     (not (member name '("." ".." ".git")))))))
+                          (lambda (name)
+                            (not (member name '("." ".." ".git")))))))
     (append-map
-       (lambda (name)
-         (let ((path (string-append directory "/" name)))
-           (cond [(eq? (stat:type (stat path)) 'directory)
-                  (find-files* path)]
-                 [(scm-file? name) (list path)]
-                 [else '()])))
-       entries)))
+     (lambda (name)
+       (let ((path (string-append directory "/" name)))
+         (cond [(eq? (stat:type (stat path)) 'directory)
+                (find-files* path)]
+               [(scm-file? name) (list path)]
+               [else '()])))
+     entries)))
 
 (define (module-name-of path)
   "Turn tests/checkers/tabs.scm into (tests checkers tabs)."
   (map string->symbol
-    (string-split (string-drop-right path 4) #\/)))
+       (string-split (string-drop-right path 4) #\/)))
 
 ;;; ===== Running =====
 
@@ -87,16 +87,16 @@ a suite that cannot be read has not passed."
          (tasks '())
          (broken '()))
     (for-each
-       (lambda (path)
-         (format (current-error-port) "loading ~a~%" path)
-         (catch #t
-           (lambda () (set! tasks (append tasks (load-suites path))))
-           (lambda (key . args)
-             (set! broken (cons (format #f "~a: ~a ~s" path key args) broken)))))
-       files)
+     (lambda (path)
+       (format (current-error-port) "loading ~a~%" path)
+       (catch #t
+              (lambda () (set! tasks (append tasks (load-suites path))))
+              (lambda (key . args)
+                (set! broken (cons (format #f "~a: ~a ~s" path key args) broken)))))
+     files)
     (for-each (lambda (message)
                 (format (current-error-port) "sift: could not load ~a~%" message))
-      (reverse broken))
+              (reverse broken))
     (cond
       [(null? tasks)
        (format (current-error-port) "sift: no test suites were found~%")
@@ -106,8 +106,8 @@ a suite that cannot be read has not passed."
       ;; success, which is the one outcome a test runner must never give.
       [(any list? tasks)
        (format (current-error-port)
-         "sift: a suite was passed to the runner without being unwrapped~%")
+               "sift: a suite was passed to the runner without being unwrapped~%")
        1]
       [else
-         (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
-         (if (null? broken) 0 1)])))
+        (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
+        (if (null? broken) 0 1)])))

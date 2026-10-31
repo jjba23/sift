@@ -25,19 +25,19 @@
 
     (test "reports a tab used for indentation"
       (assert-warnings #:source "(define (f x)\n\tx)\n" #:checker 'tabs
-        #:expect '((2 1))))
+                       #:expect '((2 1))))
 
     (test "accepts indentation made of spaces"
       (assert-warnings #:source "(define (f x)\n  x)\n" #:checker 'tabs
-        #:expect '()))
+                       #:expect '()))
 
     (test "a tab inside a string is data, not indentation"
       (assert-warnings #:source "(display \"a\tb\")\n" #:checker 'tabs
-        #:expect '()))
+                       #:expect '()))
 
     (test "the fix replaces the tab with spaces"
       (assert-fix #:source "(a\n\tb)\n" #:checker 'tabs
-        #:expected "(a\n  b)\n"))
+                  #:expected "(a\n  b)\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(a\n\tb)\n" #:checker 'tabs))))

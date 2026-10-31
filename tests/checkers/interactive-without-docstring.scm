@@ -24,10 +24,10 @@
 
     (test "reports an interactive command with no docstring"
       (assert-warnings #:source "(defun c ()\n  (interactive)\n  (message \"hi\"))\n"
-        #:dialect 'elisp #:checker 'interactive-without-docstring
-        #:expect '((2 3))))
+                       #:dialect 'elisp #:checker 'interactive-without-docstring
+                       #:expect '((2 3))))
 
     (test "accepts a documented command"
       (assert-warnings
-         #:source "(defun c ()\n  \"Say hi.\"\n  (interactive)\n  (message \"hi\"))\n"
-         #:dialect 'elisp #:checker 'interactive-without-docstring #:expect '()))))
+       #:source "(defun c ()\n  \"Say hi.\"\n  (interactive)\n  (message \"hi\"))\n"
+       #:dialect 'elisp #:checker 'interactive-without-docstring #:expect '()))))

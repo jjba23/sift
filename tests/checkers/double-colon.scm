@@ -24,12 +24,12 @@
 
     (test "reports a double-colon reference"
       (assert-warnings #:source "(other::internal 1)\n" #:dialect 'cl
-        #:checker 'double-colon #:expect '((1 2))))
+                       #:checker 'double-colon #:expect '((1 2))))
 
     (test "accepts a single-colon reference"
       (assert-warnings #:source "(other:public 1)\n" #:dialect 'cl
-        #:checker 'double-colon #:expect '()))
+                       #:checker 'double-colon #:expect '()))
 
     (test "accepts an ordinary symbol"
       (assert-warnings #:source "(list 1 2)\n" #:dialect 'cl
-        #:checker 'double-colon #:expect '()))))
+                       #:checker 'double-colon #:expect '()))))

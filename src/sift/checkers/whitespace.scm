@@ -22,10 +22,10 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (whitespace-checkers
-              trailing-whitespace-checker
-              tabs-checker
-              line-length-checker
-              trailing-blank-lines-checker))
+            trailing-whitespace-checker
+            tabs-checker
+            line-length-checker
+            trailing-blank-lines-checker))
 
 ;;; ===== trailing-whitespace =====
 
@@ -40,24 +40,24 @@
           (when (< (string-length trimmed) (string-length text))
             (let* ((first-bad (+ (car span) (string-length trimmed))))
               (set! warnings
-                (cons (make-lint-warning/range
-                         'trailing-whitespace 'warning
-                         "line ends with whitespace"
-                         (location-at-index source first-bad)
-                         first-bad (cdr span)
-                         (lambda (source start end) ""))
-                  warnings)))))
+                    (cons (make-lint-warning/range
+                           'trailing-whitespace 'warning
+                           "line ends with whitespace"
+                           (location-at-index source first-bad)
+                           first-bad (cdr span)
+                           (lambda (source start end) ""))
+                          warnings)))))
         (loop (cdr rest) (+ number 1))))
     (reverse warnings)))
 
 (define trailing-whitespace-checker
   (checker 'trailing-whitespace
-    "Lines ending with spaces or tabs"
-    'all
-    trailing-whitespace-warnings
-    #:severity 'warning
-    #:example '((input . "(define (f x) \n  x)")
-                (fix . "strip the trailing whitespace"))))
+           "Lines ending with spaces or tabs"
+           'all
+           trailing-whitespace-warnings
+           #:severity 'warning
+           #:example '((input . "(define (f x) \n  x)")
+                       (fix . "strip the trailing whitespace"))))
 
 ;;; ===== tabs =====
 
@@ -87,30 +87,30 @@
                   (string-index indent #\tab))
             (let* ((tab-at (+ start (string-index indent #\tab)))
                    (expanded
-                      (string-join
-                         (map (lambda (c)
-                                (if (char=? c #\tab) (make-string width #\space) " "))
-                           (string->list indent))
-                         "")))
+                    (string-join
+                     (map (lambda (c)
+                            (if (char=? c #\tab) (make-string width #\space) " "))
+                          (string->list indent))
+                     "")))
               (set! warnings
-                (cons (make-lint-warning/range
-                         'tabs 'warning
-                         "indentation contains a tab character"
-                         (location-at-index source tab-at)
-                         start indent-end
-                         (lambda (source s e) expanded))
-                  warnings))))
+                    (cons (make-lint-warning/range
+                           'tabs 'warning
+                           "indentation contains a tab character"
+                           (location-at-index source tab-at)
+                           start indent-end
+                           (lambda (source s e) expanded))
+                          warnings))))
           (loop (cdr rest) (+ number 1))))
       (reverse warnings))))
 
 (define tabs-checker
   (checker 'tabs
-    "Tab characters used for indentation"
-    'all
-    tabs-warnings
-    #:severity 'warning
-    #:example '((input . "(define (f x)\n\tx)")
-                (fix . "replace the tab with spaces at the indent width"))))
+           "Tab characters used for indentation"
+           'all
+           tabs-warnings
+           #:severity 'warning
+           #:example '((input . "(define (f x)\n\tx)")
+                       (fix . "replace the tab with spaces at the indent width"))))
 
 ;;; ===== line-length =====
 
@@ -123,71 +123,71 @@
       (unless (null? rest)
         (let ((span (car rest)))
           (when (> (string-length (substring source (car span) (cdr span)))
-                  limit)
+                   limit)
             (set! warnings
-              (cons (make-lint-warning 'line-length 'warning
-                      (format #f "line is ~a columns long, over the limit of ~a"
-                        (- (cdr span) (car span))
-                        limit)
-                      (make-source-location #f number
-                        (+ limit 1)
-                        (+ (car span) limit)
-                        (+ (car span) limit)))
-                warnings))))
+                  (cons (make-lint-warning 'line-length 'warning
+                                           (format #f "line is ~a columns long, over the limit of ~a"
+                                                   (- (cdr span) (car span))
+                                                   limit)
+                                           (make-source-location #f number
+                                                                 (+ limit 1)
+                                                                 (+ (car span) limit)
+                                                                 (+ (car span) limit)))
+                        warnings))))
         (loop (cdr rest) (+ number 1))))
     (reverse warnings)))
 
 (define line-length-checker
   (checker 'line-length
-    "Line exceeds the configured soft limit"
-    'all
-    line-length-warnings
-    #:severity 'warning
-    #:example '((input . "(define (f x) (some-very-long-call ...))  ; over 100 columns")
-                (fix . "no automatic fix; break the form by hand"))))
+           "Line exceeds the configured soft limit"
+           'all
+           line-length-warnings
+           #:severity 'warning
+           #:example '((input . "(define (f x) (some-very-long-call ...))  ; over 100 columns")
+                       (fix . "no automatic fix; break the form by hand"))))
 
 ;;; ===== trailing-blank-lines =====
 
 (define (trailing-blank-lines-warnings ast source dialect)
   (let* ((spans (line-spans source))
          (ends-with-newline?
-            (let ((n (string-length source)))
-              (and (> n 0) (char=? (string-ref source (- n 1)) #\newline))))
+          (let ((n (string-length source)))
+            (and (> n 0) (char=? (string-ref source (- n 1)) #\newline))))
          (last-non-blank
-            (let loop ((rest spans) (number 1) (found 0))
-              (cond [(null? rest) found]
-                    [(blank-line? (substring source (caar rest) (cdar rest)))
-                     (loop (cdr rest) (+ number 1) found)]
-                    [else (loop (cdr rest) (+ number 1) number)])))
+          (let loop ((rest spans) (number 1) (found 0))
+            (cond [(null? rest) found]
+                  [(blank-line? (substring source (caar rest) (cdar rest)))
+                   (loop (cdr rest) (+ number 1) found)]
+                  [else (loop (cdr rest) (+ number 1) number)])))
          ;; The final line a trailing newline creates is not a blank line the
          ;; author wrote, so it is not counted.
          (trailing-blank (- (length spans) last-non-blank
-                           (if ends-with-newline? 1 0))))
+                            (if ends-with-newline? 1 0))))
     (if (> trailing-blank 2)
       (let ((start (if (> last-non-blank 0)
                      (cdr (list-ref spans (- last-non-blank 1)))
                      0)))
         (list (make-lint-warning/range
-                 'trailing-blank-lines 'info
-                 (format #f "~a blank lines at end of file" trailing-blank)
-                 (make-source-location #f (+ last-non-blank 1) 1 start start)
-                 start (string-length source)
-                 (lambda (source s e) "\n\n"))))
+               'trailing-blank-lines 'info
+               (format #f "~a blank lines at end of file" trailing-blank)
+               (make-source-location #f (+ last-non-blank 1) 1 start start)
+               start (string-length source)
+               (lambda (source s e) "\n\n"))))
       '())))
 
 (define trailing-blank-lines-checker
   (checker 'trailing-blank-lines
-    "More than two consecutive blank lines at end of file"
-    'all
-    trailing-blank-lines-warnings
-    #:severity 'info
-    #:example '((input . "(define x 1)\n\n\n\n\n")
-                (fix . "trim the end of the file to one blank line"))))
+           "More than two consecutive blank lines at end of file"
+           'all
+           trailing-blank-lines-warnings
+           #:severity 'info
+           #:example '((input . "(define x 1)\n\n\n\n\n")
+                       (fix . "trim the end of the file to one blank line"))))
 
 ;;; ===== The list =====
 
 (define whitespace-checkers
   (list trailing-whitespace-checker
-    tabs-checker
-    line-length-checker
-    trailing-blank-lines-checker))
+        tabs-checker
+        line-length-checker
+        trailing-blank-lines-checker))

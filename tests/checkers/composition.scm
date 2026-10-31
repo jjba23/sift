@@ -22,31 +22,31 @@
 
     (test "reports a lambda whose body is one call around another"
       (assert-warnings #:source "(lambda (x) (f (g x)))\n" #:checker 'composition
-        #:expect '((1 1))))
+                       #:expect '((1 1))))
 
     (test "the fix names the composition"
       (assert-fix #:source "(lambda (x) (f (g x)))\n" #:checker 'composition
-        #:expected "(compose f g)\n"))
+                  #:expected "(compose f g)\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(lambda (x) (f (g x)))\n"
-        #:checker 'composition))
+                               #:checker 'composition))
 
     (test "accepts an inner call that takes more than the argument"
       (assert-warnings #:source "(lambda (x) (f (g x y)))\n"
-        #:checker 'composition
-        #:expect '()))
+                       #:checker 'composition
+                       #:expect '()))
 
     (test "accepts a body that is not a nested call"
       (assert-warnings #:source "(lambda (x) (+ 1 x))\n" #:checker 'composition
-        #:expect '()))
+                       #:expect '()))
 
     (test "accepts a lambda that takes two arguments"
       (assert-warnings #:source "(lambda (x y) (f (g x)))\n"
-        #:checker 'composition
-        #:expect '()))
+                       #:checker 'composition
+                       #:expect '()))
 
     (test "does not suggest Guile's compose to Common Lisp"
       (assert-warnings #:source "(lambda (x) (f (g x)))\n" #:checker 'composition
-        #:dialect 'cl
-        #:expect '()))))
+                       #:dialect 'cl
+                       #:expect '()))))

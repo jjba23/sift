@@ -25,10 +25,10 @@
 
     (test "reports an indented continuation line"
       (assert-warnings #:source "(defun f (x)\n  \"Doc.\n    More.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-indent
-        #:expect '((2 3))))
+                       #:dialect 'elisp #:checker 'docstring-indent
+                       #:expect '((2 3))))
 
     (test "accepts continuation lines that start at column zero"
       (assert-warnings #:source "(defun f (x)\n  \"Doc.\nMore.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-indent
-        #:expect '()))))
+                       #:dialect 'elisp #:checker 'docstring-indent
+                       #:expect '()))))

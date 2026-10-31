@@ -24,33 +24,33 @@
 
     (test "reports an if with a negated test"
       (assert-warnings #:source "(if (not (ready?)) (wait) (go))\n"
-        #:checker 'negated-if #:expect '((1 1))))
+                       #:checker 'negated-if #:expect '((1 1))))
 
     (test "reports an if with a negated test and no else branch"
       (assert-warnings #:source "(if (not (ready?)) (wait))\n"
-        #:checker 'negated-if #:expect '((1 1))))
+                       #:checker 'negated-if #:expect '((1 1))))
 
     (test "reports a when with a negated test"
       (assert-warnings #:source "(when (not x) (go))\n"
-        #:checker 'negated-if #:expect '((1 1))))
+                       #:checker 'negated-if #:expect '((1 1))))
 
     (test "accepts an unless"
       (assert-warnings #:source "(unless (ready?) (wait))\n"
-        #:checker 'negated-if #:expect '()))
+                       #:checker 'negated-if #:expect '()))
 
     (test "accepts an if whose test is not a negation"
       (assert-warnings #:source "(if (ready?) (go) (wait))\n"
-        #:checker 'negated-if #:expect '()))
+                       #:checker 'negated-if #:expect '()))
 
     (test "the fix rewrites the if as an unless"
       (assert-fix #:source "(if (not (ready?)) (wait) (go))\n"
-        #:checker 'negated-if
-        #:expected "(unless (ready?) (wait) (go))\n"))
+                  #:checker 'negated-if
+                  #:expected "(unless (ready?) (wait) (go))\n"))
 
     (test "the fix rewrites a when as an unless"
       (assert-fix #:source "(when (not x) (go))\n" #:checker 'negated-if
-        #:expected "(unless x (go))\n"))
+                  #:expected "(unless x (go))\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "(if (not (ready?)) (wait) (go))\n"
-        #:checker 'negated-if))))
+                               #:checker 'negated-if))))

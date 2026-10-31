@@ -24,15 +24,15 @@
 
     (test "reports a declare indented too far"
       (assert-warnings #:source "(defun f (x)\n    (declare (indent 1))\n  x)\n"
-        #:dialect 'elisp #:checker 'declare-indent
-        #:expect '((2 5))))
+                       #:dialect 'elisp #:checker 'declare-indent
+                       #:expect '((2 5))))
 
     (test "accepts a declare two columns in"
       (assert-warnings #:source "(defun f (x)\n  (declare (indent 1))\n  x)\n"
-        #:dialect 'elisp #:checker 'declare-indent
-        #:expect '()))
+                       #:dialect 'elisp #:checker 'declare-indent
+                       #:expect '()))
 
     (test "the fix re-indents the declare"
       (assert-fix #:source "(defun f (x)\n    (declare (indent 1))\n  x)\n"
-        #:dialect 'elisp #:checker 'declare-indent
-        #:expected "(defun f (x)\n  (declare (indent 1))\n  x)\n"))))
+                  #:dialect 'elisp #:checker 'declare-indent
+                  #:expected "(defun f (x)\n  (declare (indent 1))\n  x)\n"))))

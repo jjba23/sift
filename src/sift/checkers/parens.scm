@@ -21,9 +21,9 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (parens-checkers
-              unmatched-parens-checker
-              dangling-paren-checker
-              reader-prefix-break-checker))
+            unmatched-parens-checker
+            dangling-paren-checker
+            reader-prefix-break-checker))
 
 ;;; ===== unmatched-parens =====
 
@@ -36,35 +36,35 @@
 (define (unmatched-parens-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-node
-       (lambda (node)
-         (cond
-           [(and (node-list? node) (not (node-close node)))
-            (set! warnings
-              (cons (make-lint-warning
+     (lambda (node)
+       (cond
+         [(and (node-list? node) (not (node-close node)))
+          (set! warnings
+                (cons (make-lint-warning
                        'unmatched-parens 'error
                        (format #f "unmatched opening ~a"
-                         (open-token-name (node-open node)))
+                               (open-token-name (node-open node)))
                        (node-start node))
-                warnings))]
-           [(node-stray-delimiter? node)
-            (set! warnings
-              (cons (make-lint-warning
+                      warnings))]
+         [(node-stray-delimiter? node)
+          (set! warnings
+                (cons (make-lint-warning
                        'unmatched-parens 'error
                        (format #f "unmatched closing delimiter `~a'"
-                         (node-value node))
+                               (node-value node))
                        (node-start node))
-                warnings))]))
-       ast)
+                      warnings))]))
+     ast)
     (reverse warnings)))
 
 (define unmatched-parens-checker
   (checker 'unmatched-parens
-    "Unbalanced or unmatched parentheses or brackets"
-    'all
-    unmatched-parens-warnings
-    #:severity 'error
-    #:example '((input . "(define (f x)\n  x")
-                (fix . "no automatic fix; sift never guesses where a `)' goes"))))
+           "Unbalanced or unmatched parentheses or brackets"
+           'all
+           unmatched-parens-warnings
+           #:severity 'error
+           #:example '((input . "(define (f x)\n  x")
+                       (fix . "no automatic fix; sift never guesses where a `)' goes"))))
 
 ;;; ===== dangling-paren =====
 
@@ -90,73 +90,73 @@
 (define (dangling-paren-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-node
-       (lambda (node)
-         (when (and (node-list? node) (close-on-own-line? node))
-           (let* ((close (node-close node))
-                  (close-index (- (node-end-index node) (string-length close)))
-                  (last (last-written-child (node-children node)))
-                  (range (and last
-                           (not (node-comment? last))
-                           (cons (node-end-index last) (node-end-index node)))))
-             (set! warnings
-               (cons (make-lint-warning/range
+     (lambda (node)
+       (when (and (node-list? node) (close-on-own-line? node))
+         (let* ((close (node-close node))
+                (close-index (- (node-end-index node) (string-length close)))
+                (last (last-written-child (node-children node)))
+                (range (and last
+                         (not (node-comment? last))
+                         (cons (node-end-index last) (node-end-index node)))))
+           (set! warnings
+                 (cons (make-lint-warning/range
                         'dangling-paren 'warning
                         "closing parenthesis is on its own line"
                         (location-at-index source close-index)
                         (if range (car range) close-index)
                         (if range (cdr range) (node-end-index node))
                         (and range (lambda (source start end) close)))
-                 warnings)))))
-       ast)
+                       warnings)))))
+     ast)
     (reverse warnings)))
 
 (define dangling-paren-checker
   (checker 'dangling-paren
-    "Closing parenthesis on its own line"
-    '(cl)
-    dangling-paren-warnings
-    #:severity 'warning
-    #:example '((input . "(defun f (x)\n  x\n  )")
-                (fix . "pull the closing parenthesis onto the previous line"))))
+           "Closing parenthesis on its own line"
+           '(cl)
+           dangling-paren-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f (x)\n  x\n  )")
+                       (fix . "pull the closing parenthesis onto the previous line"))))
 
 ;;; ===== reader-prefix-break =====
 
 (define (reader-prefix-break-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-node
-       (lambda (node)
-         (when (node-prefix? node)
-           (let* ((token (node-token node))
-                  (child (node-child node))
-                  (gap-start (+ (node-index node) (string-length token))))
-             (when (and child
-                     (string-index (substring source gap-start
-                                     (node-index child))
-                       #\newline))
-               (set! warnings
-                 (cons (make-lint-warning/range
+     (lambda (node)
+       (when (node-prefix? node)
+         (let* ((token (node-token node))
+                (child (node-child node))
+                (gap-start (+ (node-index node) (string-length token))))
+           (when (and child
+                   (string-index (substring source gap-start
+                                            (node-index child))
+                                 #\newline))
+             (set! warnings
+                   (cons (make-lint-warning/range
                           'reader-prefix-break 'warning
                           (format #f "~a is separated from its datum by a newline"
-                            token)
+                                  token)
                           (node-start node)
                           gap-start (node-index child)
                           (lambda (source start end) ""))
-                   warnings))))))
-       ast)
+                         warnings))))))
+     ast)
     (reverse warnings)))
 
 (define reader-prefix-break-checker
   (checker 'reader-prefix-break
-    "A newline between a reader prefix and its datum"
-    'all
-    reader-prefix-break-warnings
-    #:severity 'warning
-    #:example '((input . "'\n(foo)")
-                (fix . "join the prefix to the datum it applies to"))))
+           "A newline between a reader prefix and its datum"
+           'all
+           reader-prefix-break-warnings
+           #:severity 'warning
+           #:example '((input . "'\n(foo)")
+                       (fix . "join the prefix to the datum it applies to"))))
 
 ;;; ===== The list =====
 
 (define parens-checkers
   (list unmatched-parens-checker
-    dangling-paren-checker
-    reader-prefix-break-checker))
+        dangling-paren-checker
+        reader-prefix-break-checker))

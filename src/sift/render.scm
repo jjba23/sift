@@ -26,17 +26,17 @@
   ;; way: the linter knows nothing about how it is printed.
   #:use-module (sift lint)
   #:export (color-enabled?
-              paint
-              render-warning
-              render-warnings
-              render-summary
-              warnings->json
-              warning->json
-              list-checkers-table
-              explain-checker
-              unified-diff
-              json-escape
-              sift-rules-page))
+            paint
+            render-warning
+            render-warnings
+            render-summary
+            warnings->json
+            warning->json
+            list-checkers-table
+            explain-checker
+            unified-diff
+            json-escape
+            sift-rules-page))
 
 ;;; ===== Colour =====
 
@@ -71,16 +71,16 @@ sentence with no trailing period."
          (path (or (source-location-file location) "<stdin>"))
          (sev (lint-warning-severity warning))
          (line (format #f "~a:~a:~a: ~a: [~a] ~a"
-                 (paint (format #f "~a" path) 'bold #:enabled color?)
-                 (source-location-line location)
-                 (source-location-column location)
-                 (paint (severity->string sev) sev #:enabled color?)
-                 (lint-warning-checker warning)
-                 (lint-warning-message warning))))
+                       (paint (format #f "~a" path) 'bold #:enabled color?)
+                       (source-location-line location)
+                       (source-location-column location)
+                       (paint (severity->string sev) sev #:enabled color?)
+                       (lint-warning-checker warning)
+                       (lint-warning-message warning))))
     (if port (display line port) line)))
 
 (define* (render-warnings warnings #:key (format 'human) (color? #f)
-           (port (current-output-port)) (quiet #f))
+                          (port (current-output-port)) (quiet #f))
   "Write @var{warnings} to @var{port} in @var{format}.
 
 @code{json} writes one array for the whole run, which is what a streaming
@@ -92,29 +92,29 @@ script can ask for the exit status alone."
      (for-each (lambda (warning)
                  (display (warning->github warning) port)
                  (newline port))
-       warnings)]
+               warnings)]
     [(sarif) (display (warnings->sarif warnings) port) (newline port)]
     [(null) *unspecified*]
     [else
-       (for-each (lambda (warning)
-                   (display (render-warning warning #:color? color?) port)
-                   (newline port))
-         warnings)]))
+      (for-each (lambda (warning)
+                  (display (render-warning warning #:color? color?) port)
+                  (newline port))
+                warnings)]))
 
 (define* (render-summary files warnings errors infos
-           #:key (color? #f) (port (current-output-port)))
+                         #:key (color? #f) (port (current-output-port)))
   "Write the `N files checked, N warnings, N errors` line."
   (let ((line (format #f "~a ~a, ~a, ~a"
-                files
-                (if (= files 1) "file checked" "files checked")
-                (format #f "~a ~a" warnings
-                  (if (= warnings 1) "warning" "warnings"))
-                (format #f "~a ~a" errors
-                  (if (= errors 1) "error" "errors")))))
+                      files
+                      (if (= files 1) "file checked" "files checked")
+                      (format #f "~a ~a" warnings
+                              (if (= warnings 1) "warning" "warnings"))
+                      (format #f "~a ~a" errors
+                              (if (= errors 1) "error" "errors")))))
     (display (paint line (if (> errors 0) 'error
                            (if (> warnings 0) 'warning 'ok))
-               #:enabled color?)
-      port)
+                    #:enabled color?)
+             port)
     (newline port)))
 
 ;;; ===== JSON =====
@@ -124,18 +124,18 @@ script can ask for the exit status alone."
   (let ((out (open-output-string)))
     (display "\"" out)
     (string-for-each
-       (lambda (c)
-         (case c
-           [(#\") (display "\\\"" out)]
-           [(#\\) (display "\\\\" out)]
-           [(#\newline) (display "\\n" out)]
-           [(#\return) (display "\\r" out)]
-           [(#\tab) (display "\\t" out)]
-           [else
-              (if (char<? c #\space)
-                (format out "\\u~4,'0x" (char->integer c))
-                (display c out))]))
-       string)
+     (lambda (c)
+       (case c
+         [(#\") (display "\\\"" out)]
+         [(#\\) (display "\\\\" out)]
+         [(#\newline) (display "\\n" out)]
+         [(#\return) (display "\\r" out)]
+         [(#\tab) (display "\\t" out)]
+         [else
+           (if (char<? c #\space)
+             (format out "\\u~4,'0x" (char->integer c))
+             (display c out))]))
+     string)
     (display "\"" out)
     (get-output-string out)))
 
@@ -147,22 +147,22 @@ changed, and a hash table would not promise that."
   (let* ((location (lint-warning-location warning))
          (checker (lint-warning-checker warning)))
     (string-append
-       "{"
-       "\"file\":" (json-escape (or (source-location-file location) "<stdin>")) ","
-       "\"line\":" (number->string (source-location-line location)) ","
-       "\"column\":" (number->string (source-location-column location)) ","
-       "\"checker\":" (json-escape (symbol->string checker)) ","
-       ;; the rule code is what an editor attaches to a diagnostic, so that a
-       ;; key press can open the documentation of the rule that fired; a
-       ;; finding that is not a rule -- a file that would be reformatted, one
-       ;; that could not be read -- is named by its checker instead, because
-       ;; an empty code is a code no editor can look up
-       "\"code\":" (json-escape (or (rule-code checker)
-                                  (symbol->string checker))) ","
-       "\"severity\":" (json-escape (severity->string
-                                       (lint-warning-severity warning))) ","
-       "\"message\":" (json-escape (lint-warning-message warning))
-       "}")))
+     "{"
+     "\"file\":" (json-escape (or (source-location-file location) "<stdin>")) ","
+     "\"line\":" (number->string (source-location-line location)) ","
+     "\"column\":" (number->string (source-location-column location)) ","
+     "\"checker\":" (json-escape (symbol->string checker)) ","
+     ;; the rule code is what an editor attaches to a diagnostic, so that a
+     ;; key press can open the documentation of the rule that fired; a
+     ;; finding that is not a rule -- a file that would be reformatted, one
+     ;; that could not be read -- is named by its checker instead, because
+     ;; an empty code is a code no editor can look up
+     "\"code\":" (json-escape (or (rule-code checker)
+                                (symbol->string checker))) ","
+     "\"severity\":" (json-escape (severity->string
+                                   (lint-warning-severity warning))) ","
+     "\"message\":" (json-escape (lint-warning-message warning))
+     "}")))
 
 ;;; ===== SARIF =====
 ;;;
@@ -216,15 +216,15 @@ scanning service stores the fingerprint and compares it with the next run's,
 so it may not change when this Guile changes.  FNV-1a is small enough to read
 and stable by definition."
   (let ((text (string-join (map (lambda (part) (format #f "~a" part)) parts)
-                "\n")))
+                           "\n")))
     (let loop ((index 0) (hash #x811c9dc5))
       (if (>= index (string-length text))
         (format #f "~8,'0x" hash)
         (loop (+ index 1)
-          (modulo (* (logxor hash
-                       (char->integer (string-ref text index)))
-                    #x01000193)
-            #x100000000))))))
+              (modulo (* (logxor hash
+                                 (char->integer (string-ref text index)))
+                         #x01000193)
+                      #x100000000))))))
 
 (define (distinct items)
   "Return @var{items} without duplicates, keeping the first of each."
@@ -257,7 +257,7 @@ and stable by definition."
     [(null? names) "any dialect"]
     [(null? (cdr names)) (car names)]
     [else (string-append (string-join (drop-right names 1) ", ")
-            " and " (car (take-right names 1)))]))
+                         " and " (car (take-right names 1)))]))
 
 (define (rule-fields name)
   "Return what a SARIF document says about the rule @var{name}.
@@ -302,16 +302,16 @@ shown beside a finding cannot drift from the rule."
          (input (and example (assq-ref example 'input)))
          (fix (and example (assq-ref example 'fix))))
     (string-append
-       (assq-ref rule 'description) "\n\n"
-       (if input
-         (string-append "Reported, for example, for:\n\n  " (indent-block input)
-           "\n\n"
-           (if fix
-             (string-append "which is written:\n\n  " (indent-block fix) "\n\n")
-             ""))
-         "")
-       (format #f "Rule ~a is documented with the others at ~a."
-         code (sift-rules-page)))))
+     (assq-ref rule 'description) "\n\n"
+     (if input
+       (string-append "Reported, for example, for:\n\n  " (indent-block input)
+                      "\n\n"
+                      (if fix
+                        (string-append "which is written:\n\n  " (indent-block fix) "\n\n")
+                        ""))
+       "")
+     (format #f "Rule ~a is documented with the others at ~a."
+             code (sift-rules-page)))))
 
 (define (sarif-level severity)
   (case severity
@@ -325,24 +325,24 @@ shown beside a finding cannot drift from the rule."
          (code (assq-ref rule 'id))
          (dialects (assq-ref rule 'dialects)))
     (json-object
-       (json-field "id" (json-escape code))
-       (json-field "name" (json-escape (assq-ref rule 'name)))
-       (json-field "shortDescription" (json-text (assq-ref rule 'description)))
-       (json-field "fullDescription"
-         (json-text (format #f "~a Reported in ~a."
-                      (sentence (assq-ref rule 'description))
-                      (dialects-sentence dialects))))
-       (json-field "help" (json-text (rule-help-text rule)))
-       (json-field "helpUri"
-         (if (assq-ref pseudo-rules name)
-           (json-escape sift-home-page)
-           (json-escape (format #f "~a#~a" (sift-rules-page) code))))
-       (json-field "defaultConfiguration"
-         (json-object
-            (json-field "level" (json-escape (sarif-level (assq-ref rule 'severity))))))
-       (json-field "properties"
-         (json-object
-            (json-field "tags" (json-array (map json-escape (cons "sift" dialects)))))))))
+     (json-field "id" (json-escape code))
+     (json-field "name" (json-escape (assq-ref rule 'name)))
+     (json-field "shortDescription" (json-text (assq-ref rule 'description)))
+     (json-field "fullDescription"
+                 (json-text (format #f "~a Reported in ~a."
+                                    (sentence (assq-ref rule 'description))
+                                    (dialects-sentence dialects))))
+     (json-field "help" (json-text (rule-help-text rule)))
+     (json-field "helpUri"
+                 (if (assq-ref pseudo-rules name)
+                   (json-escape sift-home-page)
+                   (json-escape (format #f "~a#~a" (sift-rules-page) code))))
+     (json-field "defaultConfiguration"
+                 (json-object
+                  (json-field "level" (json-escape (sarif-level (assq-ref rule 'severity))))))
+     (json-field "properties"
+                 (json-object
+                  (json-field "tags" (json-array (map json-escape (cons "sift" dialects)))))))))
 
 ;;; --- describing the run -----------------------------------------------
 
@@ -362,9 +362,9 @@ as the `file:' URI it actually is."
 
 (define (sarif-artifact path)
   (json-object
-     (json-field "location"
-       (json-object (json-field "uri" (json-escape (artifact-uri path)))))
-     (json-field "roles" (json-array (list (json-escape "analysisTarget"))))))
+   (json-field "location"
+               (json-object (json-field "uri" (json-escape (artifact-uri path)))))
+   (json-field "roles" (json-array (list (json-escape "analysisTarget"))))))
 
 (define (parse-error? warning)
   "Return @code{#t} when @var{warning} says the file could not be read."
@@ -378,8 +378,8 @@ as the `file:' URI it actually is."
 of that file did not finish, and a document that claimed otherwise would be
 saying something sift does not know."
   (json-object
-     (json-field "executionSuccessful"
-       (if (any parse-error? warnings) "false" "true"))))
+   (json-field "executionSuccessful"
+               (if (any parse-error? warnings) "false" "true"))))
 
 ;;; --- results ----------------------------------------------------------
 
@@ -392,12 +392,12 @@ highlight the whole finding rather than one character of it."
   (let* ((location (lint-warning-location warning))
          (range (lint-warning-range warning)))
     (json-object
-       (json-field "startLine" (number->string (source-location-line location)))
-       (json-field "startColumn" (number->string (source-location-column location)))
-       (and range (json-field "charOffset" (number->string (car range))))
-       (and range
-         (json-field "charLength"
-           (number->string (max 1 (- (cdr range) (car range)))))))))
+     (json-field "startLine" (number->string (source-location-line location)))
+     (json-field "startColumn" (number->string (source-location-column location)))
+     (and range (json-field "charOffset" (number->string (car range))))
+     (and range
+       (json-field "charLength"
+                   (number->string (max 1 (- (cdr range) (car range)))))))))
 
 (define (warning->sarif warning artifacts rules)
   "Return one warning as a SARIF result, pointing at its rule and its artifact."
@@ -406,34 +406,34 @@ highlight the whole finding rather than one character of it."
          (artifact (artifact-of warning))
          (rule-index (list-index (lambda (name) (eq? name checker)) rules))
          (artifact-index
-            (list-index (lambda (path) (string=? path artifact)) artifacts)))
+          (list-index (lambda (path) (string=? path artifact)) artifacts)))
     (json-object
-       (json-field "ruleId" (json-escape rule))
-       (and rule-index (json-field "ruleIndex" (number->string rule-index)))
-       (json-field "level"
-         (json-escape (sarif-level (lint-warning-severity warning))))
-       (json-field "message"
-         (json-text (format #f "~a [~a]" (lint-warning-message warning) checker)))
-       (json-field "locations"
-         (json-array
-            (list
-               (json-object
-                  (json-field "physicalLocation"
-                    (json-object
-                       (json-field "artifactLocation"
-                         (json-object
-                            (json-field "uri" (json-escape (artifact-uri artifact)))
-                            (and artifact-index
-                              (json-field "index" (number->string artifact-index)))))
-                       (json-field "region" (sarif-region warning))))))))
-       ;; The fingerprint is what a code scanning service offers the finding by:
-       ;; the rule, the file and the message, and deliberately not the line, so
-       ;; that adding a line above a finding does not open a new alert for it.
-       (json-field "partialFingerprints"
-         (json-object
-            (json-field "siftFingerprint/v1"
-              (json-escape (fingerprint rule artifact
-                             (lint-warning-message warning)))))))))
+     (json-field "ruleId" (json-escape rule))
+     (and rule-index (json-field "ruleIndex" (number->string rule-index)))
+     (json-field "level"
+                 (json-escape (sarif-level (lint-warning-severity warning))))
+     (json-field "message"
+                 (json-text (format #f "~a [~a]" (lint-warning-message warning) checker)))
+     (json-field "locations"
+                 (json-array
+                  (list
+                   (json-object
+                    (json-field "physicalLocation"
+                                (json-object
+                                 (json-field "artifactLocation"
+                                             (json-object
+                                              (json-field "uri" (json-escape (artifact-uri artifact)))
+                                              (and artifact-index
+                                                (json-field "index" (number->string artifact-index)))))
+                                 (json-field "region" (sarif-region warning))))))))
+     ;; The fingerprint is what a code scanning service offers the finding by:
+     ;; the rule, the file and the message, and deliberately not the line, so
+     ;; that adding a line above a finding does not open a new alert for it.
+     (json-field "partialFingerprints"
+                 (json-object
+                  (json-field "siftFingerprint/v1"
+                              (json-escape (fingerprint rule artifact
+                                                        (lint-warning-message warning)))))))))
 
 (define* (warnings->sarif warnings)
   "Return @var{warnings} as a SARIF 2.1.0 document.
@@ -445,31 +445,31 @@ is still a valid document, and one that could not read a file says so."
          (artifacts (distinct (map artifact-of warnings)))
          (results (map (lambda (warning)
                          (warning->sarif warning artifacts rules))
-                    warnings)))
+                       warnings)))
     (json-object
-       (json-field "$schema" (json-escape sarif-schema-uri))
-       (json-field "version" (json-escape "2.1.0"))
-       (json-field "runs"
-         (json-array
-            (list
-               (json-object
-                  (json-field "tool"
-                    (json-object
-                       (json-field "driver"
-                         (json-object
-                            (json-field "name" (json-escape "sift"))
-                            (json-field "fullName"
-                              (json-escape "sift, a dialect-aware formatter and linter"))
-                            (json-field "version" (json-escape sift-version))
-                            (json-field "informationUri" (json-escape sift-home-page))
-                            (json-field "rules"
-                              (json-array (map sarif-rule rules)))))))
-                  (json-field "invocations"
-                    (json-array (list (sarif-invocation warnings))))
-                  (json-field "artifacts"
-                    (json-array (map sarif-artifact artifacts)))
-                  (json-field "columnKind" (json-escape "unicodeCodePoints"))
-                  (json-field "results" (json-array results)))))))))
+     (json-field "$schema" (json-escape sarif-schema-uri))
+     (json-field "version" (json-escape "2.1.0"))
+     (json-field "runs"
+                 (json-array
+                  (list
+                   (json-object
+                    (json-field "tool"
+                                (json-object
+                                 (json-field "driver"
+                                             (json-object
+                                              (json-field "name" (json-escape "sift"))
+                                              (json-field "fullName"
+                                                          (json-escape "sift, a dialect-aware formatter and linter"))
+                                              (json-field "version" (json-escape sift-version))
+                                              (json-field "informationUri" (json-escape sift-home-page))
+                                              (json-field "rules"
+                                                          (json-array (map sarif-rule rules)))))))
+                    (json-field "invocations"
+                                (json-array (list (sarif-invocation warnings))))
+                    (json-field "artifacts"
+                                (json-array (map sarif-artifact artifacts)))
+                    (json-field "columnKind" (json-escape "unicodeCodePoints"))
+                    (json-field "results" (json-array results)))))))))
 
 (define* (warning->github warning)
   "Return one warning as a GitHub Actions workflow command.
@@ -484,29 +484,29 @@ title so that the same handle as everywhere else is on screen."
                  [(warning) "warning"]
                  [else "notice"]))
          (title (format #f "~a [~a]"
-                  (or (rule-code (lint-warning-checker warning)) "")
-                  (lint-warning-checker warning))))
+                        (or (rule-code (lint-warning-checker warning)) "")
+                        (lint-warning-checker warning))))
     (format #f "::~a file=~a,line=~a,col=~a,title=~a::~a"
-      kind
-      (or (source-location-file location) "<stdin>")
-      (source-location-line location)
-      (source-location-column location)
-      (github-escape title)
-      (github-escape (lint-warning-message warning)))))
+            kind
+            (or (source-location-file location) "<stdin>")
+            (source-location-line location)
+            (source-location-column location)
+            (github-escape title)
+            (github-escape (lint-warning-message warning)))))
 
 (define (github-escape text)
   "Escape the characters a workflow command treats as syntax."
   (string-replace-substring
-     (string-replace-substring
-        (string-replace-substring text "%" "%25")
-        "\r" "%0D")
-     "\n" "%0A"))
+   (string-replace-substring
+    (string-replace-substring text "%" "%25")
+    "\r" "%0D")
+   "\n" "%0A"))
 
 (define (warnings->json warnings)
   "Return @var{warnings} as a JSON array; an empty run is `[]', not blank."
   (string-append "["
-    (string-join (map warning->json warnings) ",")
-    "]"))
+                 (string-join (map warning->json warnings) ",")
+                 "]"))
 
 ;;; ===== list-checkers and explain =====
 
@@ -523,41 +523,41 @@ The columns are as wide as their contents need, with the widths the manual
 shows as a minimum: a checker whose name is cut in half is a checker nobody
 can select, because the name printed is the name `--checker' takes."
   (let* ((name-width
-            (max 24
-              (+ 2
-                (apply max
-                  0
-                  (map (lambda (checker)
-                         (string-length (symbol->string
-                                           (lint-checker-name checker))))
-                    checkers)))))
+          (max 24
+               (+ 2
+                  (apply max
+                         0
+                         (map (lambda (checker)
+                                (string-length (symbol->string
+                                                (lint-checker-name checker))))
+                              checkers)))))
          (dialect-width
-            (max 15
-              (+ 2
-                (apply max
-                  0
-                  (map (lambda (checker)
-                         (string-length (dialects->string checker)))
-                    checkers)))))
+          (max 15
+               (+ 2
+                  (apply max
+                         0
+                         (map (lambda (checker)
+                                (string-length (dialects->string checker)))
+                              checkers)))))
          (severity-width 10)
          (code-width 9))
     (format port "~a ~a ~a ~a ~a~%"
-      (string-pad-right "NAME" name-width)
-      (string-pad-right "CODE" code-width)
-      (string-pad-right "DIALECTS" dialect-width)
-      (string-pad-right "SEVERITY" severity-width)
-      "DESCRIPTION")
+            (string-pad-right "NAME" name-width)
+            (string-pad-right "CODE" code-width)
+            (string-pad-right "DIALECTS" dialect-width)
+            (string-pad-right "SEVERITY" severity-width)
+            "DESCRIPTION")
     (for-each
-       (lambda (checker)
-         (format port "~a ~a ~a ~a ~a~%"
-           (string-pad-right (symbol->string (lint-checker-name checker))
-             name-width)
-           (string-pad-right (or (lint-checker-code checker) "") code-width)
-           (string-pad-right (dialects->string checker) dialect-width)
-           (string-pad-right (symbol->string (lint-checker-severity checker))
-             severity-width)
-           (lint-checker-description checker)))
-       checkers)))
+     (lambda (checker)
+       (format port "~a ~a ~a ~a ~a~%"
+               (string-pad-right (symbol->string (lint-checker-name checker))
+                                 name-width)
+               (string-pad-right (or (lint-checker-code checker) "") code-width)
+               (string-pad-right (dialects->string checker) dialect-width)
+               (string-pad-right (symbol->string (lint-checker-severity checker))
+                                 severity-width)
+               (lint-checker-description checker)))
+     checkers)))
 
 (define* (explain-checker checker #:key (port (current-output-port)))
   "Write everything sift knows about @var{checker}."
@@ -566,10 +566,10 @@ can select, because the name printed is the name `--checker' takes."
     (format port "NAME~%~a~%~%" (lint-checker-name checker))
     (format port "DESCRIPTION~%~a~%~%" (lint-checker-description checker))
     (format port "DIALECTS~%~a~%~%"
-      (let ((dialects (lint-checker-dialects checker)))
-        (if (eq? dialects 'all)
-          "all dialects: scheme, elisp, cl"
-          (string-join (map symbol->string dialects) ", "))))
+            (let ((dialects (lint-checker-dialects checker)))
+              (if (eq? dialects 'all)
+                "all dialects: scheme, elisp, cl"
+                (string-join (map symbol->string dialects) ", "))))
     (format port "SEVERITY~%~a~%~%" (lint-checker-severity checker))
     (when (and example (assq 'input example))
       (format port "FAILING EXAMPLE~%~a~%~%" (assq-ref example 'input)))
@@ -597,7 +597,7 @@ can select, because the name printed is the name `--checker' takes."
       n)))
 
 (define* (unified-diff old-text new-text #:key (path "file") (context 3)
-           (color? #f) (labels #f))
+                       (color? #f) (labels #f))
   "Return a unified diff between @var{old-text} and @var{new-text}.
 
 The diff is not the shortest one possible -- it trims the common prefix and
@@ -614,9 +614,9 @@ not to minimise a patch."
       ""
       (let* ((window-start (max 0 (- prefix context)))
              (old-end (min (length old)
-                        (+ (- (length old) suffix) context)))
+                           (+ (- (length old) suffix) context)))
              (new-end (min (length new)
-                        (+ (- (length new) suffix) context)))
+                           (+ (- (length new) suffix) context)))
              (old-count (- old-end window-start))
              (new-count (- new-end window-start))
              (out (open-output-string))
@@ -628,26 +628,26 @@ not to minimise a patch."
         (format out "--- ~a~%" old-label)
         (format out "+++ ~a~%" new-label)
         (format out "@@ -~a,~a +~a,~a @@~%"
-          (+ window-start 1) old-count (+ window-start 1) new-count)
+                (+ window-start 1) old-count (+ window-start 1) new-count)
         (for-each (lambda (line)
                     (display (string-append " " line) out)
                     (newline out))
-          (take (drop old window-start) (- prefix window-start)))
+                  (take (drop old window-start) (- prefix window-start)))
         (for-each (lambda (line)
                     (display (paint (string-append "-" line) 'error
-                               #:enabled color?) out)
+                                    #:enabled color?) out)
                     (newline out))
-          old-changed)
+                  old-changed)
         (for-each (lambda (line)
                     (display (paint (string-append "+" line) 'ok
-                               #:enabled color?) out)
+                                    #:enabled color?) out)
                     (newline out))
-          new-changed)
+                  new-changed)
         (let* ((tail-start (- (length old) suffix))
                (tail (take (drop old tail-start)
-                       (max 0 (- old-end tail-start)))))
+                           (max 0 (- old-end tail-start)))))
           (for-each (lambda (line)
                       (display (string-append " " line) out)
                       (newline out))
-            tail))
+                    tail))
         (get-output-string out)))))

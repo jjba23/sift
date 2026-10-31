@@ -28,13 +28,13 @@
   #:use-module (ice-9 string-fun)
   #:use-module (ice-9 textual-ports)
   #:export (yaml->scm
-              yaml->nodes
-              scm->yaml
-              yaml-error?
-              yaml-error-path
-              yaml-error-line
-              yaml-error-column
-              yaml-error-message))
+            yaml->nodes
+            scm->yaml
+            yaml-error?
+            yaml-error-path
+            yaml-error-line
+            yaml-error-column
+            yaml-error-message))
 
 ;;; ===== Errors =====
 
@@ -67,12 +67,12 @@ machinery."
                        (string-length line)))
              (content (substring line indent)))
         (loop (cdr raw)
-          (+ number 1)
-          (if (or (string-null? (string-trim-both content))
-                (char=? (string-ref (string-trim-both content) 0) #\;)
-                (char=? (string-ref (string-trim-both content) 0) #\#))
-            out
-            (cons (list indent content number (+ indent 1)) out)))))))
+              (+ number 1)
+              (if (or (string-null? (string-trim-both content))
+                    (char=? (string-ref (string-trim-both content) 0) #\;)
+                    (char=? (string-ref (string-trim-both content) 0) #\#))
+                out
+                (cons (list indent content number (+ indent 1)) out)))))))
 
 ;; Note: `#` starts a comment in YAML, `;` does not; both are ignored here
 ;; only at the start of a line, and inline comments are stripped when a
@@ -94,18 +94,18 @@ the quoting rules to disagree with themselves."
     (cond
       [(>= i (string-length text)) #f]
       [else
-         (let ((c (string-ref text i)))
-           (cond
-             [(eq? quote-char #\")
-              (cond
-                [(char=? c #\\) (loop (+ i 2) quote-char)]
-                [(char=? c #\") (loop (+ i 1) #f)]
-                [else (loop (+ i 1) quote-char)])]
-             [(eq? quote-char #\')
-              (if (char=? c #\') (loop (+ i 1) #f) (loop (+ i 1) quote-char))]
-             [(memv c '(#\" #\')) (loop (+ i 1) c)]
-             [(pred text i c) i]
-             [else (loop (+ i 1) quote-char)]))])))
+        (let ((c (string-ref text i)))
+          (cond
+            [(eq? quote-char #\")
+             (cond
+               [(char=? c #\\) (loop (+ i 2) quote-char)]
+               [(char=? c #\") (loop (+ i 1) #f)]
+               [else (loop (+ i 1) quote-char)])]
+            [(eq? quote-char #\')
+             (if (char=? c #\') (loop (+ i 1) #f) (loop (+ i 1) quote-char))]
+            [(memv c '(#\" #\')) (loop (+ i 1) c)]
+            [(pred text i c) i]
+            [else (loop (+ i 1) quote-char)]))])))
 
 (define (strip-comment text)
   "Return @var{text} without a trailing `# comment', quotes respected."
@@ -119,7 +119,7 @@ the quoting rules to disagree with themselves."
   (and (> (string-length text) 1)
     (memv (string-ref text 0) '(#\" #\'))
     (char=? (string-ref text (- (string-length text) 1))
-      (string-ref text 0))))
+            (string-ref text 0))))
 
 (define (unquote-scalar text)
   (if (quoted? text)
@@ -127,10 +127,10 @@ the quoting rules to disagree with themselves."
       (if (char=? (string-ref text 0) #\')
         (string-replace-substring body "''" "'")
         (string-replace-substring
-           (string-replace-substring
-              (string-replace-substring body "\\\"" "\"")
-              "\\\\" "\\")
-           "\\n" "\n")))
+         (string-replace-substring
+          (string-replace-substring body "\\\"" "\"")
+          "\\\\" "\\")
+         "\\n" "\n")))
     text))
 
 (define (scalar->value text)
@@ -145,7 +145,7 @@ the quoting rules to disagree with themselves."
       [(string->number clean) (string->number clean)]
       [(and (string-prefix? "[" clean) (string-suffix? "]" clean))
        (let ((body (string-trim-both
-                      (substring clean 1 (- (string-length clean) 1)))))
+                    (substring clean 1 (- (string-length clean) 1)))))
          ;; `[]' is the empty sequence, not a sequence holding one empty
          ;; string: a configuration that says `exclude-checkers: []' means
          ;; "none", and reading it as `("")' made every key that takes a list
@@ -207,26 +207,26 @@ the quoting rules to disagree with themselves."
                  (lambda (node remaining)
                    (loop remaining (cons node items))))
                (loop next
-                 (cons (scalar-node 'null (third-of current) column)
-                   items)))]
+                     (cons (scalar-node 'null (third-of current) column)
+                           items)))]
             [(mapping-line? rest-text)
              ;; "- key: value" starts a mapping at the item's column.
              (call-with-values
                (lambda ()
                  (parse-mapping (cons (list column rest-text
-                                        (third-of current) column)
-                                  next)
-                   path column))
+                                            (third-of current) column)
+                                      next)
+                                path column))
                (lambda (node remaining)
                  (loop remaining (cons node items))))]
             [else
-               (loop next
-                 (cons (scalar-node (scalar->value rest-text)
-                         (third-of current) column)
-                   items))]))
+              (loop next
+                    (cons (scalar-node (scalar->value rest-text)
+                                       (third-of current) column)
+                          items))]))
         (values (sequence-node (reverse items)
-                  (third-of line) (fourth-of line))
-          rest)))))
+                               (third-of line) (fourth-of line))
+                rest)))))
 
 (define (mapping-line? text)
   "Return @code{#t} when @var{text} is a `key: value' line.
@@ -245,7 +245,7 @@ or the end of the line, which is what tells `key: value' from `12:30'."
   (let ((at (find-unquoted text any-colon?)))
     (if at
       (cons (string-trim-both (substring text 0 at))
-        (string-trim-both (substring text (+ at 1))))
+            (string-trim-both (substring text (+ at 1))))
       (yaml-error #f 0 0 "a mapping entry needs a `:'"))))
 
 (define (parse-mapping lines path indent)
@@ -278,18 +278,18 @@ or the end of the line, which is what tells `key: value' from `12:30'."
                   (lambda (node remaining)
                     (loop remaining (cons (cons key node) entries))))]
                [else
-                  (loop next
-                    (cons (cons key (scalar-node 'null (third-of current)
-                                      column))
-                      entries))])]
+                 (loop next
+                       (cons (cons key (scalar-node 'null (third-of current)
+                                                    column))
+                             entries))])]
             [else
-               (loop next
-                 (cons (cons key (scalar-node (scalar->value value-text)
-                                   (third-of current) column))
-                   entries))]))
+              (loop next
+                    (cons (cons key (scalar-node (scalar->value value-text)
+                                                 (third-of current) column))
+                          entries))]))
         (values (mapping-node (reverse entries)
-                  (third-of line) (fourth-of line))
-          rest)))))
+                              (third-of line) (fourth-of line))
+                rest)))))
 
 (define* (yaml->nodes source #:key (path "<yaml>"))
   "Parse @var{source} and return its node tree, positions included."
@@ -307,7 +307,7 @@ or the end of the line, which is what tells `key: value' from `12:30'."
     [(sequence) (map node->scm (vector-ref node 1))]
     [(mapping)
      (map (lambda (entry) (cons (car entry) (node->scm (cdr entry))))
-       (vector-ref node 1))]
+          (vector-ref node 1))]
     [else (vector-ref node 1)]))
 
 (define* (yaml->scm source #:key (path "<yaml>"))
@@ -322,7 +322,7 @@ what a key means."
 (define (needs-quotes? text)
   (or (string-null? text)
     (string-index text (char-set #\: #\# #\" #\' #\[ #\] #\{ #\} #\, #\&
-                         #\* #\? #\| #\- #\< #\> #\= #\! #\% #\@))
+                                 #\* #\? #\| #\- #\< #\> #\= #\! #\% #\@))
     (string-prefix? " " text)
     (string-suffix? " " text)
     (string->number text)
@@ -350,26 +350,26 @@ list is a sequence, everything else is a scalar."
     (cond
       [(and (list? datum) (every pair? datum))
        (for-each
-          (lambda (entry)
-            (let ((key (car entry)) (value (cdr entry)))
-              (cond
-                [(and (list? value) (pair? value) (every pair? value))
-                 (format port "~a~a:~%" pad key)
-                 (scm->yaml value #:port port #:indent (+ indent 2))]
-                [(and (list? value) (pair? value) (not (pair? (car value))))
-                 (format port "~a~a:~%" pad key)
-                 (for-each (lambda (item)
-                             (format port "~a- " pad)
-                             (write-scalar item port)
-                             (newline port))
-                   value)]
-                [(and (list? value) (null? value))
-                 (format port "~a~a: []~%" pad key)]
-                [else
-                   (format port "~a~a: " pad key)
-                   (write-scalar value port)
-                   (newline port)])))
-          datum)
+        (lambda (entry)
+          (let ((key (car entry)) (value (cdr entry)))
+            (cond
+              [(and (list? value) (pair? value) (every pair? value))
+               (format port "~a~a:~%" pad key)
+               (scm->yaml value #:port port #:indent (+ indent 2))]
+              [(and (list? value) (pair? value) (not (pair? (car value))))
+               (format port "~a~a:~%" pad key)
+               (for-each (lambda (item)
+                           (format port "~a- " pad)
+                           (write-scalar item port)
+                           (newline port))
+                         value)]
+              [(and (list? value) (null? value))
+               (format port "~a~a: []~%" pad key)]
+              [else
+                (format port "~a~a: " pad key)
+                (write-scalar value port)
+                (newline port)])))
+        datum)
        *unspecified*]
       [(and (list? datum) (null? datum))
        (format port "~a[]~%" pad)]

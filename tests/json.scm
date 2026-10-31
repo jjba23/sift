@@ -22,18 +22,18 @@
   #:export (spec))
 
 (define* (assert-rewrites #:key (text "{}") expect
-           (name "the document is written back the same"))
+                          (name "the document is written back the same"))
   "Assert that @var{text} reads and writes back as @var{expect}."
   (assert-same-text #:expect expect
-    #:got (json-write (json-read text))
-    #:name name))
+                    #:got (json-write (json-read text))
+                    #:name name))
 
 (define* (assert-json-error #:key text (line 1) (column 1)
-           (name "the document is refused"))
+                            (name "the document is refused"))
   "Assert that @var{text} is refused, at @var{line} and @var{column}."
   (let ((error (catch 'sift-json-error
-                 (lambda () (json-read text) #f)
-                 (lambda (key value) value))))
+                      (lambda () (json-read text) #f)
+                      (lambda (key value) value))))
     (assert-true (and error (pair? error))
       #:name (format #f "~a: it is refused" name))
     (when (pair? error)
@@ -49,8 +49,8 @@
 
     (test "an object keeps the order it was written in"
       (assert-rewrites
-         #:text "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}"
-         #:expect "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}"))
+       #:text "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}"
+       #:expect "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}"))
 
     (test "an empty object is not an empty array"
       (assert-rewrites #:text "{}" #:expect "{}")
@@ -58,24 +58,24 @@
 
     (test "an array of mixed values round trips"
       (assert-rewrites
-         #:text "[1,-2500,true,false,null,\"a\"]"
-         #:expect "[1,-2500,true,false,null,\"a\"]"))
+       #:text "[1,-2500,true,false,null,\"a\"]"
+       #:expect "[1,-2500,true,false,null,\"a\"]"))
 
     (test "a nested document round trips"
       (assert-rewrites
-         #:text "{\"params\":{\"capabilities\":{\"textDocument\":{\"formatting\":{}}}}}"
-         #:expect "{\"params\":{\"capabilities\":{\"textDocument\":{\"formatting\":{}}}}}"))
+       #:text "{\"params\":{\"capabilities\":{\"textDocument\":{\"formatting\":{}}}}}"
+       #:expect "{\"params\":{\"capabilities\":{\"textDocument\":{\"formatting\":{}}}}}"))
 
     (test "whitespace between tokens is not part of the value"
       (assert-rewrites
-         #:text "  {\n  \"a\" : [ 1 , 2 ]\n}\n"
-         #:expect "{\"a\":[1,2]}"))
+       #:text "  {\n  \"a\" : [ 1 , 2 ]\n}\n"
+       #:expect "{\"a\":[1,2]}"))
 
     ;; --- strings ------------------------------------------------------
 
     (test "the escapes JSON requires are read back as characters"
       (assert-same-text #:expect "a\"b\\c\nd\te"
-        #:got (json-read "\"a\\\"b\\\\c\\nd\\te\"")))
+                        #:got (json-read "\"a\\\"b\\\\c\\nd\\te\"")))
 
     (test "an escaped solidus is a solidus"
       (assert-same-text #:expect "a/b" #:got (json-read "\"a\\/b\"")))
@@ -88,11 +88,11 @@
 
     (test "a lone surrogate does not raise"
       (assert-same-text #:expect (string (integer->char #xFFFD) #\x)
-        #:got (json-read "\"\\ud83dx\"")))
+                        #:got (json-read "\"\\ud83dx\"")))
 
     (test "a string that needs escaping is written escaped"
       (assert-same-text #:expect "\"a\\\"b\\\\c\\nd\""
-        #:got (json-write "a\"b\\c\nd")))
+                        #:got (json-write "a\"b\\c\nd")))
 
     (test "a control character is written as an escape"
       (assert-same-text #:expect "\"\\u0001\"" #:got (json-write (string #\x01))))
@@ -101,10 +101,10 @@
 
     (test "numbers are written the way they are read"
       (for-each
-         (lambda (text)
-           (assert-same-text #:expect text #:got (json-write (json-read text))
-             #:name (format #f "~a round trips" text)))
-         '("0" "1" "-1" "2500" "-2500" "1.5" "0.25")))
+       (lambda (text)
+         (assert-same-text #:expect text #:got (json-write (json-read text))
+                           #:name (format #f "~a round trips" text)))
+       '("0" "1" "-1" "2500" "-2500" "1.5" "0.25")))
 
     (test "a number that is not finite is written as null"
       (assert-same-text #:expect "null" #:got (json-write (/ 1.0 0.0))))
@@ -116,7 +116,7 @@
         (assert-equal #:expect 1 #:got (json-ref object "a"))
         (assert-equal #:expect 'missing #:got (json-ref object "zzz" 'missing))
         (assert-same-text #:expect "[1,2]"
-          #:got (json-write (json-ref-path object "b" "c")))))
+                          #:got (json-write (json-ref-path object "b" "c")))))
 
     (test "a symbol names a member as well as a string does"
       (assert-equal #:expect 1 #:got (json-ref (json-read "{\"a\":1}") 'a)))
@@ -131,14 +131,14 @@
 
     (test "a trailing comma is refused"
       (assert-json-error #:text "{\"a\":1,}" #:line 1 #:column 8
-        #:name "an object with a trailing comma"))
+                         #:name "an object with a trailing comma"))
 
     (test "a missing comma is refused"
       (assert-json-error #:text "[1 2]" #:line 1 #:column 4))
 
     (test "an unterminated string is refused"
       (assert-json-error #:text "{\"a:\"b\"}" #:line 1 #:column 6
-        #:name "a malformed member name"))
+                         #:name "a malformed member name"))
 
     (test "a bare word is refused"
       (assert-json-error #:text "nope" #:line 1 #:column 2))

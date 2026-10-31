@@ -22,22 +22,22 @@
 
     (test "reports a parameter the docstring does not document"
       (assert-warnings #:source "(define (f x)\n  \"Return a thing.\"\n  x)\n"
-        #:checker 'docstring-texinfo #:expect '((2 3))))
+                       #:checker 'docstring-texinfo #:expect '((2 3))))
 
     (test "reports each undocumented parameter"
       (assert-warnings
-         #:source "(define (f x y)\n  \"Return @var{x} plus something.\"\n  x)\n"
-         #:checker 'docstring-texinfo #:expect '((2 3))))
+       #:source "(define (f x y)\n  \"Return @var{x} plus something.\"\n  x)\n"
+       #:checker 'docstring-texinfo #:expect '((2 3))))
 
     (test "accepts a docstring that documents every parameter"
       (assert-warnings
-         #:source "(define (f x y)\n  \"Return @var{x} plus @var{y}.\"\n  x)\n"
-         #:checker 'docstring-texinfo #:expect '()))
+       #:source "(define (f x y)\n  \"Return @var{x} plus @var{y}.\"\n  x)\n"
+       #:checker 'docstring-texinfo #:expect '()))
 
     (test "says nothing about a procedure with no parameters"
       (assert-warnings #:source "(define (f)\n  \"Return a thing.\"\n  1)\n"
-        #:checker 'docstring-texinfo #:expect '()))
+                       #:checker 'docstring-texinfo #:expect '()))
 
     (test "says nothing about a definition with no docstring"
       (assert-warnings #:source "(define (f x) x)\n" #:checker 'docstring-texinfo
-        #:expect '()))))
+                       #:expect '()))))

@@ -24,13 +24,13 @@
 
     (test "reports an identity call"
       (assert-warnings #:source "(mapcar (lambda (x) (identity x)) xs)\n"
-        #:dialect 'cl #:checker 'redundant-identity
-        #:expect '((1 21))))
+                       #:dialect 'cl #:checker 'redundant-identity
+                       #:expect '((1 21))))
 
     (test "reports a funcall of a function name"
       (assert-warnings #:source "(funcall #'foo 1)\n" #:dialect 'cl
-        #:checker 'redundant-identity #:expect '((1 1))))
+                       #:checker 'redundant-identity #:expect '((1 1))))
 
     (test "accepts a plain call"
       (assert-warnings #:source "(foo 1)\n" #:dialect 'cl
-        #:checker 'redundant-identity #:expect '()))))
+                       #:checker 'redundant-identity #:expect '()))))

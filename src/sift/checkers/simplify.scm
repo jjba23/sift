@@ -31,10 +31,10 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (simplify-checkers
-              eta-reduction-checker
-              beta-reduction-checker
-              composition-checker
-              let-simplification-checker))
+            eta-reduction-checker
+            beta-reduction-checker
+            composition-checker
+            let-simplification-checker))
 
 ;;; ===== What a rewrite is allowed to touch =====
 
@@ -100,10 +100,10 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define (report warnings name severity message node fix-text)
   "Add a warning about @var{node}, with a fix that replaces it by @var{fix-text}."
   (cons (make-lint-warning/range name severity message
-          (node-start node)
-          (node-index node) (node-end-index node)
-          (lambda (source start end) fix-text))
-    warnings))
+                                 (node-start node)
+                                 (node-index node) (node-end-index node)
+                                 (lambda (source start end) fix-text))
+        warnings))
 
 ;;; ===== eta-reduction =====
 ;;;
@@ -116,27 +116,27 @@ sift knows by name is a call to a procedure, and a procedure is a value."
   (let ((warnings '()))
     (when (eq? dialect 'scheme)
       (walk-with-ancestors
-         (lambda (node ancestors)
-           (when (and (code-position? node ancestors)
-                   (eq? (call-head-name node) 'lambda))
-             (let* ((formal (formals-of node))
-                    (body (single-body node))
-                    (called (and body (node-list? body) body))
-                    (arguments (and called (form-arguments called))))
-               (when (and formal
-                       called
-                       (rewritable-operator? called)
-                       (= 1 (length arguments))
-                       (equal? formal (plain-symbol (car arguments)))
-                       (not (eq? (string->symbol formal) (call-head-name called))))
-                 (set! warnings
-                   (report warnings 'eta-reduction 'info
-                     (format #f "`(lambda (~a) (~a ~a))` is `~a`; write the procedure itself"
-                       formal (call-head-name called) formal
-                       (call-head-name called))
-                     node
-                     (node->string (node-head called))))))))
-         ast))
+       (lambda (node ancestors)
+         (when (and (code-position? node ancestors)
+                 (eq? (call-head-name node) 'lambda))
+           (let* ((formal (formals-of node))
+                  (body (single-body node))
+                  (called (and body (node-list? body) body))
+                  (arguments (and called (form-arguments called))))
+             (when (and formal
+                     called
+                     (rewritable-operator? called)
+                     (= 1 (length arguments))
+                     (equal? formal (plain-symbol (car arguments)))
+                     (not (eq? (string->symbol formal) (call-head-name called))))
+               (set! warnings
+                     (report warnings 'eta-reduction 'info
+                             (format #f "`(lambda (~a) (~a ~a))` is `~a`; write the procedure itself"
+                                     formal (call-head-name called) formal
+                                     (call-head-name called))
+                             node
+                             (node->string (node-head called))))))))
+       ast))
     (reverse warnings)))
 
 ;;; ===== beta-reduction =====
@@ -147,31 +147,31 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define (beta-reduction-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (when (node-list? node)
-           (let* ((operator (node-head node))
-                  (arguments (form-arguments node))
-                  (formal (and operator (lambda-like? operator) (formals-of operator)))
-                  (body (and operator (lambda-like? operator) (lambda-body operator))))
-             (when (and formal body
-                     (= 1 (length arguments))
-                     (pair? body))
-               (let ((value (car arguments)))
-                 (set! warnings
-                   (report warnings 'beta-reduction 'info
-                     (format #f "a lambda applied in place is a `let`; bind `~a` once"
-                       formal)
-                     node
-                     (format #f "(let ((~a ~a)) ~a)"
-                       formal
-                       (substring source (node-index value) (node-end-index value))
-                       (string-join
-                          (map (lambda (form)
-                                 (substring source (node-index form)
-                                   (node-end-index form)))
-                            body)
-                          " ")))))))))
-       ast)
+     (lambda (node)
+       (when (node-list? node)
+         (let* ((operator (node-head node))
+                (arguments (form-arguments node))
+                (formal (and operator (lambda-like? operator) (formals-of operator)))
+                (body (and operator (lambda-like? operator) (lambda-body operator))))
+           (when (and formal body
+                   (= 1 (length arguments))
+                   (pair? body))
+             (let ((value (car arguments)))
+               (set! warnings
+                     (report warnings 'beta-reduction 'info
+                             (format #f "a lambda applied in place is a `let`; bind `~a` once"
+                                     formal)
+                             node
+                             (format #f "(let ((~a ~a)) ~a)"
+                                     formal
+                                     (substring source (node-index value) (node-end-index value))
+                                     (string-join
+                                      (map (lambda (form)
+                                             (substring source (node-index form)
+                                                        (node-end-index form)))
+                                           body)
+                                      " ")))))))))
+     ast)
     (reverse warnings)))
 
 (define (lambda-like? node)
@@ -186,37 +186,37 @@ sift knows by name is a call to a procedure, and a procedure is a value."
   (let ((warnings '()))
     (when (eq? dialect 'scheme)
       (for-each-form
-         (lambda (node)
-           (when (and (eq? (call-head-name node) 'lambda)
-                   (formals-of node)
-                   (single-body node))
-             (let* ((formal (formals-of node))
-                    (body (single-body node))
-                    (outer (and (node-list? body) body))
-                    (outer-arguments (and outer (form-arguments outer)))
-                    (inner (and outer-arguments
-                             (= 1 (length outer-arguments))
-                             (node-list? (car outer-arguments))
-                             (car outer-arguments)))
-                    (inner-arguments (and inner (form-arguments inner))))
-               (when (and outer
-                       (rewritable-operator? outer)
-                       (node-atom? (node-head outer))
-                       inner
-                       (rewritable-operator? inner)
-                       (node-atom? (node-head inner))
-                       (= 1 (length inner-arguments))
-                       (equal? formal (plain-symbol (car inner-arguments))))
-                 (set! warnings
-                   (report warnings 'composition 'info
-                     (format #f "`(lambda (~a) (~a (~a ~a)))` is `(compose ~a ~a)`"
-                       formal (call-head-name outer) (call-head-name inner) formal
-                       (call-head-name outer) (call-head-name inner))
-                     node
-                     (format #f "(compose ~a ~a)"
-                       (node->string (node-head outer))
-                       (node->string (node-head inner)))))))))
-         ast))
+       (lambda (node)
+         (when (and (eq? (call-head-name node) 'lambda)
+                 (formals-of node)
+                 (single-body node))
+           (let* ((formal (formals-of node))
+                  (body (single-body node))
+                  (outer (and (node-list? body) body))
+                  (outer-arguments (and outer (form-arguments outer)))
+                  (inner (and outer-arguments
+                           (= 1 (length outer-arguments))
+                           (node-list? (car outer-arguments))
+                           (car outer-arguments)))
+                  (inner-arguments (and inner (form-arguments inner))))
+             (when (and outer
+                     (rewritable-operator? outer)
+                     (node-atom? (node-head outer))
+                     inner
+                     (rewritable-operator? inner)
+                     (node-atom? (node-head inner))
+                     (= 1 (length inner-arguments))
+                     (equal? formal (plain-symbol (car inner-arguments))))
+               (set! warnings
+                     (report warnings 'composition 'info
+                             (format #f "`(lambda (~a) (~a (~a ~a)))` is `(compose ~a ~a)`"
+                                     formal (call-head-name outer) (call-head-name inner) formal
+                                     (call-head-name outer) (call-head-name inner))
+                             node
+                             (format #f "(compose ~a ~a)"
+                                     (node->string (node-head outer))
+                                     (node->string (node-head inner)))))))))
+       ast))
     (reverse warnings)))
 
 ;;; ===== let-simplification =====
@@ -245,89 +245,89 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define (let-simplification-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-form
-       (lambda (node)
-         (let ((head (call-head-name node)))
-           (when (memq head '(let let*))
-             (let* ((bindings (bindings-of node))
-                    (body (let ((arguments (form-arguments node)))
-                            (if (pair? arguments) (cdr arguments) '())))
-                    (parts (and bindings (map binding-parts bindings))))
-               (cond
-                 ;; (let () body) is body
-                 [(and (null? bindings) (= 1 (length body)))
-                  (let ((only (car body)))
-                    (set! warnings
-                      (report warnings 'let-simplification 'info
-                        "a `let` with no bindings is the body; drop the scope"
-                        node
-                        (substring source (node-index only) (node-end-index only)))))]
-                 ;; (let ((x e)) x) is e
-                 [(and bindings (= 1 (length bindings)) (= 1 (length body))
-                    (car parts)
-                    (plain-symbol (car body))
-                    (equal? (plain-symbol (car body)) (car (car parts))))
-                  (let ((value (cdr (car parts))))
-                    (set! warnings
-                      (report warnings 'let-simplification 'info
-                        (format #f "a `let` that binds `~a` to return it is its value"
-                          (car (car parts)))
-                        node
-                        (substring source (node-index value)
-                          (node-end-index value)))))]
-                 ;; (let* ((x e)) body) is (let ((x e)) body)
-                 [(and (eq? head 'let*) bindings
-                    (= 1 (length bindings))
-                    (car parts))
+     (lambda (node)
+       (let ((head (call-head-name node)))
+         (when (memq head '(let let*))
+           (let* ((bindings (bindings-of node))
+                  (body (let ((arguments (form-arguments node)))
+                          (if (pair? arguments) (cdr arguments) '())))
+                  (parts (and bindings (map binding-parts bindings))))
+             (cond
+               ;; (let () body) is body
+               [(and (null? bindings) (= 1 (length body)))
+                (let ((only (car body)))
                   (set! warnings
-                    (report warnings 'let-simplification 'info
-                      "a `let*` with one binding binds it once; `let` says so"
-                      (node-head node)
-                      "let"))])))))
-       ast)
+                        (report warnings 'let-simplification 'info
+                                "a `let` with no bindings is the body; drop the scope"
+                                node
+                                (substring source (node-index only) (node-end-index only)))))]
+               ;; (let ((x e)) x) is e
+               [(and bindings (= 1 (length bindings)) (= 1 (length body))
+                  (car parts)
+                  (plain-symbol (car body))
+                  (equal? (plain-symbol (car body)) (car (car parts))))
+                (let ((value (cdr (car parts))))
+                  (set! warnings
+                        (report warnings 'let-simplification 'info
+                                (format #f "a `let` that binds `~a` to return it is its value"
+                                        (car (car parts)))
+                                node
+                                (substring source (node-index value)
+                                           (node-end-index value)))))]
+               ;; (let* ((x e)) body) is (let ((x e)) body)
+               [(and (eq? head 'let*) bindings
+                  (= 1 (length bindings))
+                  (car parts))
+                (set! warnings
+                      (report warnings 'let-simplification 'info
+                              "a `let*` with one binding binds it once; `let` says so"
+                              (node-head node)
+                              "let"))])))))
+     ast)
     (reverse warnings)))
 
 ;;; ===== The checkers =====
 
 (define eta-reduction-checker
   (checker 'eta-reduction
-    "A lambda that only passes its argument on, where the procedure itself would do"
-    '(scheme)
-    eta-reduction-warnings
-    #:severity 'info
-    #:example '((input . "(lambda (x) (f x))")
-                (fix . "f"))))
+           "A lambda that only passes its argument on, where the procedure itself would do"
+           '(scheme)
+           eta-reduction-warnings
+           #:severity 'info
+           #:example '((input . "(lambda (x) (f x))")
+                       (fix . "f"))))
 
 (define beta-reduction-checker
   (checker 'beta-reduction
-    "A lambda applied in place, where a `let` would say the same thing once"
-    '(scheme elisp cl)
-    beta-reduction-warnings
-    #:severity 'info
-    #:example '((input . "((lambda (x) (f x)) (g))")
-                (fix . "(let ((x (g))) (f x))"))))
+           "A lambda applied in place, where a `let` would say the same thing once"
+           '(scheme elisp cl)
+           beta-reduction-warnings
+           #:severity 'info
+           #:example '((input . "((lambda (x) (f x)) (g))")
+                       (fix . "(let ((x (g))) (f x))"))))
 
 (define composition-checker
   (checker 'composition
-    "A lambda whose body is one call around another, where `compose` names the pipeline"
-    '(scheme)
-    composition-warnings
-    #:severity 'info
-    #:example '((input . "(lambda (x) (f (g x)))")
-                (fix . "(compose f g)"))))
+           "A lambda whose body is one call around another, where `compose` names the pipeline"
+           '(scheme)
+           composition-warnings
+           #:severity 'info
+           #:example '((input . "(lambda (x) (f (g x)))")
+                       (fix . "(compose f g)"))))
 
 (define let-simplification-checker
   (checker 'let-simplification
-    "A `let` that binds a name to return it, binds nothing, or binds once with `let*`"
-    'all
-    let-simplification-warnings
-    #:severity 'info
-    #:example '((input . "(let ((x (f))) x)")
-                (fix . "(f)"))))
+           "A `let` that binds a name to return it, binds nothing, or binds once with `let*`"
+           'all
+           let-simplification-warnings
+           #:severity 'info
+           #:example '((input . "(let ((x (f))) x)")
+                       (fix . "(f)"))))
 
 ;;; ===== The list =====
 
 (define simplify-checkers
   (list eta-reduction-checker
-    beta-reduction-checker
-    composition-checker
-    let-simplification-checker))
+        beta-reduction-checker
+        composition-checker
+        let-simplification-checker))

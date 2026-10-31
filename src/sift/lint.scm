@@ -37,19 +37,19 @@
   #:use-module (sift checkers simplify)
   #:use-module (sift checkers sxml)
   #:export (all-checkers
-              find-checker
-              checkers-for-dialect
-              checkers-by-name
-              lint-source
-              lint-string
-              lint-file
-              lint-files
-              apply-fixes
-              suppression-directives
-              suppressed?
-              checkers-applicable?
-              severity-at-least?
-              normalise-checker-name))
+            find-checker
+            checkers-for-dialect
+            checkers-by-name
+            lint-source
+            lint-string
+            lint-file
+            lint-files
+            apply-fixes
+            suppression-directives
+            suppressed?
+            checkers-applicable?
+            severity-at-least?
+            normalise-checker-name))
 
 ;;; ===== Registry =====
 
@@ -59,18 +59,18 @@
 The order is sorted rather than written down, so `list-checkers' and any
 other report over the whole set cannot drift from the set itself."
   (sort (append whitespace-checkers
-          parens-checkers
-          bodies-checkers
-          scheme-checkers
-          elisp-checkers
-          cl-checkers
-          ergonomics-checkers
-          naming-checkers
-          simplify-checkers
-          sxml-checkers)
-    (lambda (a b)
-      (string<? (symbol->string (lint-checker-name a))
-        (symbol->string (lint-checker-name b))))))
+                parens-checkers
+                bodies-checkers
+                scheme-checkers
+                elisp-checkers
+                cl-checkers
+                ergonomics-checkers
+                naming-checkers
+                simplify-checkers
+                sxml-checkers)
+        (lambda (a b)
+          (string<? (symbol->string (lint-checker-name a))
+                    (symbol->string (lint-checker-name b))))))
 
 (define (normalise-checker-name name)
   "Return @var{name} as a symbol, whatever way it was spelled on the command line."
@@ -82,7 +82,7 @@ other report over the whole set cannot drift from the set itself."
   "Return the checker named @var{name}, or @code{#f}."
   (let ((wanted (normalise-checker-name name)))
     (find (lambda (checker) (eq? (lint-checker-name checker) wanted))
-      (all-checkers))))
+          (all-checkers))))
 
 (define* (checkers-by-name names)
   "Return the checkers named by @var{names}; unknown names are dropped."
@@ -91,7 +91,7 @@ other report over the whole set cannot drift from the set itself."
 (define (checkers-for-dialect dialect)
   "Return the checkers that apply to @var{dialect}."
   (filter (lambda (checker) (lint-checker-for-dialect? checker dialect))
-    (all-checkers)))
+          (all-checkers)))
 
 (define* (checkers-applicable? dialect #:key (include #f) (exclude '()))
   "Return the checkers to run for @var{dialect}.
@@ -103,12 +103,12 @@ dialect is not an error -- it simply runs nothing for that dialect."
          (selected (if include
                      (filter (lambda (checker)
                                (memq (lint-checker-name checker) include))
-                       (all-checkers))
+                             (all-checkers))
                      available))
          (excluded (map normalise-checker-name (or exclude '()))))
     (remove (lambda (checker)
               (memq (lint-checker-name checker) excluded))
-      selected)))
+            selected)))
 
 ;;; ===== Suppression comments =====
 
@@ -127,7 +127,7 @@ No checker name means every checker.  Suppression is deliberately
 line-oriented and form-scoped: there is no range syntax, because a range
 comment in a source file outlives the code it was written for."
   (let* ((trimmed (string-trim (string-trim-both text)
-                    (char-set #\; #\space #\tab)))
+                               (char-set #\; #\space #\tab)))
          (space (string-index trimmed #\space)))
     (and (>= (string-length trimmed) (string-length directive-prefix))
       (string-prefix? directive-prefix trimmed)
@@ -136,9 +136,9 @@ comment in a source file outlives the code it was written for."
                      (string-trim-both (substring trimmed (+ space 1)))
                      ""))
              (names (filter (lambda (s) (not (string-null? s)))
-                      (append-map (lambda (part)
-                                    (string-split part #\,))
-                        (string-split rest #\space))))
+                            (append-map (lambda (part)
+                                          (string-split part #\,))
+                                        (string-split rest #\space))))
              (checkers (map normalise-checker-name names)))
         (case [string->symbol directive]
           [(sift:disable-next-line) (cons 'disable-next-line checkers)]
@@ -161,11 +161,11 @@ all of them) and the line it sits on."
          (let ((directive (parse-directive (node-value node))))
            (when directive
              (set! directives
-               (cons (list (car directive)
-                       (cdr directive)
-                       (source-location-line (node-start node))
-                       (source-location-index (node-start node)))
-                 directives))))]))
+                   (cons (list (car directive)
+                               (cdr directive)
+                               (source-location-line (node-start node))
+                               (source-location-index (node-start node)))
+                         directives))))]))
     (for-each walk ast)
     (reverse directives)))
 
@@ -175,7 +175,7 @@ all of them) and the line it sits on."
           (and (node-data? node)
             (<= (node-index node) index)
             (>= (node-end-index node) index)))
-    ast))
+        ast))
 
 (define (suppression-intervals ast)
   "Return the intervals a `sift:disable` covers, as @code{(start end . checkers)}.
@@ -186,24 +186,24 @@ sits in ends, or to the end of the file when it sits between forms.  An
   (let ((open '())
         (next-lines '()))
     (for-each
-       (lambda (directive)
-         (match directive
-           ((kind checkers line index)
-            (case kind
-              [(disable-next-line)
-               (set! next-lines
-                 (cons (list (+ line 1) checkers) next-lines))]
-              [(disable)
-               (let* ((form (top-level-form-at ast index))
-                      (end (if form (node-end-index form) (string-length ""))))
-                 (set! open (cons (list checkers index end) open)))]
-              [(enable)
-               (set! open
-                 (remove (lambda (entry)
-                           (or (null? checkers)
-                             (lset= eq? (first entry) checkers)))
-                   open))]))))
-       (suppression-directives ast))
+     (lambda (directive)
+       (match directive
+         ((kind checkers line index)
+          (case kind
+            [(disable-next-line)
+             (set! next-lines
+                   (cons (list (+ line 1) checkers) next-lines))]
+            [(disable)
+             (let* ((form (top-level-form-at ast index))
+                    (end (if form (node-end-index form) (string-length ""))))
+               (set! open (cons (list checkers index end) open)))]
+            [(enable)
+             (set! open
+                   (remove (lambda (entry)
+                             (or (null? checkers)
+                               (lset= eq? (first entry) checkers)))
+                           open))]))))
+     (suppression-directives ast))
     (values open next-lines)))
 
 (define (checkers-match? directive-checkers checker)
@@ -220,11 +220,11 @@ sits in ends, or to the end of the file when it sits between forms.  An
                (and (checkers-match? (second entry) checker)
                  (>= index (second entry))
                  (<= index (third entry))))
-          intervals)
+             intervals)
       (any (lambda (entry)
              (and (= line (first entry))
                (checkers-match? (second entry) checker)))
-        next-lines))))
+           next-lines))))
 
 ;;; ===== Running checkers =====
 
@@ -239,8 +239,8 @@ problem, whichever way it was selected."
       (string-prefix? "unterminated form" message))))
 
 (define* (lint-source source #:key (dialect 'scheme) (file #f)
-           (checkers #f) (exclude-checkers '()) (severity 'info)
-           (options '()))
+                      (checkers #f) (exclude-checkers '()) (severity 'info)
+                      (options '()))
   "Lint @var{source} and return the warnings, sorted.
 
 @var{checkers} selects the checkers to run; @var{exclude-checkers} removes
@@ -251,84 +251,84 @@ indentation width, the LOOP keyword style."
     (lambda () (read-source #:source source #:dialect dialect #:file file))
     (lambda (ast parse-errors)
       (let* ((selected (checkers-applicable? dialect
-                         #:include checkers
-                         #:exclude exclude-checkers))
+                                             #:include checkers
+                                             #:exclude exclude-checkers))
              (produced
-                (append
-                   (filter (lambda (warning) (not (reader-warning-covered? warning)))
-                     parse-errors)
-                   (append-map
-                      (lambda (checker)
-                        (with-check-options
-                           options
-                           (lambda ()
-                             ((lint-checker-proc checker) ast source dialect))))
-                      selected)))
+              (append
+               (filter (lambda (warning) (not (reader-warning-covered? warning)))
+                       parse-errors)
+               (append-map
+                (lambda (checker)
+                  (with-check-options
+                   options
+                   (lambda ()
+                     ((lint-checker-proc checker) ast source dialect))))
+                selected)))
              (with-file
-                (map (lambda (warning)
-                       (let ((location (lint-warning-location warning)))
-                         (if (or (not file) (source-location-file location))
-                           warning
-                           (make-lint-warning
-                              (lint-warning-checker warning)
-                              (lint-warning-severity warning)
-                              (lint-warning-message warning)
-                              (make-source-location file
-                                (source-location-line location)
-                                (source-location-column location)
-                                (source-location-offset location)
-                                (source-location-index location))
-                              (lint-warning-fix warning)
-                              (lint-warning-range warning)))))
-                  produced)))
+              (map (lambda (warning)
+                     (let ((location (lint-warning-location warning)))
+                       (if (or (not file) (source-location-file location))
+                         warning
+                         (make-lint-warning
+                          (lint-warning-checker warning)
+                          (lint-warning-severity warning)
+                          (lint-warning-message warning)
+                          (make-source-location file
+                                                (source-location-line location)
+                                                (source-location-column location)
+                                                (source-location-offset location)
+                                                (source-location-index location))
+                          (lint-warning-fix warning)
+                          (lint-warning-range warning)))))
+                   produced)))
         (call-with-values (lambda () (suppression-intervals ast))
           (lambda (intervals next-lines)
             (sort (filter (lambda (warning)
                             (and (severity-at-least? (lint-warning-severity warning)
-                                   severity)
+                                                     severity)
                               (not (suppressed? warning
-                                     #:intervals intervals
-                                     #:next-lines next-lines))))
-                    with-file)
-              lint-warning<?)))))))
+                                                #:intervals intervals
+                                                #:next-lines next-lines))))
+                          with-file)
+                  lint-warning<?)))))))
 
 (define (severity-at-least? severity minimum)
   "Return @code{#t} when @var{severity} is at or above @var{minimum}."
   (>= (severity-rank severity) (severity-rank minimum)))
 
 (define* (lint-string source #:key (dialect 'scheme)
-           (checkers #f) (exclude-checkers '())
-           (severity 'info) (options '())
-           #:allow-other-keys)
+                      (checkers #f) (exclude-checkers '())
+                      (severity 'info) (options '())
+                      #:allow-other-keys)
   "Lint @var{source} as text; a convenience over @code{lint-source}."
   (lint-source source #:dialect dialect #:checkers checkers
-    #:exclude-checkers exclude-checkers #:severity severity
-    #:options options))
+               #:exclude-checkers exclude-checkers #:severity severity
+               #:options options))
 
 (define* (lint-file path #:key (dialect #f) (checkers #f)
-           (exclude-checkers '()) (severity 'info) (options '()))
+                    (exclude-checkers '()) (severity 'info) (options '()))
   "Lint the file at @var{path} and return the warnings, sorted."
   (let* ((source (call-with-input-file path get-string-all))
          (dialect* (or dialect
                      (detect-dialect #:file path #:source source)
                      'scheme)))
     (lint-source source #:dialect dialect* #:file path
-      #:checkers checkers #:exclude-checkers exclude-checkers
-      #:severity severity #:options options)))
+                 #:checkers checkers #:exclude-checkers exclude-checkers
+                 #:severity severity #:options options)))
 
 (define* (lint-files paths #:key (dialect #f) (checkers #f)
-           (exclude-checkers '()) (severity 'info) (options '()))
+                     (exclude-checkers '()) (severity 'info) (options '()))
   "Lint every file in @var{paths}, returning one list of warnings.
 
 The warnings of the whole run are sorted together, so the report reads in
 file order and a pipeline can compare runs line by line."
   (sort (append-map (lambda (path)
                       (lint-file path #:dialect dialect
-                        #:checkers checkers
-                        #:exclude-checkers exclude-checkers
-                        #:severity severity #:options options))
-          paths)
-    lint-warning<?))
+                                 #:checkers checkers
+                                 #:exclude-checkers exclude-checkers
+                                 #:severity severity #:options options))
+                    paths)
+        lint-warning<?))
 
 ;;; ===== Fixes =====
 
@@ -336,7 +336,7 @@ file order and a pipeline can compare runs line by line."
   "Return the warnings that carry both a fix and the range it replaces."
   (filter (lambda (warning)
             (and (lint-warning-fix warning) (lint-warning-range warning)))
-    warnings))
+          warnings))
 
 (define* (apply-fixes source warnings)
   "Return @var{source} with every fix applied, or @var{source} unchanged.
@@ -347,21 +347,21 @@ is read again: a fix that introduces a parse error the file did not have
 before is not worth the change, so all of them are discarded together and
 the caller reports the original warnings."
   (let* ((fixes (sort (fixable-warnings warnings)
-                  (lambda (a b)
-                    (> (car (lint-warning-range a))
-                      (car (lint-warning-range b))))))
+                      (lambda (a b)
+                        (> (car (lint-warning-range a))
+                           (car (lint-warning-range b))))))
          (fixed
-            (fold (lambda (warning text)
-                    (let* ((range (lint-warning-range warning))
-                           (start (car range))
-                           (end (cdr range))
-                           (replacement ((lint-warning-fix warning)
-                                         source start end)))
-                      (string-append (substring text 0 start)
-                        replacement
-                        (substring text end))))
-              source
-              fixes)))
+          (fold (lambda (warning text)
+                  (let* ((range (lint-warning-range warning))
+                         (start (car range))
+                         (end (cdr range))
+                         (replacement ((lint-warning-fix warning)
+                                       source start end)))
+                    (string-append (substring text 0 start)
+                                   replacement
+                                   (substring text end))))
+                source
+                fixes)))
     (if (and (not (string=? fixed source))
           (fix-introduces-error? source fixed))
       source
@@ -374,13 +374,13 @@ the caller reports the original warnings."
                          (lambda (ast errors)
                            (length (filter (lambda (warning)
                                              (eq? (lint-warning-severity warning)
-                                               'error))
-                                     errors)))))
+                                                  'error))
+                                           errors)))))
         (after-errors (call-with-values
                         (lambda () (read-source #:source after))
                         (lambda (ast errors)
                           (length (filter (lambda (warning)
                                             (eq? (lint-warning-severity warning)
-                                              'error))
-                                    errors))))))
+                                                 'error))
+                                          errors))))))
     (> after-errors before-errors)))

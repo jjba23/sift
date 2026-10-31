@@ -24,12 +24,12 @@
 
     (test "reports an unless with no body"
       (assert-warnings #:source "(unless (ready?))\n"
-        #:checker 'unless-without-body #:expect '((1 1))))
+                       #:checker 'unless-without-body #:expect '((1 1))))
 
     (test "reports one in Common Lisp too"
       (assert-warnings #:source "(unless x)\n" #:dialect 'cl
-        #:checker 'unless-without-body #:expect '((1 1))))
+                       #:checker 'unless-without-body #:expect '((1 1))))
 
     (test "accepts an unless with a body"
       (assert-warnings #:source "(unless (ready?) (wait))\n"
-        #:checker 'unless-without-body #:expect '()))))
+                       #:checker 'unless-without-body #:expect '()))))

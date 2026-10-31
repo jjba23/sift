@@ -29,8 +29,8 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (sxml-checkers
-              sxml-attributes-checker
-              sxml-child-checker))
+            sxml-attributes-checker
+            sxml-child-checker))
 
 ;;; ===== Reading an element =====
 
@@ -60,29 +60,29 @@ anything, and is left alone."
   (let ((warnings '()))
     (define (report node message)
       (set! warnings
-        (cons (make-lint-warning 'sxml-attributes 'warning message
-                (node-start node))
-          warnings)))
+            (cons (make-lint-warning 'sxml-attributes 'warning message
+                                     (node-start node))
+                  warnings)))
     (for-each-node
-       (lambda (node)
-         (when (element? node)
-           (let* ((children (children-of node))
-                  (lists (filter attribute-list? children))
-                  (first (and (pair? children) (car children))))
-             (cond
-               ;; more than one: SXML has one attribute list per element
-               [(> (length lists) 1)
-                (report (cadr lists)
-                  "an element has one attribute list; merge these into one `(@ ...)'")]
-               ;; present, but not first: the attributes are read before anything
-               [(and (pair? lists) (not (eq? first (car lists))))
-                (report (car lists)
-                  "the attribute list belongs right after the element name")]
-               ;; empty: `(@)' says nothing
-               [(and (pair? lists) (null? (children-of (car lists))))
-                (report (car lists)
-                  "an empty attribute list adds nothing; remove it")]))))
-       ast)
+     (lambda (node)
+       (when (element? node)
+         (let* ((children (children-of node))
+                (lists (filter attribute-list? children))
+                (first (and (pair? children) (car children))))
+           (cond
+             ;; more than one: SXML has one attribute list per element
+             [(> (length lists) 1)
+              (report (cadr lists)
+                      "an element has one attribute list; merge these into one `(@ ...)'")]
+             ;; present, but not first: the attributes are read before anything
+             [(and (pair? lists) (not (eq? first (car lists))))
+              (report (car lists)
+                      "the attribute list belongs right after the element name")]
+             ;; empty: `(@)' says nothing
+             [(and (pair? lists) (null? (children-of (car lists))))
+              (report (car lists)
+                      "an empty attribute list adds nothing; remove it")]))))
+     ast)
     (reverse warnings)))
 
 ;;; ===== The children =====
@@ -91,51 +91,51 @@ anything, and is left alone."
   (let ((warnings '()))
     (define (report node message)
       (set! warnings
-        (cons (make-lint-warning 'sxml-child 'warning message (node-start node))
-          warnings)))
+            (cons (make-lint-warning 'sxml-child 'warning message (node-start node))
+                  warnings)))
     (for-each-node
-       (lambda (node)
-         (when (element? node)
-           (for-each
-              (lambda (child)
-                (cond
-                  ;; a list of elements where one element belongs
-                  [(and (node-list? child)
-                     (let ((head (node-head child)))
-                       (and head (node-list? head))))
-                   (report child
-                     "a child is an element, a string or a number; this is a list of them")]
-                  ;; a list whose head is not a name -- `(('p "x"))'
-                  [(and (node-list? child) (not (node-head child)))
-                   (report child "this child has no element name")]
-                  [else (values)]))
-              (filter (lambda (child) (not (attribute-list? child)))
-                (children-of node)))))
-       ast)
+     (lambda (node)
+       (when (element? node)
+         (for-each
+          (lambda (child)
+            (cond
+              ;; a list of elements where one element belongs
+              [(and (node-list? child)
+                 (let ((head (node-head child)))
+                   (and head (node-list? head))))
+               (report child
+                       "a child is an element, a string or a number; this is a list of them")]
+              ;; a list whose head is not a name -- `(('p "x"))'
+              [(and (node-list? child) (not (node-head child)))
+               (report child "this child has no element name")]
+              [else (values)]))
+          (filter (lambda (child) (not (attribute-list? child)))
+                  (children-of node)))))
+     ast)
     (reverse warnings)))
 
 ;;; ===== The checkers =====
 
 (define sxml-attributes-checker
   (checker 'sxml-attributes
-    "An element's `(@ ...)` list is missing, repeated, empty, or not the first child"
-    '(scheme)
-    sxml-attributes-warnings
-    #:severity 'warning
-    #:example '((input . "(div (p \"a\") (@ (class \"x\")))")
-                (fix . "no automatic fix; markup is moved by the author, not by a formatter"))))
+           "An element's `(@ ...)` list is missing, repeated, empty, or not the first child"
+           '(scheme)
+           sxml-attributes-warnings
+           #:severity 'warning
+           #:example '((input . "(div (p \"a\") (@ (class \"x\")))")
+                       (fix . "no automatic fix; markup is moved by the author, not by a formatter"))))
 
 (define sxml-child-checker
   (checker 'sxml-child
-    "A child of an element that is a list of children rather than a child"
-    '(scheme)
-    sxml-child-warnings
-    #:severity 'warning
-    #:example '((input . "(ul (((@ (class \"x\"))) (li \"a\")))")
-                (fix . "no automatic fix; the missing element name is the author's to supply"))))
+           "A child of an element that is a list of children rather than a child"
+           '(scheme)
+           sxml-child-warnings
+           #:severity 'warning
+           #:example '((input . "(ul (((@ (class \"x\"))) (li \"a\")))")
+                       (fix . "no automatic fix; the missing element name is the author's to supply"))))
 
 ;;; ===== The list =====
 
 (define sxml-checkers
   (list sxml-attributes-checker
-    sxml-child-checker))
+        sxml-child-checker))

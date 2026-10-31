@@ -25,17 +25,17 @@
 
     (test "says nothing when both spellings are accepted"
       (assert-warnings #:source "(loop for x in xs do (print x))\n"
-        #:dialect 'cl #:checker 'loop-keyword-style
-        #:expect '()))
+                       #:dialect 'cl #:checker 'loop-keyword-style
+                       #:expect '()))
 
     (test "reports symbolic keywords when the style asks for literal ones"
       (assert-warnings #:source "(loop for x in xs do (print x))\n"
-        #:dialect 'cl #:checker 'loop-keyword-style
-        #:options '((loop-keywords . literal))
-        #:expect '((1 7) (1 13) (1 19))))
+                       #:dialect 'cl #:checker 'loop-keyword-style
+                       #:options '((loop-keywords . literal))
+                       #:expect '((1 7) (1 13) (1 19))))
 
     (test "the fix rewrites the keywords"
       (assert-fix #:source "(loop for x in xs do (print x))\n"
-        #:dialect 'cl #:checker 'loop-keyword-style
-        #:options '((loop-keywords . literal))
-        #:expected "(loop :for x :in xs :do (print x))\n"))))
+                  #:dialect 'cl #:checker 'loop-keyword-style
+                  #:options '((loop-keywords . literal))
+                  #:expected "(loop :for x :in xs :do (print x))\n"))))

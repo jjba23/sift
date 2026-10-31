@@ -24,9 +24,9 @@
 
     (test "reports a defun with no docstring"
       (assert-warnings #:source "(defun f (x) (+ x 1))\n" #:dialect 'cl
-        #:checker 'defun-no-docstring #:expect '((1 1))))
+                       #:checker 'defun-no-docstring #:expect '((1 1))))
 
     (test "accepts a documented defun"
       (assert-warnings #:source "(defun f (x)\n  \"Return X.\"\n  x)\n"
-        #:dialect 'cl #:checker 'defun-no-docstring
-        #:expect '()))))
+                       #:dialect 'cl #:checker 'defun-no-docstring
+                       #:expect '()))))

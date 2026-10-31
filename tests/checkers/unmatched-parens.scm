@@ -24,12 +24,12 @@
 
     (test "reports an unmatched opening parenthesis at the opener"
       (assert-warnings #:source "(a (b c" #:checker 'unmatched-parens
-        #:expect '((1 1) (1 4))))
+                       #:expect '((1 1) (1 4))))
 
     (test "reports a stray closing parenthesis"
       (assert-warnings #:source "a) b" #:checker 'unmatched-parens
-        #:expect '((1 2))))
+                       #:expect '((1 2))))
 
     (test "accepts a balanced file"
       (assert-warnings #:source "(a (b c))\n" #:checker 'unmatched-parens
-        #:expect '()))))
+                       #:expect '()))))

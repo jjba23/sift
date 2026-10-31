@@ -25,25 +25,25 @@
 
     (test "reports a defun with no docstring"
       (assert-warnings #:source "(defun f (x) (+ x 1))\n" #:dialect 'elisp
-        #:checker 'docstring-missing #:expect '((1 1))))
+                       #:checker 'docstring-missing #:expect '((1 1))))
 
     (test "reports a defvar with no docstring"
       (assert-warnings #:source "(defvar x 1)\n" #:dialect 'elisp
-        #:checker 'docstring-missing #:expect '((1 1))))
+                       #:checker 'docstring-missing #:expect '((1 1))))
 
     (test "reports a defcustom with no docstring"
       (assert-warnings #:source "(defcustom x 1)\n" #:dialect 'elisp
-        #:checker 'docstring-missing #:expect '((1 1))))
+                       #:checker 'docstring-missing #:expect '((1 1))))
 
     (test "accepts a documented defun"
       (assert-warnings #:source "(defun f (x)\n  \"Return X.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'docstring-missing
-        #:expect '()))
+                       #:dialect 'elisp #:checker 'docstring-missing
+                       #:expect '()))
 
     (test "a defun with no body is a finding, not a crash"
       (assert-warnings #:source "(defun f ())\n" #:dialect 'elisp
-        #:checker 'docstring-missing #:expect '((1 1))))
+                       #:checker 'docstring-missing #:expect '((1 1))))
 
     (test "accepts a bare defvar declaration"
       (assert-warnings #:source "(defvar x)\n" #:dialect 'elisp
-        #:checker 'docstring-missing #:expect '()))))
+                       #:checker 'docstring-missing #:expect '()))))

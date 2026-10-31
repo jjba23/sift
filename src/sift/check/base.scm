@@ -20,52 +20,52 @@
   #:use-module (ice-9 match)
   #:use-module (sift records)
   #:re-export (node-data? node-elements node-head node-head-name
-                node-inline? node-newlines node-child node-children
-                node-token node-open node-close node-value node-kind
-                node-start node-end node-atom-type node-package-marker
-                source-location-index source-location-line
-                source-location-column source-location-file
-                make-lint-warning make-lint-warning/range)
+                          node-inline? node-newlines node-child node-children
+                          node-token node-open node-close node-value node-kind
+                          node-start node-end node-atom-type node-package-marker
+                          source-location-index source-location-line
+                          source-location-column source-location-file
+                          make-lint-warning make-lint-warning/range)
   #:export (for-each-node
-              for-each-form
-              for-each-top-level
-              fold-nodes
-              node-source
-              quoted-context?
-              in-formals?
-              code-position?
-              case-datum?
-              case-form-heads
-              list-headed-by?
-              head-is-one-of?
-              form-elements
-              form-arguments
-              argument-count
-              atom-symbol
-              symbol-atom?
-              keyword-atom?
-              string-atom?
-              docstring-node
-              body-elements
-              walk-with-ancestors
-              line-spans
-              line-text
-              indent-width-of
-              node-column
-              node-index
-              node-end-index
-              line-of-index
-              location-at-index
-              ranges-of
-              index-in-ranges?
-              blank-line?
-              text-ranges-of
-              current-check-options
-              with-check-options
-              option
-              checker
-              make-checker
-              diagnose))
+            for-each-form
+            for-each-top-level
+            fold-nodes
+            node-source
+            quoted-context?
+            in-formals?
+            code-position?
+            case-datum?
+            case-form-heads
+            list-headed-by?
+            head-is-one-of?
+            form-elements
+            form-arguments
+            argument-count
+            atom-symbol
+            symbol-atom?
+            keyword-atom?
+            string-atom?
+            docstring-node
+            body-elements
+            walk-with-ancestors
+            line-spans
+            line-text
+            indent-width-of
+            node-column
+            node-index
+            node-end-index
+            line-of-index
+            location-at-index
+            ranges-of
+            index-in-ranges?
+            blank-line?
+            text-ranges-of
+            current-check-options
+            with-check-options
+            option
+            checker
+            make-checker
+            diagnose))
 
 ;;; ===== Walking =====
 
@@ -105,11 +105,11 @@ list.  A rule about the shape of a form asks this walker and never has to ask
 whether what it is looking at is code at all -- which is what stops
 `(if . 2)' in an alist from being reported as an `if` with no else branch."
   (walk-with-ancestors
-     (lambda (node ancestors)
-       (when (and (not (node-trivia? node))
-               (code-position? node ancestors))
-         (proc node)))
-     ast))
+   (lambda (node ancestors)
+     (when (and (not (node-trivia? node))
+             (code-position? node ancestors))
+       (proc node)))
+   ast))
 
 (define (fold-nodes kons knil ast)
   "Fold @var{kons} over every datum in @var{ast}."
@@ -128,7 +128,7 @@ The ancestors come nearest-first, which is the order a checker asks them in:
       (cond
         [(node-list? node)
          (for-each (lambda (child) (walk child (cons node ancestors)))
-           (node-elements node))]
+                   (node-elements node))]
         [(node-prefix? node)
          ;; a prefix is a parent like any other: a checker asking whether a
          ;; node is inside a quote has to see the quote mark it is inside of
@@ -197,13 +197,13 @@ bodies has any business reading it as code."
       [(null? rest) #f]
       [(and (node-list? (car rest))
          (memq (node-head-name (car rest))
-           '(lambda define define* define-public defun defmacro defsubst
-              cl-defun cl-defmacro defmethod defgeneric)))
+               '(lambda define define* define-public defun defmacro defsubst
+                  cl-defun cl-defmacro defmethod defgeneric)))
        (let* ((elements (node-elements (car rest)))
               (formals
-                 (and (pair? elements)
-                   (pair? (cdr elements))
-                   (cadr elements))))
+               (and (pair? elements)
+                 (pair? (cdr elements))
+                 (cadr elements))))
          (and formals
            (<= (node-index formals) (node-index node))
            (<= (node-end-index node) (node-end-index formals))))]
@@ -306,7 +306,7 @@ is not a value here."
          ;; (define (f a) "doc" ...) versus (define x "value")
          (if (and first (node-list? first)) (after 1) #f))]
       [(defun defmacro defsubst defmethod cl-defun cl-defmacro cl-defsubst
-         defgeneric)
+              defgeneric)
        (after 2)]
       [(lambda lambda* cl-lambda)
        (after 1)]
@@ -360,9 +360,9 @@ editor uses for a file it has not been told about."
     (if (>= i end)
       column
       (loop (+ i 1)
-        (if (char=? (string-ref source i) #\tab)
-          (* 8 (+ 1 (quotient column 8)))
-          (+ column 1))))))
+            (if (char=? (string-ref source i) #\tab)
+              (* 8 (+ 1 (quotient column 8)))
+              (+ column 1))))))
 
 (define (node-column node)
   (source-location-column (node-start node)))
@@ -393,7 +393,7 @@ them."
       (let ((span (car spans)))
         (if (<= index (cdr span))
           (make-source-location #f number (+ 1 (- index (car span)))
-            index index)
+                                index index)
           (loop (cdr spans) (+ number 1)))))))
 
 (define (blank-line? text)
@@ -405,11 +405,11 @@ them."
 (define (ranges-of ast predicate)
   "Return the source ranges of every node in @var{ast} satisfying @var{predicate}."
   (reverse
-     (fold-nodes (lambda (node acc)
-                   (if (predicate node)
-                     (cons (cons (node-index node) (node-end-index node)) acc)
-                     acc))
-       '() ast)))
+   (fold-nodes (lambda (node acc)
+                 (if (predicate node)
+                   (cons (cons (node-index node) (node-end-index node)) acc)
+                   acc))
+               '() ast)))
 
 (define (text-ranges-of ast)
   "Return the ranges in which source text is not code.
@@ -419,14 +419,14 @@ inside: a tab in a string literal is data, and a line that starts inside a
 multi-line block comment is not indentation."
   (append (ranges-of ast (lambda (node) (and (node-atom? node)
                                           (eq? (node-atom-type node) 'string))))
-    (ranges-of ast (lambda (node)
-                     (or (node-block-comment? node)
-                       (node-string? node))))))
+          (ranges-of ast (lambda (node)
+                           (or (node-block-comment? node)
+                             (node-string? node))))))
 
 (define (index-in-ranges? index ranges)
   "Return @code{#t} when @var{index} falls inside one of @var{ranges}."
   (any (lambda (range) (and (>= index (car range)) (< index (cdr range))))
-    ranges))
+       ranges))
 
 (define current-check-options (make-parameter '()))
 
@@ -447,7 +447,7 @@ checker reads what it needs with @code{option}, which always has a default."
 ;;; ===== Checker construction =====
 
 (define* (checker name description dialects proc
-           #:key (severity 'warning) example code)
+                  #:key (severity 'warning) example code)
   "Build a <lint-checker> with its documentation attached.
 
 The record is the whole contract: a name to select it by, a description for
@@ -456,9 +456,9 @@ and, for `explain', a failing example and the fix it expects."
   (make-lint-checker name description dialects proc severity example code))
 
 (define* (make-checker name description dialects proc
-           #:key (severity 'warning) example code)
+                       #:key (severity 'warning) example code)
   (checker name description dialects proc #:severity severity #:example example
-    #:code code))
+           #:code code))
 
 (define* (diagnose checker severity message node #:key fix range)
   "Build a warning about @var{node} on behalf of @var{checker}."

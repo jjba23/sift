@@ -25,10 +25,10 @@
 
     (test "reports a third-person opening"
       (assert-warnings #:source "(defun f (x)\n  \"Returns x.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'checkdoc-style-verb
-        #:expect '((2 3))))
+                       #:dialect 'elisp #:checker 'checkdoc-style-verb
+                       #:expect '((2 3))))
 
     (test "accepts the imperative"
       (assert-warnings #:source "(defun f (x)\n  \"Return x.\"\n  x)\n"
-        #:dialect 'elisp #:checker 'checkdoc-style-verb
-        #:expect '()))))
+                       #:dialect 'elisp #:checker 'checkdoc-style-verb
+                       #:expect '()))))

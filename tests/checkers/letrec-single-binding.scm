@@ -24,12 +24,12 @@
 
     (test "reports a letrec with one non-recursive binding"
       (assert-warnings #:source "(letrec ((x 1)) x)\n"
-        #:checker 'letrec-single-binding #:expect '((1 1))))
+                       #:checker 'letrec-single-binding #:expect '((1 1))))
 
     (test "accepts a binding that refers to itself"
       (assert-warnings #:source "(letrec ((f (lambda () (f)))) (f))\n"
-        #:checker 'letrec-single-binding #:expect '()))
+                       #:checker 'letrec-single-binding #:expect '()))
 
     (test "accepts two bindings"
       (assert-warnings #:source "(letrec ((a 1) (b 2)) (+ a b))\n"
-        #:checker 'letrec-single-binding #:expect '()))))
+                       #:checker 'letrec-single-binding #:expect '()))))

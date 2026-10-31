@@ -24,14 +24,14 @@
 
     (test "reports an unquoted number inside a quasiquote"
       (assert-warnings #:source "`(1 ,2)\n"
-        #:checker 'quasiquote-unquote-constant
-        #:expect '((1 5))))
+                       #:checker 'quasiquote-unquote-constant
+                       #:expect '((1 5))))
 
     (test "reports the long-hand form too"
       (assert-warnings #:source "(quasiquote (unquote 2))\n"
-        #:checker 'quasiquote-unquote-constant
-        #:expect '((1 13))))
+                       #:checker 'quasiquote-unquote-constant
+                       #:expect '((1 13))))
 
     (test "accepts an unquoted variable"
       (assert-warnings #:source "`(1 ,x)\n"
-        #:checker 'quasiquote-unquote-constant #:expect '()))))
+                       #:checker 'quasiquote-unquote-constant #:expect '()))))

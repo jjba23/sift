@@ -22,24 +22,24 @@
 
     (test "reports a Common Lisp special variable without earmuffs"
       (assert-warnings #:source "(defparameter port 8080)\n" #:dialect 'cl
-        #:checker 'special-variable-name #:expect '((1 15))))
+                       #:checker 'special-variable-name #:expect '((1 15))))
 
     (test "accepts an earmuffed one"
       (assert-warnings #:source "(defparameter *port* 8080)\n" #:dialect 'cl
-        #:checker 'special-variable-name #:expect '()))
+                       #:checker 'special-variable-name #:expect '()))
 
     (test "reports a Common Lisp constant without plus signs"
       (assert-warnings #:source "(defconstant pi 3.14)\n" #:dialect 'cl
-        #:checker 'special-variable-name #:expect '((1 14))))
+                       #:checker 'special-variable-name #:expect '((1 14))))
 
     (test "accepts a constant written with plus signs"
       (assert-warnings #:source "(defconstant +pi+ 3.14)\n" #:dialect 'cl
-        #:checker 'special-variable-name #:expect '()))
+                       #:checker 'special-variable-name #:expect '()))
 
     (test "reports earmuffs in Emacs Lisp"
       (assert-warnings #:source "(defvar *port* 8080)\n" #:dialect 'elisp
-        #:checker 'special-variable-name #:expect '((1 9))))
+                       #:checker 'special-variable-name #:expect '((1 9))))
 
     (test "accepts a plain Emacs Lisp variable"
       (assert-warnings #:source "(defvar port 8080)\n" #:dialect 'elisp
-        #:checker 'special-variable-name #:expect '()))))
+                       #:checker 'special-variable-name #:expect '()))))

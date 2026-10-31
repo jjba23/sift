@@ -25,20 +25,20 @@
 
     (test "reports a chain of conditionals deeper than the limit"
       (assert-warnings #:source deep-if #:checker 'nesting-depth
-        #:expect '((1 1))))
+                       #:expect '((1 1))))
 
     (test "the limit is configuration"
       (assert-warnings #:source deep-if #:checker 'nesting-depth
-        #:options '((max-definition-depth . 9)) #:expect '()))
+                       #:options '((max-definition-depth . 9)) #:expect '()))
 
     (test "accepts a `let' inside a `cond' inside a `define'"
       ;; parentheses are not the measure: this is three levels of
       ;; parentheses and one conditional
       (assert-warnings
-         #:source "(define (f x)\n  (let ((y (car x)))\n    (cond [(null? y) 1]\n          [else 2])))\n"
-         #:checker 'nesting-depth #:expect '()))
+       #:source "(define (f x)\n  (let ((y (car x)))\n    (cond [(null? y) 1]\n          [else 2])))\n"
+       #:checker 'nesting-depth #:expect '()))
 
     (test "counts a `when' inside an `if'"
       (assert-warnings
-         #:source "(define (f x)\n  (when (a)\n    (if (b)\n      (when (c)\n        (if (d)\n          (if (e) 1 2))))))\n"
-         #:checker 'nesting-depth #:expect '((1 1))))))
+       #:source "(define (f x)\n  (when (a)\n    (if (b)\n      (when (c)\n        (if (d)\n          (if (e) 1 2))))))\n"
+       #:checker 'nesting-depth #:expect '((1 1))))))

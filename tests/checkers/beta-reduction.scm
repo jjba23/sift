@@ -22,36 +22,36 @@
 
     (test "reports a lambda applied in place"
       (assert-warnings #:source "((lambda (x) (f x)) (g))\n"
-        #:checker 'beta-reduction
-        #:expect '((1 1))))
+                       #:checker 'beta-reduction
+                       #:expect '((1 1))))
 
     (test "the fix writes the let"
       (assert-fix #:source "((lambda (x) (f x)) (g))\n" #:checker 'beta-reduction
-        #:expected "(let ((x (g))) (f x))\n"))
+                  #:expected "(let ((x (g))) (f x))\n"))
 
     (test "a multi-form body becomes a multi-form let"
       (assert-fix #:source "((lambda (x) (f x) (g x)) (h))\n"
-        #:checker 'beta-reduction
-        #:expected "(let ((x (h))) (f x) (g x))\n"))
+                  #:checker 'beta-reduction
+                  #:expected "(let ((x (h))) (f x) (g x))\n"))
 
     (test "the fixed file has nothing left to report"
       (assert-fixes-to-nothing #:source "((lambda (x) (f x)) (g))\n"
-        #:checker 'beta-reduction))
+                               #:checker 'beta-reduction))
 
     (test "accepts a lambda applied to two arguments"
       (assert-warnings #:source "((lambda (x y) (f x y)) (g) (h))\n"
-        #:checker 'beta-reduction
-        #:expect '()))
+                       #:checker 'beta-reduction
+                       #:expect '()))
 
     (test "accepts a lambda with no body"
       (assert-warnings #:source "((lambda (x)) (g))\n" #:checker 'beta-reduction
-        #:expect '()))
+                       #:expect '()))
 
     (test "accepts a call to something that is not a lambda"
       (assert-warnings #:source "(f (g))\n" #:checker 'beta-reduction
-        #:expect '()))
+                       #:expect '()))
 
     (test "a Common Lisp lambda applied in place is a let too"
       (assert-fix #:source "((lambda (x) (f x)) (g))\n" #:checker 'beta-reduction
-        #:dialect 'cl
-        #:expected "(let ((x (g))) (f x))\n"))))
+                  #:dialect 'cl
+                  #:expected "(let ((x (g))) (f x))\n"))))
