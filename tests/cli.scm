@@ -257,7 +257,7 @@
         (assert-status #:expect 0 #:got result)
         ;; the version is asserted by shape, so that bumping it is one edit
         ;; in one place rather than an edit here too
-        (assert-true (string-contains (cadr result) "sift ")
+        (assert-contains #:expect (cadr result) #:got "sift "
           #:name "doctor starts with the version")
         (assert-contains #:expect (cadr result) #:got "rules")
         (assert-contains #:expect (cadr result) #:got "sift.yaml")))
