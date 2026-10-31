@@ -3,7 +3,7 @@
 ;; Copyright (C) 2025  Josep Bigorra
 
 ;; Author: Josep Bigorra <jjbigorra@gmail.com>
-;; Version: 0.3.0
+;; Version: 0.4.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: languages, lisp, tools
 ;; URL: https://codeberg.org/jjba23/sift

@@ -149,7 +149,7 @@ With the [[https://pre-commit.com][pre-commit]] framework, the repository's
 #+begin_src yaml
 repos:
   - repo: https://codeberg.org/jjba23/sift
-    rev: v0.3.0
+    rev: v0.4.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
