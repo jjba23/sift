@@ -66,9 +66,23 @@ stdenv.mkDerivation {
     install -m 755 bin/sift "$out/bin/sift"
     substituteInPlace "$out/bin/sift" \
       --replace-fail '$here/../src' "$site" \
-      --replace-fail 'exec guile' "exec ${guile}/bin/guile"
+      --replace-fail 'exec guile' "exec ${guile}/bin/guile -C $out/lib/guile/3.0/site-ccache"
 
     runHook postInstall
+  '';
+
+  # The compiled modules, in the place Guile looks for them and compiled from
+  # the installed sources, so that the paths compiled into them are the paths
+  # they are found at.  Without this, every first run of sift compiles sixteen
+  # modules into the user's cache before it answers.
+  postInstall = ''
+    ccache=$out/lib/guile/3.0/site-ccache
+    for source in $(find "$out/share/guile/site/3.0" -name '*.scm' | sort); do
+      target="$ccache/''${source#"$out/share/guile/site/3.0/"}"
+      mkdir -p "$(dirname "''${target%.scm}.go")"
+      guild compile -L "$out/share/guile/site/3.0" \
+        -o "''${target%.scm}.go" "$source"
+    done
   '';
 
   meta = {
@@ -80,7 +94,7 @@ stdenv.mkDerivation {
       are documented, independently testable and aware of which dialect they
       are looking at.
     '';
-    homepage = "https://codeberg.org/jjba23/sift";
+    homepage = "https://github.com/jjba23/sift";
     license = lib.licenses.gpl3Plus;
     mainProgram = "sift";
     platforms = lib.platforms.unix;

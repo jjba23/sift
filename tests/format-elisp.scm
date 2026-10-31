@@ -58,6 +58,15 @@
          #:expect "(message \"a  b\\n\" ?\\C-x)"
          #:got (format-string "(message   \"a  b\\n\"   ?\\C-x)" #:dialect 'elisp)))
 
+    ;; A square bracket is not Emacs Lisp syntax.  `brackets: square' in a
+    ;; project's sift.yaml reads as a choice about style, so it has to mean
+    ;; nothing here rather than writing a file Emacs cannot read.
+    (test "the square bracket style does not reach Emacs Lisp"
+      (assert-same-text
+         #:expect "(cond ((null x) 1)\n      (t 2))"
+         #:got (format-string "(cond ((null x) 1)\n(t 2))"
+                 #:dialect 'elisp #:brackets 'square)))
+
     (test "formatting Emacs Lisp is idempotent"
       (assert-idempotent #:source "(defun f (x)\n  \"Doc.\"\n  (list x))\n"
         #:dialect 'elisp))))

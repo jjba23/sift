@@ -472,10 +472,17 @@ another name."
 Only the forms whose children *are* clauses take one: a `cond' clause is a
 test and a body, and a `case' clause is a datum list and a body, so the
 bracket tells the reader where one ends.  In every other list the parentheses
-are structure, and the author keeps them."
+are structure, and the author keeps them.
+
+Only Scheme takes one at all.  A square bracket is not Emacs Lisp syntax, and
+is not Common Lisp syntax either, so `brackets: square' in a project's
+configuration -- which reads as a choice about style -- would otherwise write
+a file its own dialect cannot read back, and a formatter that does that is
+worse than one with no opinion."
   (let ((style (ctx-brackets ctx))
         (head (node-head-name node)))
-    (and (memq style '(square parens))
+    (and (eq? (ctx-dialect ctx) 'scheme)
+      (memq style '(square parens))
       (memq head '(cond case))
       style)))
 

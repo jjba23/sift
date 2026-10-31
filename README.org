@@ -46,7 +46,7 @@ sift needs Guile 3.0 or newer and nothing else at run time.  Emacs is optional
 and only for the editor half.
 
 #+begin_src shell
-git clone https://codeberg.org/jjba23/sift.git
+git clone https://github.com/jjba23/sift.git
 cd sift
 ./bin/sift version
 #+end_src
@@ -500,7 +500,7 @@ project can pick the one it wants:
 
 #+begin_src yaml
 repos:
-  - repo: https://codeberg.org/jjba23/sift
+  - repo: https://github.com/jjba23/sift
     rev: v0.4.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src

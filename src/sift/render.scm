@@ -172,11 +172,11 @@ changed, and a hash table would not promise that."
 ;;; with a hundred findings describes each rule once.
 
 (define sarif-schema-uri "https://json.schemastore.org/sarif-2.1.0.json")
-(define sift-home-page "https://codeberg.org/jjba23/sift")
+(define sift-home-page "https://github.com/jjba23/sift")
 
 (define (sift-rules-page)
   "Return the URL of the rule catalogue."
-  (string-append sift-home-page "/src/branch/main/doc/rules.org"))
+  (string-append sift-home-page "/blob/trunk/doc/rules.org"))
 
 ;;; --- building JSON -----------------------------------------------------
 

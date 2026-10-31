@@ -144,6 +144,12 @@ turning every list into a bracket would be noise.  A project that prefers
 parentheses sets `brackets: parens`, or runs `--brackets=parens`; a project
 that wants to keep whatever is written sets `brackets: preserve`.
 
+It never applies to Emacs Lisp or Common Lisp, whatever the setting says: a
+square bracket is not syntax in either, so a `sift.yaml` that asks for square
+brackets and a directory that holds an `.el` file would otherwise produce a
+file Emacs cannot read.  The setting is about Scheme because the argument for
+it is about Scheme.
+
 ** Keyword arguments line up
 
 A call that passes keyword arguments lines them up under its first argument:

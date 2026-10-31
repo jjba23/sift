@@ -6,7 +6,7 @@
 ;; Version: 0.4.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: languages, lisp, tools
-;; URL: https://codeberg.org/jjba23/sift
+;; URL: https://github.com/jjba23/sift
 
 ;; This file is not part of GNU Emacs.
 
@@ -69,7 +69,7 @@
   "Formatting and linting for Scheme, Emacs Lisp and Common Lisp."
   :group 'languages
   :prefix "sift-"
-  :link '(url-link "https://codeberg.org/jjba23/sift"))
+  :link '(url-link "https://github.com/jjba23/sift"))
 
 (defcustom sift-executable "sift"
   "The sift program to run."

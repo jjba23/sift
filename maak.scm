@@ -398,7 +398,7 @@ files already state is how a bump made by hand is released."
                         (format #f "sift ~a" requested)))
              (format #t "release: tagged ~a~%~%" tag)
              (format #t "A tag nobody has fetched is not a release yet:~%")
-             (format #t "  git push origin main --follow-tags~%"))
+             (format #t "  git push origin trunk --follow-tags~%"))
            0)])))
 
 (define (default)

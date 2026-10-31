@@ -69,7 +69,7 @@ on:
         description: The revision of jjba23/sift whose action runs. Pin it to the same tag as `uses:`.
         required: false
         type: string
-        default: main
+        default: trunk
     outputs:
       findings:
         description: How many findings the run reported.

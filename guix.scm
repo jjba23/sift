@@ -92,7 +92,7 @@ specific language for test suites.")
                         site))))))))
     (native-inputs (list guile-veritas))
     (inputs (list guile-3.0))
-    (home-page "https://codeberg.org/jjba23/sift")
+    (home-page "https://github.com/jjba23/sift")
     (synopsis "Dialect-aware formatter and linter for Scheme, Emacs Lisp and Common Lisp")
     (description
      "sift formats and lints Scheme, Emacs Lisp and Common Lisp without
