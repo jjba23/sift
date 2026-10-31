@@ -1,6 +1,7 @@
 ;;; sift.el --- sift formatting, linting, Flymake and Eglot integration  -*- lexical-binding: t; -*-
 
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;; Copyright (C) 2025, 2026  Josep Bigorra
 

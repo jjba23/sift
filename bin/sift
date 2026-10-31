@@ -3,6 +3,7 @@
 # Common Lisp.
 #
 # SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 # The launcher is a shell script rather than a `#!guile' script because a
 # shebang cannot portably add a load path, and sift's sources live in src/

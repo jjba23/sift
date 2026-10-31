@@ -1,6 +1,7 @@
 ;; sift --- checker: trailing-blank-lines
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

@@ -1,6 +1,7 @@
 ;; sift --- checker: unless-without-body
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

@@ -1,6 +1,7 @@
 ;; sift --- checker: lexical-binding-missing
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

@@ -1,6 +1,7 @@
 ;; sift --- checker: package-prefix
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

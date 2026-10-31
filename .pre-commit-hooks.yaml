@@ -1,6 +1,7 @@
 # sift --- hooks for the pre-commit framework (https://pre-commit.com)
 #
 # SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 #   - repo: https://github.com/jjba23/sift
 #     rev: v0.4.0

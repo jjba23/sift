@@ -1,6 +1,7 @@
 ;; sift --- Emacs Lisp checkers
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

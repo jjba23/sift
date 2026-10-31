@@ -1,6 +1,7 @@
 # sift --- the GitHub action
 #
 # SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 # One step that asks sift's two questions about a tree and leaves behind both
 # of the answers a pull request wants: annotations on the lines that were
@@ -45,7 +46,7 @@ inputs:
   annotations:
     description: Annotate the diff with each finding, as a workflow command.
     required: false
-    default: 'true'
+    default: "true"
   sarif-file:
     description: Where to write the SARIF document. Empty writes none.
     required: false
@@ -57,7 +58,7 @@ inputs:
   fail-on-findings:
     description: Fail the step when sift finds something. False reports the findings and passes.
     required: false
-    default: 'true'
+    default: "true"
 
 outputs:
   sarif-file:

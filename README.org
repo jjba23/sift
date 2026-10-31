@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #+title: sift
 #+subtitle: a formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp

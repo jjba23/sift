@@ -1,6 +1,7 @@
 " sift --- a :compiler plugin for Vim
 "
 " SPDX-License-Identifier: MIT
+" Copyright © Josep Bigorra <jjbigorra@gmail.com>
 "
 " `:compiler sift' then `:make` runs `sift ci` over the current file and fills
 " the quickfix list from its output.  The errorformat below is the one-line

@@ -1,6 +1,7 @@
 ;; sift --- reader tests, Common Lisp
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

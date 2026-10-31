@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #+title: sift — the style it enforces, and why
 #+author: Josep Bigorra

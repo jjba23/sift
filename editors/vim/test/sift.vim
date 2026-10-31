@@ -1,6 +1,7 @@
 " sift --- tests for the Vim plugin, run in batch
 "
 " SPDX-License-Identifier: MIT
+" Copyright © Josep Bigorra <jjbigorra@gmail.com>
 "
 "   vim -es -u NORC -N -S editors/vim/test/sift.vim
 "

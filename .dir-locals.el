@@ -1,4 +1,5 @@
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 ;;; .dir-locals.el --- per-directory settings for sift  -*- lexical-binding: t; -*-
 ;;
 ;; The Emacs package lives in emacs/ and is loaded by the tests with -L

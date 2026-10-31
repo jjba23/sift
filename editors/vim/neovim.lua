@@ -1,6 +1,7 @@
 -- sift --- a Neovim setup
 --
 -- SPDX-License-Identifier: MIT
+-- Copyright © Josep Bigorra <jjbigorra@gmail.com>
 --
 -- Neovim 0.11 speaks the protocol sift speaks, so this is the whole
 -- integration: no plugin, no dependency, and the findings, the quickfixes and

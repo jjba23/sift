@@ -1,6 +1,7 @@
 ;; sift --- checker: loop-keyword-style
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

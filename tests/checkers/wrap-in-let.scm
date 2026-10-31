@@ -1,6 +1,7 @@
 ;; sift --- checker: wrap-in-let
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

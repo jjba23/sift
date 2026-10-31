@@ -2,6 +2,7 @@
 # sift --- the command behind the GitHub action
 #
 # SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 # This file is the whole action.  `action.yml' is a wrapper that turns a step's
 # inputs into the environment variables below, and this script is what runs:

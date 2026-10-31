@@ -1,6 +1,7 @@
 // sift --- tests for the extension's arithmetic
 //
 // SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
 //
 // Run with `node editors/vscode/edit.test.js` (or `maak editors-check`).  No
 // framework: Node's own `assert` is the assertion library, which is why this

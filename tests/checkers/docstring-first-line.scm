@@ -1,6 +1,7 @@
 ;; sift --- checker: docstring-first-line
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

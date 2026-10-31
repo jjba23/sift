@@ -1,6 +1,7 @@
 " sift --- linting, fixing and formatting from Vim
 "
 " SPDX-License-Identifier: MIT
+" Copyright © Josep Bigorra <jjbigorra@gmail.com>
 "
 " Copy this directory to ~/.vim (or point a plugin manager at it) and the
 " commands below appear for Scheme, Emacs Lisp and Common Lisp buffers.

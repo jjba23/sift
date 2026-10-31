@@ -1,6 +1,7 @@
 " sift --- the Vim side of it
 "
 " SPDX-License-Identifier: MIT
+" Copyright © Josep Bigorra <jjbigorra@gmail.com>
 "
 " Every function here runs the executable with the buffer on standard input
 " and reads what comes back, which is what sift was built to be called that

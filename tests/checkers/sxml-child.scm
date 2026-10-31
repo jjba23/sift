@@ -1,6 +1,7 @@
 ;; sift --- checker: sxml-child
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;

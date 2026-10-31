@@ -2,6 +2,7 @@
 ;; Common Lisp.
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 (define-module (maak)
   #:declarative? #t

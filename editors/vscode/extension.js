@@ -1,6 +1,7 @@
 // sift --- the VS Code side of it
 //
 // SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
 //
 // The extension is a pipe and nothing else: every answer comes from the
 // executable, which is what keeps the editor and the pipeline saying the same

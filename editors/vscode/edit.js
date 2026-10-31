@@ -1,6 +1,7 @@
 // sift --- the two pieces of arithmetic the extension does
 //
 // SPDX-License-Identifier: MIT
+// Copyright © Josep Bigorra <jjbigorra@gmail.com>
 //
 // Kept out of extension.js, and out of the `vscode' module, so that they can be
 // tested by running Node: an extension is hard to test and a pure function is

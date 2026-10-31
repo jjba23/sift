@@ -1,6 +1,7 @@
 ;; sift --- checker: quasiquote-unquote-constant
 ;;
 ;; SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 ;;; Commentary:
 ;;
