@@ -260,6 +260,23 @@ of a token, and a symbol such as `foo#bar' (Scheme) is one atom."
     (index->location r end-index)
     (list (cons 'inline inline?))))
 
+(define* (span-node r kind start end #:optional (fields '()))
+  "Return a node of @var{kind} holding the source text from @var{start} to @var{end}.
+
+A string literal, a block comment, an unreadable object: each is copied out
+of the source as it was written and nothing else, so the node that stands
+for one is nothing but its kind, its span and whatever the kind needs on
+top.  The reader has already advanced past @var{end} when it asks for one."
+  (make-node kind (substring (reader-source r) start end)
+    (index->location r start) (index->location r end) fields))
+
+(define (literal-node r start end atom-type)
+  "Return an atom of @var{atom-type} for the source text from @var{start} to @var{end}.
+
+A character literal or a `|bar-quoted|' symbol is an atom whose value is the
+text the author wrote -- never respelled, never classified further."
+  (span-node r 'atom start end (list (cons 'atom-type atom-type))))
+
 ;;; ===== Reading trivia =====
 
 (define (read-newline-run r)
@@ -272,21 +289,12 @@ of a token, and a symbol such as `foo#bar' (Scheme) is one atom."
            (advance! r)
            (when (eqv? (peek r) #\newline) (advance! r))
            (loop (+ count 1))]
-          [else
-             (let ((end (reader-index r)))
-               (set-reader-index! r start)
-               (let ((node (whitespace-node r start end count)))
-                 (set-reader-index! r end)
-                 node))])))))
+          [else (whitespace-node r start (reader-index r) count)])))))
 
 (define (read-space-run r)
   (let ((start (reader-index r)))
     (while (whitespace-char? (peek r)) (advance! r))
-    (let ((end (reader-index r)))
-      (set-reader-index! r start)
-      (let ((node (whitespace-node r start end 0)))
-        (set-reader-index! r end)
-        node))))
+    (whitespace-node r start (reader-index r) 0)))
 
 (define (line-prefix-blank? r index)
   "Return @code{#t} when only whitespace precedes @var{index} on its line."
@@ -304,23 +312,12 @@ of a token, and a symbol such as `foo#bar' (Scheme) is one atom."
   (let* ((start (reader-index r))
          (inline? (not (line-prefix-blank? r start))))
     (while (and (peek r) (not (newline-char? (peek r)))) (advance! r))
-    (let ((end (reader-index r)))
-      (set-reader-index! r start)
-      (let ((node (comment-node r start end inline?)))
-        (set-reader-index! r end)
-        node))))
+    (comment-node r start (reader-index r) inline?)))
 
 (define (read-shebang r)
   (let ((start (reader-index r)))
     (while (and (peek r) (not (newline-char? (peek r)))) (advance! r))
-    (let ((end (reader-index r)))
-      (set-reader-index! r start)
-      (let ((node (make-node 'shebang
-                    (substring (reader-source r) start end)
-                    (index->location r start)
-                    (index->location r end))))
-        (set-reader-index! r end)
-        node))))
+    (span-node r 'shebang start (reader-index r))))
 
 ;;; ===== Reading bracket forms =====
 
@@ -349,26 +346,18 @@ without a closer: the reader never invents a `)'."
         [(at-end? r)
          (record-error! r start 'error
            "unterminated form: the file ends before this form is closed")
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'list (reverse children)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'open open-text)
-                           (cons 'close #f)))))
-             (set-reader-index! r end)
-             node))]
+         (make-node 'list (reverse children)
+           (index->location r start)
+           (index->location r (reader-index r))
+           (list (cons 'open open-text)
+             (cons 'close #f)))]
         [(eqv? (peek r) close-char)
          (advance! r)
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'list (reverse children)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'open open-text)
-                           (cons 'close (string close-char))))))
-             (set-reader-index! r end)
-             node))]
+         (make-node 'list (reverse children)
+           (index->location r start)
+           (index->location r (reader-index r))
+           (list (cons 'open open-text)
+             (cons 'close (string close-char))))]
         [else
            (let ((node (read-node r)))
              (if (eq? node '*eof*)
@@ -395,26 +384,10 @@ without a closer: the reader never invents a `)'."
       (cond
         [(at-end? r)
          (record-error! r start 'error "unterminated string")
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'atom
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'atom-type 'string)))))
-             (set-reader-index! r end)
-             node))]
+         (literal-node r start (reader-index r) 'string)]
         [(eqv? (peek r) #\")
          (advance! r)
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'atom
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'atom-type 'string)))))
-             (set-reader-index! r end)
-             node))]
+         (literal-node r start (reader-index r) 'string)]
         [(eqv? (peek r) #\\)
          ;; An escape is copied as it was written.  Nothing here decodes a
          ;; string, because the formatter must never respell an escape.
@@ -423,6 +396,12 @@ without a closer: the reader never invents a `)'."
          (loop)]
         [else (advance! r) (loop)]))))
 
+(define (hex-digit? c)
+  "Return @code{#t} when @var{c} is one of the digits of a hexadecimal number."
+  (and c (memv c '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9
+                   #\a #\b #\c #\d #\e #\f
+                   #\A #\B #\C #\D #\E #\F)) #t))
+
 (define (read-scheme-char-literal r)
   "Read a Scheme character literal: #\\a, #\\space, #\\x41."
   (let ((start (reader-index r)))
@@ -430,17 +409,9 @@ without a closer: the reader never invents a `)'."
     (let ((c (peek r)))
       (cond
         [(not c) #f]
-        [(and (memv c '(#\x #\X))
-           (let ((n (peek-at r 1)))
-             (and n (memv n '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9
-                              #\a #\b #\c #\d #\e #\f
-                              #\A #\B #\C #\D #\E #\F)))))
+        [(and (memv c '(#\x #\X)) (hex-digit? (peek-at r 1)))
          (advance! r)
-         (while (let ((d (peek r)))
-                  (and d (memv d '(#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9
-                                   #\a #\b #\c #\d #\e #\f
-                                   #\A #\B #\C #\D #\E #\F))))
-           (advance! r))]
+         (while (hex-digit? (peek r)) (advance! r))]
         [(char-alphabetic? c)
          (while (let ((d (peek r)))
                   (and d (or (char-alphabetic? d)
@@ -448,15 +419,7 @@ without a closer: the reader never invents a `)'."
                              (char-alphabetic? (peek-at r 1))))))
            (advance! r))]
         [else (advance! r)])
-      (let ((end (reader-index r)))
-        (set-reader-index! r start)
-        (let ((node (make-node 'atom
-                      (substring (reader-source r) start end)
-                      (index->location r start)
-                      (index->location r end)
-                      (list (cons 'atom-type 'character)))))
-          (set-reader-index! r end)
-          node)))))
+      (literal-node r start (reader-index r) 'character))))
 
 (define (read-elisp-char-literal r)
   "Read an Emacs Lisp character literal: ?a, ?\\n, ?\\C-x, ?\\M-\\C-x, ?\\s.
@@ -481,20 +444,13 @@ is kept exactly as it was written."
         (let ((c (peek r)))
           (cond
             [(not c) #f]
-            [(eqv? c #\\) (advance! r) (unless (at-end? r) (advance! r))]
-            [(eqv? c #\^) (advance! r) (unless (at-end? r) (advance! r))]
+            [(or (eqv? c #\\) (eqv? c #\^))
+             (advance! r)
+             (unless (at-end? r) (advance! r))]
             [else (advance! r)])))
       ;; a plain character literal: ?a, ?(, ?\s
       (unless (at-end? r) (advance! r)))
-    (let ((end (reader-index r)))
-      (set-reader-index! r start)
-      (let ((node (make-node 'atom
-                    (substring (reader-source r) start end)
-                    (index->location r start)
-                    (index->location r end)
-                    (list (cons 'atom-type 'character)))))
-        (set-reader-index! r end)
-        node))))
+    (literal-node r start (reader-index r) 'character)))
 
 ;;; ===== Atoms =====
 
@@ -506,26 +462,10 @@ is kept exactly as it was written."
       (cond
         [(at-end? r)
          (record-error! r start 'error "unterminated |symbol|")
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'atom
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'atom-type 'symbol)))))
-             (set-reader-index! r end)
-             node))]
+         (literal-node r start (reader-index r) 'symbol)]
         [(eqv? (peek r) #\\) (advance! r) (unless (at-end? r) (advance! r)) (loop)]
         [(eqv? (peek r) #\|) (advance! r)
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'atom
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'atom-type 'symbol)))))
-             (set-reader-index! r end)
-             node))]
+         (literal-node r start (reader-index r) 'symbol)]
         [else (advance! r) (loop)]))))
 
 (define (read-atom r)
@@ -533,16 +473,12 @@ is kept exactly as it was written."
     (while (and (peek r) (not (atom-delimiter? (peek r)))) (advance! r))
     (when (= start (reader-index r)) ; a lone delimiter we do not know
       (advance! r))
-    (let ((end (reader-index r)))
-      (set-reader-index! r start)
-      (let ((node (atom-node r (substring (reader-source r) start end)
-                    start end)))
-        (set-reader-index! r end)
-        node))))
+    (atom-node r start (reader-index r))))
 
-(define (atom-node r text start end)
-  "Classify @var{text} and return the node that stands for it."
-  (let* ((number (and (not (string-prefix? "|" text))
+(define (atom-node r start end)
+  "Classify the text from @var{start} to @var{end} and return its node."
+  (let* ((text (substring (reader-source r) start end))
+         (number (and (not (string-prefix? "|" text))
                    (string->number text)))
          (type (cond
                  [number 'number]
@@ -604,25 +540,17 @@ is what reports it."
              (format #f "reader prefix `~a' is not followed by a datum"
                token))
            (set-reader-index! r child-start)
-           (let ((end child-start))
-             (set-reader-index! r start)
-             (let ((node (make-node 'prefix token
-                           (index->location r start)
-                           (index->location r end)
-                           (list (cons 'child #f)
-                             (cons 'gap "")))))
-               (set-reader-index! r end)
-               node))]
+           (make-node 'prefix token
+             (index->location r start)
+             (index->location r child-start)
+             (list (cons 'child #f)
+               (cons 'gap "")))]
           [else
-             (let ((end (child-end child)))
-               (set-reader-index! r start)
-               (let ((node (make-node 'prefix token
-                             (index->location r start)
-                             (index->location r end)
-                             (list (cons 'child child)
-                               (cons 'gap gap)))))
-                 (set-reader-index! r end)
-                 node))])))))
+             (make-node 'prefix token
+               (index->location r start)
+               (index->location r (child-end child))
+               (list (cons 'child child)
+                 (cons 'gap gap)))])))))
 
 (define (child-end node)
   "Return the character index just past @var{node}."
@@ -638,25 +566,11 @@ is what reports it."
       (cond
         [(at-end? r)
          (record-error! r start 'error "unterminated block comment")
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'block-comment
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end))))
-             (set-reader-index! r end)
-             node))]
+         (span-node r 'block-comment start (reader-index r))]
         [(and (eqv? (peek r) #\|) (eqv? (peek-at r 1) #\#))
          (advance-by! r 2)
          (if (= depth 1)
-           (let ((end (reader-index r)))
-             (set-reader-index! r start)
-             (let ((node (make-node 'block-comment
-                           (substring (reader-source r) start end)
-                           (index->location r start)
-                           (index->location r end))))
-               (set-reader-index! r end)
-               node))
+           (span-node r 'block-comment start (reader-index r))
            (loop (- depth 1)))]
         [(and (eqv? (peek r) #\#) (eqv? (peek-at r 1) #\|))
          (advance-by! r 2)
@@ -705,20 +619,17 @@ to stay out and the formatter to copy it verbatim."
       (let ((end (if (and child (not (eq? child '*eof*)))
                    (child-end child)
                    (reader-index r))))
-        (set-reader-index! r start)
-        (let ((node (make-node 'prefix "#;"
-                      (index->location r start)
-                      (index->location r end)
-                      (list (cons 'child (if (and child
-                                               (not (eq? child '*eof*)))
-                                           (mark-commented-out child)
-                                           #f))
-                        (cons 'gap "")
-                        (cons 'verbatim #t)
-                        (cons 'raw (substring (reader-source r)
-                                     start end))))))
-          (set-reader-index! r end)
-          node)))))
+        (make-node 'prefix "#;"
+          (index->location r start)
+          (index->location r end)
+          (list (cons 'child (if (and child
+                                   (not (eq? child '*eof*)))
+                               (mark-commented-out child)
+                               #f))
+            (cons 'gap "")
+            (cons 'verbatim #t)
+            (cons 'raw (substring (reader-source r)
+                         start end))))))))
 
 (define (read-read-time-eval r)
   "\"#.\" is Common Lisp read-time evaluation: parsed, never evaluated, copied."
@@ -732,17 +643,11 @@ to stay out and the formatter to copy it verbatim."
       (let ((end (if (and child (not (eq? child '*eof*)))
                    (child-end child)
                    (reader-index r))))
-        (set-reader-index! r start)
-        (let ((node (make-node 'opaque
-                      (substring (reader-source r) start end)
-                      (index->location r start)
-                      (index->location r end)
-                      (list (cons 'verbatim #t)
-                        (cons 'child (if (and child
-                                           (not (eq? child '*eof*)))
-                                       child #f))))))
-          (set-reader-index! r end)
-          node)))))
+        (span-node r 'opaque start end
+          (list (cons 'verbatim #t)
+            (cons 'child (if (and child
+                               (not (eq? child '*eof*)))
+                           child #f))))))))
 
 (define (read-unreadable r)
   "Read \"#<...>\" verbatim, tracking `<'-and-`>' nesting outside strings."
@@ -752,15 +657,8 @@ to stay out and the formatter to copy it verbatim."
       (cond
         [(at-end? r)
          (record-error! r start 'error "unterminated #<...> object")
-         (let ((end (reader-index r)))
-           (set-reader-index! r start)
-           (let ((node (make-node 'opaque
-                         (substring (reader-source r) start end)
-                         (index->location r start)
-                         (index->location r end)
-                         (list (cons 'verbatim #t)))))
-             (set-reader-index! r end)
-             node))]
+         (span-node r 'opaque start (reader-index r)
+           (list (cons 'verbatim #t)))]
         [else
            (let ((c (peek r)))
              (cond
@@ -773,15 +671,8 @@ to stay out and the formatter to copy it verbatim."
                [(eqv? c #\>)
                 (advance! r)
                 (if (= depth 1)
-                  (let ((end (reader-index r)))
-                    (set-reader-index! r start)
-                    (let ((node (make-node 'opaque
-                                  (substring (reader-source r) start end)
-                                  (index->location r start)
-                                  (index->location r end)
-                                  (list (cons 'verbatim #t)))))
-                      (set-reader-index! r end)
-                      node))
+                  (span-node r 'opaque start (reader-index r)
+                    (list (cons 'verbatim #t)))
                   (loop (- depth 1) #f #f))]
                [else (advance! r) (loop depth #f #f)]))]))))
 
@@ -816,19 +707,16 @@ is still a form the author wrote."
                           [(and feature (not (eq? feature '*eof*)))
                            (child-end feature)]
                           [else (reader-index r)])))
-          (set-reader-index! r start)
-          (let ((node (make-node 'conditional token
-                        (index->location r start)
-                        (index->location r end)
-                        (list (cons 'feature (if (eq? feature '*eof*)
-                                               #f feature))
-                          (cons 'guarded-form
-                            (if (eq? guarded '*eof*)
-                              #f guarded))
-                          (cons 'gap gap)
-                          (cons 'gap2 gap2)))))
-            (set-reader-index! r end)
-            node))))))
+          (make-node 'conditional token
+            (index->location r start)
+            (index->location r end)
+            (list (cons 'feature (if (eq? feature '*eof*)
+                                   #f feature))
+              (cons 'guarded-form
+                (if (eq? guarded '*eof*)
+                  #f guarded))
+              (cons 'gap gap)
+              (cons 'gap2 gap2))))))))
 
 (define (read-hash r)
   (let ((start (reader-index r))
