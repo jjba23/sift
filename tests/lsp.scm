@@ -26,6 +26,25 @@
 
 ;;; ===== Framing =====
 
+(define (raw text)
+  "Return a frame whose body is @var{text}, whatever it is.
+
+A session that never sends an unparseable message never tests the half of the
+server that handles one."
+  (cons 'raw text))
+
+(define (frame-of value)
+  "Return @var{value} as one framed message: JSON, or the text of a raw frame."
+  (if (and (pair? value) (eq? (car value) 'raw))
+    (frame-text (cdr value))
+    (frame-text (json-write value))))
+
+(define (frame-text body)
+  "Return @var{body} framed with its length in bytes."
+  (string-append "Content-Length: "
+    (number->string (bytevector-length (string->utf8 body)))
+    "\r\n\r\n" body))
+
 (define (frame value)
   "Return @var{value} as one framed JSON-RPC message."
   (let* ((body (json-write value))
@@ -50,13 +69,17 @@
 
 (define* (session messages #:key (arguments '()))
   "Run `sift lsp' on @var{messages} and return @code{(status . messages)}."
-  (let* ((input (apply string-append (map frame messages)))
+  (let* ((input (apply string-append (map frame-of messages)))
          (result (run-sift (append (list "lsp") arguments) #:stdin input)))
     (cons (car result) (unframe (cadr result)))))
 
 (define (answer-to messages id)
   "Return the message in @var{messages} that answers @var{id}."
   (find (lambda (message) (equal? (json-ref message "id") id)) messages))
+
+(define (notifications messages method)
+  "Return every notification in @var{messages} whose method is @var{method}."
+  (filter (lambda (message) (equal? (json-ref message "method") method)) messages))
 
 (define (published messages uri)
   "Return the last diagnostics published for @var{uri}."
@@ -131,6 +154,26 @@
 (define (range start end)
   (json-object (field "start" start) (field "end" end)))
 
+(define unbalanced
+  "(define (f x)\n  (if (ready?)\n")
+
+(define (open-with-text text)
+  "Return a `didOpen' message for `buffer-uri' whose text is @var{text}.
+
+A client that sends a number where the protocol says string is a client with a
+bug; the server has to survive it."
+  (json-object
+     (field "jsonrpc" "2.0")
+     (field "method" "textDocument/didOpen")
+     (field "params"
+       (json-object
+          (field "textDocument"
+            (json-object
+               (field "uri" buffer-uri)
+               (field "languageId" "scheme")
+               (field "version" 1)
+               (field "text" text)))))))
+
 (define (initialize-request id)
   (request id "initialize"
     (json-object (field "capabilities" (json-object)))))
@@ -196,7 +239,7 @@
           #:name "the server answers a hover")))
 
     (test "opening a buffer publishes its findings"
-      (let ((result (session (list (open unclean)))))
+      (let ((result (session (list (initialize-request 1) (open unclean)))))
         (assert-equal #:expect 0 #:got (car result))
         (let ((diagnostic (diagnostic-with (cdr result) "SIFT012")))
           (assert-true (and diagnostic #t) #:name "the if has no else branch")
@@ -205,7 +248,7 @@
               #:name "a warning is a warning")))))
 
     (test "a finding carries the range an editor highlights"
-      (let* ((result (session (list (open unclean))))
+      (let* ((result (session (list (initialize-request 1) (open unclean))))
              (diagnostic (diagnostic-with (cdr result) "SIFT012"))
              (start (start-of diagnostic)))
         (assert-equal #:expect 1 #:got (json-ref start "line")
@@ -218,7 +261,8 @@
       ;; UTF-16, which is what an editor indexes by.
       (let* ((text (string-append "(define (f x)\n  (list \""
                      (string (integer->char #x1F600)) "\")   \n    0)\n"))
-             (result (session (list (open text))))
+             (result (session (list (initialize-request 1)
+                                (open text))))
              (diagnostic (diagnostic-with (cdr result) "SIFT001")))
         (assert-true (and diagnostic #t)
           #:name "the trailing whitespace was found")
@@ -228,7 +272,8 @@
             #:name "the emoji counted as the two units it is"))))
 
     (test "a change republishes the findings of the new text"
-      (let* ((result (session (list (open unclean)
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
                                 (change "(define (f x)\n  (+ x 1))\n"))))
              (diagnostics (published (cdr result) buffer-uri)))
         (assert-equal #:expect 0 #:got (car result))
@@ -236,13 +281,15 @@
           #:name "the clean text has nothing to report")))
 
     (test "closing a buffer takes its findings away"
-      (let* ((result (session (list (open unclean) (close))))
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean) (close))))
              (diagnostics (published (cdr result) buffer-uri)))
         (assert-equal #:expect 0 #:got (vector-length diagnostics)
           #:name "the last word about the file is that it has no findings")))
 
     (test "a code action offers the rule's own fix"
-      (let* ((result (session (list (open unclean)
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
                                 (code-action-request 2 1 0))))
              (actions (json-ref (answer-to (cdr result) 2) "result"))
              (action (and actions (> (vector-length actions) 0)
@@ -257,7 +304,8 @@
           #:name "the fix is the one that turns if into when")))
 
     (test "formatting answers with the text sift would write"
-      (let* ((result (session (list (open unclean)
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
                                 (formatting-request 3))))
              (edits (json-ref (answer-to (cdr result) 3) "result"))
              (edit (and edits (> (vector-length edits) 0)
@@ -268,7 +316,8 @@
           #:name "the edit is the buffer, indented")))
 
     (test "the hover says what the rule wants"
-      (let* ((result (session (list (open unclean)
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
                                 (hover-request 4 1 4))))
              (message (json-ref (answer-to (cdr result) 4) "result"))
              (value (json-ref (json-ref message "contents") "value")))
@@ -276,7 +325,8 @@
         (assert-contains #:expect value #:got "if-without-else")))
 
     (test "an unknown request is refused, and the server keeps talking"
-      (let* ((result (session (list (open unclean)
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
                                 (request 5 "textDocument/completion"
                                   (json-object))
                                 (formatting-request 6))))
@@ -288,7 +338,8 @@
         (assert-true (and later #t) #:name "the next request was still answered")))
 
     (test "shutdown is answered and exit ends the session"
-      (let ((result (session (list (open unclean)
+      (let ((result (session (list (initialize-request 1)
+                               (open unclean)
                                (shutdown-request 7)
                                (exit-message)))))
         (assert-equal #:expect 0 #:got (car result))
@@ -297,13 +348,133 @@
 
     (test "the dialect follows the language identifier the editor sent"
       (let* ((text "(defun f (x)\n  (message \"%s\" x))\n")
-             (result (session (list (open text #:language "emacs-lisp"))))
+             (result (session (list (initialize-request 1)
+                                (open text #:language "emacs-lisp"))))
              (diagnostic (diagnostic-with (cdr result) "SIFT017")))
         (assert-true (and diagnostic #t)
           #:name "the rule that only Emacs Lisp has fired")))
 
+    (test "a buffer that does not parse has findings, not silence"
+      (let* ((result (session (list (initialize-request 1)
+                                (open unbalanced))))
+             (diagnostics (published (cdr result) buffer-uri))
+             (errors (and diagnostics
+                       (filter (lambda (diagnostic)
+                                 (equal? 1 (diagnostic-severity diagnostic)))
+                         (vector->list diagnostics)))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-true (and errors (pair? errors))
+          #:name "the file that never closes is reported as an error")
+        (assert-true (and errors
+                       (let ((code (diagnostic-code (car errors))))
+                         (and code (not (string-null? code)))))
+          #:name "and the finding is named, not anonymous")))
+
+    (test "the dialect layer still answers about a buffer sift cannot finish"
+      ;; A half-written form is the normal state of a buffer being typed: the
+      ;; findings for the part that could be read, and the actions that apply
+      ;; to them, must not go away because the end of the file is missing.
+      (let* ((result (session (list (initialize-request 1)
+                                (open unbalanced)
+                                (code-action-request 2 0 0))))
+             (actions (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-true (vector? actions) #:name "a code action array came back")))
+
+    (test "formatting a buffer that does not parse says why instead of nothing"
+      (let ((result (session (list (initialize-request 1)
+                               (open unbalanced)
+                               (formatting-request 2)))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect 0
+          #:got (vector-length (json-ref (answer-to (cdr result) 2) "result"))
+          #:name "no edit is offered, because sift does not guess")
+        (let ((shown (notifications (cdr result) "window/showMessage")))
+          (assert-true (and shown (pair? shown))
+            #:name "the editor is told that formatting was refused")
+          (when (pair? shown)
+            (assert-equal #:expect 1
+              #:got (json-ref-path (car shown) "params" "type")
+              #:name "as an error")
+            (assert-contains #:expect
+              (json-ref-path (car shown) "params" "message")
+              #:got "cannot format")))))
+
+    (test "a message that is not JSON is answered, and the session goes on"
+      (let* ((result (session (list (initialize-request 1)
+                                (raw "{this is not json}")
+                                (formatting-request 2))))
+             (refusal (answer-to (cdr result) 1))
+             (answer (answer-to (cdr result) 2)))
+        (assert-equal #:expect 0 #:got (car result)
+          #:name "the server exited cleanly")
+        (assert-true (and refusal #t) #:name "initialize was answered")
+        (assert-true (and answer #t)
+          #:name "the request after the bad message was answered too")))
+
+    (test "a request before initialize is refused by the protocol's rule"
+      (let* ((result (session (list (formatting-request 1))))
+             (answer (answer-to (cdr result) 1)))
+        (assert-equal #:expect -32002
+          #:got (json-ref (json-ref answer "error") "code")
+          #:name "the server says it has not been initialized")))
+
+    (test "an unknown method is refused and the server keeps its answers"
+      (let* ((result (session (list (initialize-request 1)
+                                (request 2 "textDocument/rename" (json-object))
+                                (shutdown-request 3)
+                                (exit-message))))
+             (refusal (answer-to (cdr result) 2)))
+        (assert-equal #:expect -32601
+          #:got (json-ref (json-ref refusal "error") "code"))
+        (assert-equal #:expect 0 #:got (car result)
+          #:name "shutdown and exit end the server with 0")))
+
+    (test "exit without a shutdown ends with the status the protocol asks for"
+      (let ((result (session (list (initialize-request 1) (exit-message)))))
+        (assert-equal #:expect 1 #:got (car result))))
+
+    (test "a change sent as a range is applied to the text"
+      ;; sift asks for full synchronisation, but a client that sends a range
+      ;; anyway is a client to work with: the range is spliced into the buffer
+      ;; sift already has.
+      (let* ((result (session (list (initialize-request 1)
+                                (open unclean)
+                                (json-object
+                                   (field "jsonrpc" "2.0")
+                                   (field "method" "textDocument/didChange")
+                                   (field "params"
+                                     (json-object
+                                        (field "textDocument"
+                                          (json-object (field "uri" buffer-uri)
+                                            (field "version" 2)))
+                                        (field "contentChanges"
+                                          (vector
+                                             (json-object
+                                                (field "range"
+                                                  (range (point 1 2) (point 1 4)))
+                                                (field "text" "unless"))))))))))
+             (texts (filter (lambda (diagnostic)
+                              (equal? "SIFT012" (diagnostic-code diagnostic)))
+                      (vector->list (published (cdr result) buffer-uri)))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect '()
+          #:got (map diagnostic-code texts)
+          #:name "the `if` the range replaced is gone")))
+
+    (test "a notification that raises does not take the server with it"
+      (let* ((result (session (list (initialize-request 1)
+                                (open-with-text 42)
+                                (shutdown-request 2)
+                                (exit-message)))))
+        (assert-true (pair? (notifications (cdr result) "window/showMessage"))
+          #:name "the editor was told the request was not usable")
+        (assert-equal #:expect 'null
+          #:got (json-ref (answer-to (cdr result) 2) "result")
+          #:name "and the next request was answered normally")))
+
     (test "a configuration the server was started with is what it answers with"
-      (let* ((result (session (list (open unclean))
+      (let* ((result (session (list (initialize-request 1) (open unclean))
                        #:arguments '("--severity=error")))
              (diagnostics (published (cdr result) buffer-uri)))
         (assert-equal #:expect 0 #:got (vector-length diagnostics)
