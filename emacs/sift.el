@@ -1,6 +1,8 @@
-;;; sift.el --- sift formatting, linting and Flymake integration  -*- lexical-binding: t; -*-
+;;; sift.el --- sift formatting, linting, Flymake and Eglot integration  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2025  Josep Bigorra
+;; SPDX-License-Identifier: MIT
+
+;; Copyright (C) 2025, 2026  Josep Bigorra
 
 ;; Author: Josep Bigorra <jjbigorra@gmail.com>
 ;; Version: 0.4.0
@@ -9,6 +11,9 @@
 ;; URL: https://github.com/jjba23/sift
 
 ;; This file is not part of GNU Emacs.
+
+;; License: MIT.  See the LICENSE file in the repository, or
+;; <https://opensource.org/license/mit>.
 
 ;;; Commentary:
 

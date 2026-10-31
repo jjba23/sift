@@ -1,6 +1,6 @@
 # sift --- the reusable workflow
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 #
 # A repository that wants sift in its pipeline writes one file:
 #

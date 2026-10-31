@@ -1,6 +1,6 @@
 ;; sift --- checker: declare-indent
 ;;
-;; SPDX-License-Identifier: GPL-3.0-or-later
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 ;;

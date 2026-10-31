@@ -2,7 +2,7 @@
 # sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
 # Common Lisp.
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 #
 # The launcher is a shell script rather than a `#!guile' script because a
 # shebang cannot portably add a load path, and sift's sources live in src/

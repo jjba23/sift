@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 #+title: sift
 #+subtitle: a formatter and linter for Scheme, Emacs Lisp and Common Lisp
 #+author: Josep Bigorra
@@ -733,5 +735,6 @@ thresholds are settings.
 :CUSTOM_ID: license
 :END:
 
-sift is free software under the GNU General Public License, version 3 or
-later.  See [[file:LICENSE][LICENSE]].
+sift is free software under the MIT license.  See [[file:LICENSE][LICENSE]]: it
+is a short, permissive license, and a formatter belongs in as many pipelines as
+possible without a copyright question in the way.

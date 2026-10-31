@@ -1,7 +1,7 @@
 ;; sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
 ;; Common Lisp.
 ;;
-;; SPDX-License-Identifier: GPL-3.0-or-later
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 ;;
@@ -115,6 +115,6 @@ losing a byte: it reads every comment, blank line and reader prefix into a
 node of its own, so formatting is reversible and idempotent, and its
 checkers are documented, independently testable and aware of which dialect
 they are looking at.")
-    (license license:gpl3+)))
+    (license license:expat)))
 
 sift

@@ -1,6 +1,6 @@
 ;; sift --- checker: quasiquote-unquote-constant
 ;;
-;; SPDX-License-Identifier: GPL-3.0-or-later
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 ;;

@@ -1,7 +1,7 @@
 # sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
 # Common Lisp.
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 #
 # A derivation for sift, written once and called from wherever it is needed:
 #
@@ -95,7 +95,7 @@ stdenv.mkDerivation {
       are looking at.
     '';
     homepage = "https://github.com/jjba23/sift";
-    license = lib.licenses.gpl3Plus;
+    license = lib.licenses.mit;
     mainProgram = "sift";
     platforms = lib.platforms.unix;
   };

@@ -1,6 +1,6 @@
 ;; sift --- checker: if-without-else
 ;;
-;; SPDX-License-Identifier: GPL-3.0-or-later
+;; SPDX-License-Identifier: MIT
 
 ;;; Commentary:
 ;;

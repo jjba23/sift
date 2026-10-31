@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # sift's own configuration.
 #
 # The project formats and lints itself, and this is the file that says how:

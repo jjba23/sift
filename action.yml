@@ -1,6 +1,6 @@
 # sift --- the GitHub action
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 #
 # One step that asks sift's two questions about a tree and leaves behind both
 # of the answers a pull request wants: annotations on the lines that were

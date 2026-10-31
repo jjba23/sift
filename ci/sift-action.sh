@@ -1,7 +1,7 @@
 #!/bin/sh
 # sift --- the command behind the GitHub action
 #
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 #
 # This file is the whole action.  `action.yml' is a wrapper that turns a step's
 # inputs into the environment variables below, and this script is what runs:

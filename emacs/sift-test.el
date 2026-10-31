@@ -1,6 +1,8 @@
 ;;; sift-test.el --- tests for the sift Emacs package  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2025  Josep Bigorra
+;; SPDX-License-Identifier: MIT
+
+;; Copyright (C) 2025, 2026  Josep Bigorra
 
 ;;; Commentary:
 

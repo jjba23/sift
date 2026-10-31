@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 #+title: sift — the style it enforces, and why
 #+author: Josep Bigorra
 #+options: toc:2 num:nil

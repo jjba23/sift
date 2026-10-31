@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: MIT
+
 #+title: sift in editors and pipelines
 #+author: Josep Bigorra
 #+options: toc:2 num:nil
