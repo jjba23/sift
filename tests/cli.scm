@@ -307,6 +307,36 @@ has exactly one of, which is a question `assert-contains' cannot ask."
                 (assert-contains #:expect (cadr result) #:got "real.scm"
                   #:name "the file that could be read was read"))))
 
+         (test "fix refuses a file that does not parse, and says why"
+           (with-temp-directory
+              (lambda (directory)
+                (let ((path (string-append directory "/broken.scm"))
+                      (before "(define (f x)\n  (a b\n"))
+                  (spit path before)
+                  (let ((result (run-sift (list "fix" path))))
+                    (assert-status #:expect 2 #:got result)
+                    (assert-contains #:expect (caddr result) #:got "parse error")
+                    (assert-same-text #:expect before #:got (slurp path)
+                      #:name "the file is left exactly as it was"))))))
+
+         (test "fix --force fixes what it can read"
+           (with-temp-directory
+              (lambda (directory)
+                (let ((path (string-append directory "/broken.scm")))
+                  (spit path "(define (f x)   \n  (a b\n")
+                  (let ((result (run-sift (list "fix" "--force" path))))
+                    (assert-status #:expect 1 #:got result)
+                    (assert-contains #:expect (slurp path)
+                      #:got "(define (f x)\n"
+                      #:name "the trailing whitespace is gone"))))))
+
+         (test "fix --stdin refuses a buffer that does not parse"
+           (let ((result (run-sift '("fix" "--stdin" "--dialect=scheme")
+                           #:stdin "(define (f x)\n  (a b\n")))
+             (assert-status #:expect 2 #:got result)
+             (assert-same-text #:expect "" #:got (cadr result)
+               #:name "no text is written to standard output")))
+
          (test "lint --format=github writes workflow commands"
            (let* ((result (run-sift '("lint" "--format=github"
                                       "tests/fixtures/lint/dirty.scm")))

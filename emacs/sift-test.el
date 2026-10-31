@@ -93,12 +93,17 @@
     (should (equal "(a)\n(b c)\n" (buffer-string)))))
 
 (ert-deftest sift-test-format-broken-source-says-why ()
-  "A buffer sift cannot read is left alone, and the reason is reported."
+  "A buffer sift cannot read is left alone, and the reason is reported.
+
+The reason is a `user-error' rather than a message in the echo area: a
+formatter that quietly does nothing teaches people to believe it worked."
   (sift-test--with-buffer 'scheme-mode "(define (f x)\n  (a b\n"
-    (let ((before (buffer-string)))
-      (cl-letf (((symbol-function 'message) #'ignore))
-        (sift-format-buffer))
-      (should (equal before (buffer-string))))))
+    (let ((before (buffer-string))
+          (message-text nil))
+      (cl-letf (((symbol-function 'message) (lambda (format &rest args)
+                                              (setq message-text (apply #'format format args)))))
+        (should-error (sift-format-buffer))
+        (should (equal before (buffer-string)))))))
 
 (ert-deftest sift-test-check-buffer ()
   "Checking does not change the buffer."
@@ -162,6 +167,37 @@
       (should (not (eq :panic (car reported))))
       (should (= 1 (length reported)))
       (should (equal "SIFT012" (sift-diagnostic-code (car reported)))))))
+
+(ert-deftest sift-test-flymake-backend-reports-a-parse-error ()
+  "A buffer that does not parse has diagnostics, not silence.
+
+A half-written form is the normal state of a buffer being typed, and a backend
+that answers with nothing while the file is broken teaches people to ignore
+it."
+  (sift-test--with-buffer 'scheme-mode "(define (f x)\n  (if (ready?)\n"
+    (let ((reported 'done))
+      (sift-flymake (lambda (diagnostics &rest _) (setq reported diagnostics)))
+      (with-timeout (10 (ert-fail "sift did not answer"))
+        (while (eq reported 'done)
+          (accept-process-output nil 0.1)))
+      (should (not (eq :panic (car reported))))
+      (should (> (length reported) 0))
+      (should (equal :error (flymake-diagnostic-type (car reported))))
+      (should (stringp (sift-diagnostic-code (car reported)))))))
+
+(ert-deftest sift-test-format-buffer-refuses-a-parse-error ()
+  "A buffer that does not parse is left alone, and says why."
+  (sift-test--with-buffer 'scheme-mode "(define (f x)\n  (if (ready?)\n"
+    (let ((before (buffer-string)))
+      (should-error (sift-format-buffer))
+      (should (equal before (buffer-string))))))
+
+(ert-deftest sift-test-fix-buffer-refuses-a-parse-error ()
+  "Fixing a buffer that does not parse is refused rather than guessed at."
+  (sift-test--with-buffer 'scheme-mode "(define (f x)\n  (if (ready?)\n"
+    (let ((before (buffer-string)))
+      (should-error (sift-fix-buffer))
+      (should (equal before (buffer-string))))))
 
 (ert-deftest sift-test-flymake-backend-unknown-mode ()
   "In a mode with no dialect the backend disables itself with a reason."

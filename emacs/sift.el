@@ -246,7 +246,12 @@ on a large file."
 ;;; Formatting
 
 (defun sift--format-string (text)
-  "Return TEXT formatted with sift, or nil if it could not be."
+  "Return TEXT formatted with sift.
+
+A run sift could not finish -- a buffer with a parse error, a dialect it does
+not know, an executable that is not there -- is a `user-error' with the
+reason, never nil: a formatter that silently does nothing teaches people to
+believe it worked."
   (let* ((dialect (sift--require-dialect))
          (result (sift--run
                     (append (list "format" "--stdin" "--stdout"
@@ -254,9 +259,7 @@ on a large file."
                               (concat "--dialect=" dialect)))
                     text)))
     (if (sift--failure result)
-      (progn
-        (message "sift: %s" (sift--failure result))
-        nil)
+      (user-error "sift: %s" (sift--failure result))
       (plist-get result :stdout))))
 
 (defun sift-format-buffer ()
@@ -269,7 +272,6 @@ kept where it was, unless the formatting changed the text before it."
   (let ((formatted (sift--format-string
                       (buffer-substring-no-properties (point-min) (point-max)))))
     (cond
-      ((null formatted) nil)
       ((string= formatted (buffer-substring-no-properties
                              (point-min) (point-max)))
        (message "sift: already formatted"))
@@ -292,7 +294,6 @@ the buffer is left alone."
   (let* ((text (buffer-substring-no-properties beg end))
          (formatted (sift--format-string text)))
     (cond
-      ((null formatted) nil)
       ((string= formatted text) (message "sift: already formatted"))
       (t
          (atomic-change-group
@@ -304,7 +305,10 @@ the buffer is left alone."
 ;;; Fixing
 
 (defun sift--fix-string (text &optional checkers)
-  "Return TEXT with sift's fixes applied, or nil.
+  "Return TEXT with sift's fixes applied, or TEXT itself when there are none.
+
+A run sift could not finish is a `user-error', for the reason `sift--format-string'
+gives: saying nothing to fix about a file that does not parse is a lie.
 
 CHECKERS, when given, restricts the fixes to those rules, which is what
 makes a per-diagnostic code action possible."
@@ -318,9 +322,7 @@ makes a per-diagnostic code action possible."
                         checkers))
                     text)))
     (if (sift--failure result)
-      (progn
-        (message "sift: %s" (sift--failure result))
-        nil)
+      (user-error "sift: %s" (sift--failure result))
       (plist-get result :stdout))))
 
 (defun sift--replace-buffer (text what)
@@ -341,7 +343,6 @@ of one rule only."
   (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
          (fixed (sift--fix-string source)))
     (cond
-      ((null fixed) nil)
       ((string= fixed source) (message "sift: nothing to fix"))
       (t (sift--replace-buffer fixed "fixed")))))
 

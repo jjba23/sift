@@ -444,6 +444,22 @@ rather than guesses, and says which dialects it knows."
                       (eq? (lint-warning-severity warning) 'error)))
             warnings)))
 
+(define (error-findings warnings)
+  "Return the findings that say the file is not a program.
+
+An error is either the reader saying it could not finish the file or a rule
+saying the parentheses do not pair up: both mean the spans a fix would rewrite
+are not to be trusted."
+  (filter (lambda (warning)
+            (eq? (lint-warning-severity warning) 'error))
+    warnings))
+
+(define (print-error-findings warnings)
+  "Write every finding of @var{warnings} that is an error, one per line."
+  (for-each (lambda (warning)
+              (format (current-error-port) "~a~%" (lint-warning->string warning)))
+    (error-findings warnings)))
+
 (define (print-parse-errors warnings)
   (for-each (lambda (warning)
               (format (current-error-port) "~a~%"
@@ -828,22 +844,27 @@ makes `ci --format=sarif' one document that holds both answers."
              (source (get-string-all (current-input-port))))
         (call-with-values (lambda () (lint-text config source #:path label))
           (lambda (warnings dialect status)
-            (if fix?
+            (cond
+              ;; A buffer that is not a program is left alone: the refusal has
+              ;; been explained on stderr, and the status is the answer.
+              [(and fix? (fix-refused config label warnings)) 2]
               ;; `--fix' with `--stdin' has nowhere to write but stdout: the
               ;; fixed text goes there, and what is left is reported on stderr
               ;; so that an editor can take the buffer and a human can still
               ;; read the reason.
-              (let* ((fixed (apply-fixes source warnings))
-                     (remaining (call-with-values
-                                  (lambda () (lint-text config fixed #:path label))
-                                  (lambda (left dialect status) left))))
-                (display fixed (current-output-port))
-                (render-warnings remaining #:format (config-ref config 'format)
-                  #:quiet #t #:port (current-error-port))
-                (if (findings? remaining) 1 0))
-              (begin
-                (report-warnings config warnings #:files 1)
-                (max status (if (findings? warnings) 1 0)))))))
+              [fix?
+                 (let* ((fixed (apply-fixes source warnings))
+                        (remaining (call-with-values
+                                     (lambda ()
+                                       (lint-text config fixed #:path label))
+                                     (lambda (left dialect status) left))))
+                   (display fixed (current-output-port))
+                   (render-warnings remaining #:format (config-ref config 'format)
+                     #:quiet #t #:port (current-error-port))
+                   (if (findings? remaining) 1 0))]
+              [else
+                 (report-warnings config warnings #:files 1)
+                 (max status (if (findings? warnings) 1 0))]))))
       ;; the status of the *run* is the worst status any file produced, so
       ;; the accumulator is what carries it from one file to the next
       (fold (lambda (path run-status)
@@ -867,24 +888,50 @@ makes `ci --format=sarif' one document that holds both answers."
         0
         files))))
 
+(define (fix-refused config path warnings)
+  "Return @code{#t} when @var{warnings} say @var{path} is not a program.
+
+The refusal is printed here, once, so that both the file path and the standard
+input path answer the same way: a file the reader could not finish is a file
+whose spans are not to be trusted, and a fixer that rewrites around a missing
+parenthesis is guessing at where it goes.  `--force' is how a caller that
+knows better says so."
+  (if (and (not (config-ref config 'force))
+        (pair? (error-findings warnings)))
+    (begin
+      (print-error-findings warnings)
+      (format (current-error-port)
+        "sift: ~a has parse errors; nothing was written (see --force)~%"
+        (or path "<stdin>"))
+      #t)
+    #f))
+
 (define* (lint-with-fixes config path source warnings)
   "Apply the fixes in @var{warnings} to @var{source}, then lint once more.
 
 A second pass is the whole of the fix loop: after applying the fixes, what
 is left is reported, and sift does not try again.  A fixer that keeps
-finding work is a bug, not a queue."
-  (let* ((fixed (apply-fixes source warnings))
-         (changed? (not (string=? fixed source))))
-    (when changed?
-      (write-string-to path fixed)
-      (emit-verbose config "applied fixes to ~a" path))
-    (call-with-values (lambda () (lint-text config fixed #:path path))
-      (lambda (remaining dialect status)
-        (report-warnings config remaining #:files 1)
-        ;; A run that fixed everything it found is a clean run: what is left
-        ;; is what the exit status talks about, so `lint --fix' can sit at the
-        ;; head of a pipeline without failing it.
-        (if (findings? remaining) 1 0)))))
+finding work is a bug, not a queue.
+
+A file the reader could not finish is a file whose spans are not to be
+trusted: the fix refuses with the status 2 that `format' refuses with, unless
+`--force' says otherwise.  A half-written buffer is a normal thing to have in
+an editor, and a fixer that rewrites around a missing parenthesis is guessing
+at where it goes -- which is the one thing sift does not do."
+  (if (fix-refused config path warnings)
+    2
+    (let* ((fixed (apply-fixes source warnings))
+           (changed? (not (string=? fixed source))))
+      (when changed?
+        (write-string-to path fixed)
+        (emit-verbose config "applied fixes to ~a" path))
+      (call-with-values (lambda () (lint-text config fixed #:path path))
+        (lambda (remaining dialect status)
+          (report-warnings config remaining #:files 1)
+          ;; A run that fixed everything it found is a clean run: what is left
+          ;; is what the exit status talks about, so `lint --fix' can sit at the
+          ;; head of a pipeline without failing it.
+          (if (findings? remaining) 1 0))))))
 
 (define (command-lint args)
   (let* ((state (parse-options args))
