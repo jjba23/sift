@@ -337,7 +337,15 @@ cannot move when the list is re-sorted."
     (predicate-name . "SIFT041")
     (special-variable-name . "SIFT042")
     (unused-argument . "SIFT043")
-    (nesting-depth . "SIFT044")))
+    (nesting-depth . "SIFT044")
+    ;; the rules about a form that says more than it does
+    (eta-reduction . "SIFT045")
+    (beta-reduction . "SIFT046")
+    (composition . "SIFT047")
+    (let-simplification . "SIFT048")
+    ;; the shape of an SXML document
+    (sxml-attributes . "SIFT049")
+    (sxml-child . "SIFT050")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

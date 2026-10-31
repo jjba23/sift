@@ -11,14 +11,16 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 44 rules in sift 0.4.0.
+There are 50 rules in sift 0.4.0.
 
 * Summary
 
 | Name | Code | Dialects | Severity | What it says |
 |------+------+----------+----------+--------------|
+| beta-reduction | SIFT046 | scheme, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
 | clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
+| composition | SIFT047 | scheme | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
 | defun-no-docstring | SIFT028 | cl | info | ~defun~, ~defmacro~ or ~defgeneric~ without a docstring |
@@ -33,10 +35,12 @@ There are 44 rules in sift 0.4.0.
 | duplicate-keyword | SIFT009 | all | warning | A keyword argument given more than once in the same call |
 | empty-body | SIFT005 | all | warning | A ~cond~, ~let~ or ~lambda~ form with no body |
 | empty-form | SIFT008 | scheme | warning | ~()~ used where a value is expected |
+| eta-reduction | SIFT045 | scheme | info | A lambda that only passes its argument on, where the procedure itself would do |
 | if-without-else | SIFT012 | scheme | warning | ~if~ with no else branch, where ~when~ expresses the intent |
 | interactive-without-docstring | SIFT021 | elisp | warning | An ~interactive~ command without a docstring |
 | internal-define | SIFT011 | scheme | warning | ~define~ inside a procedure body, after the first expression |
 | keyword-arguments | SIFT032 | all | info | A call with more positional arguments than a reader can keep in mind |
+| let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
 | letrec-single-binding | SIFT015 | scheme | info | ~letrec~ with a single binding that does not need recursive scope |
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
 | line-length | SIFT003 | all | warning | Line exceeds the configured soft limit |
@@ -52,6 +56,8 @@ There are 44 rules in sift 0.4.0.
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
 | special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
+| sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
+| sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
 | tabs | SIFT002 | all | warning | Tab characters used for indentation |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
@@ -63,6 +69,26 @@ There are 44 rules in sift 0.4.0.
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
 
 * The rules, one by one
+
+** SIFT046 beta-reduction
+:PROPERTIES:
+:CUSTOM_ID: beta-reduction
+:END:
+
+A lambda applied in place, where a ~let~ would say the same thing once
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* (let ((x (g))) (f x))
+
+#+begin_src scheme
+((lambda (x) (f x)) (g))
+#+end_src
+
+#+begin_quote
+Run ~sift explain beta-reduction~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
 
 ** SIFT022 checkdoc-style-verb
 :PROPERTIES:
@@ -105,6 +131,26 @@ A ~cond~ or ~case~ clause written with the other kind of bracket
 
 #+begin_quote
 Run ~sift explain clause-brackets~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT047 composition
+:PROPERTIES:
+:CUSTOM_ID: composition
+:END:
+
+A lambda whose body is one call around another, where ~compose~ names the pipeline
+
+- *Dialects:* scheme
+- *Severity:* info
+- *Fix:* (compose f g)
+
+#+begin_src scheme
+(lambda (x) (f (g x)))
+#+end_src
+
+#+begin_quote
+Run ~sift explain composition~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -404,6 +450,26 @@ Run ~sift explain empty-form~ at the command line, or ~M-x sift-explain-at-point
 #+end_quote
 
 
+** SIFT045 eta-reduction
+:PROPERTIES:
+:CUSTOM_ID: eta-reduction
+:END:
+
+A lambda that only passes its argument on, where the procedure itself would do
+
+- *Dialects:* scheme
+- *Severity:* info
+- *Fix:* f
+
+#+begin_src scheme
+(lambda (x) (f x))
+#+end_src
+
+#+begin_quote
+Run ~sift explain eta-reduction~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT012 if-without-else
 :PROPERTIES:
 :CUSTOM_ID: if-without-else
@@ -485,6 +551,26 @@ A call with more positional arguments than a reader can keep in mind
 
 #+begin_quote
 Run ~sift explain keyword-arguments~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT048 let-simplification
+:PROPERTIES:
+:CUSTOM_ID: let-simplification
+:END:
+
+A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* (f)
+
+#+begin_src scheme
+(let ((x (f))) x)
+#+end_src
+
+#+begin_quote
+Run ~sift explain let-simplification~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -792,6 +878,46 @@ A special variable or constant whose name does not say so
 
 #+begin_quote
 Run ~sift explain special-variable-name~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT049 sxml-attributes
+:PROPERTIES:
+:CUSTOM_ID: sxml-attributes
+:END:
+
+An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* no automatic fix; markup is moved by the author, not by a formatter
+
+#+begin_src scheme
+(div (p "a") (@ (class "x")))
+#+end_src
+
+#+begin_quote
+Run ~sift explain sxml-attributes~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT050 sxml-child
+:PROPERTIES:
+:CUSTOM_ID: sxml-child
+:END:
+
+A child of an element that is a list of children rather than a child
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* no automatic fix; the missing element name is the author's to supply
+
+#+begin_src scheme
+(ul (((@ (class "x"))) (li "a")))
+#+end_src
+
+#+begin_quote
+Run ~sift explain sxml-child~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

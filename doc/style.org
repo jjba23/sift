@@ -491,6 +491,79 @@ world's `loop` forms is a rule that gets switched off.  Set
 *SIFT030*: `identity` in value position is a no-op, and `(funcall #'foo x)`
 is `(foo x)`.
 
+** The same meaning in fewer parentheses
+
+:PROPERTIES:
+:CUSTOM_ID: simplification
+:END:
+
+#+begin_src scheme
+(lambda (x) (f x))            ; SIFT045: this is `f'
+f
+
+((lambda (x) (f x)) (g))      ; SIFT046: this is a `let'
+(let ((x (g))) (f x))
+
+(lambda (x) (f (g x)))        ; SIFT047: this is a pipeline
+(compose f g)
+
+(let ((x (f))) x)             ; SIFT048: a binding that exists to be returned
+(f)
+#+end_src
+
+*Why?*  A Lisp rewards saying the same thing in fewer parentheses, and these
+four shapes are not a matter of taste: each of them *is* the shorter form.  A
+lambda that passes its argument straight on is the procedure; a lambda applied
+where it is written is a `let`; a lambda whose body is one call around another
+is a composition; a `let` that binds a name to return it is its value, and a
+`let` with no bindings is its body.
+
+The rules are the shape, not the style, and every condition that would make
+the rewrite wrong is checked first: one plain formal, exactly that formal
+passed, an operator that is a procedure rather than a special form or a macro,
+no rest argument, no keywords.  `(lambda (x) (if x))` is not reported because
+`if` is not a value, and `(lambda (x) (f x y))` is not reported because the
+call says something the lambda does not.  SIFT045 and SIFT047 are Scheme only:
+`(lambda (x) (f x))` is not a function designator in Common Lisp, and `compose`
+is Guile's.
+
+All four have fixes, because each one is a syntactic equivalence and nothing
+has to be named.  A fix sift cannot state that confidently is not a fix.
+
+** SXML is markup, and markup has rules
+
+:PROPERTIES:
+:CUSTOM_ID: sxml
+:END:
+
+#+begin_src scheme
+(div (p "a") (@ (class "x")))              ; SIFT049: attributes come first
+(div (@ (class "x")) (p "a"))
+
+(div (@) (p "a"))                          ; SIFT049: and there is one of them
+(div (p "a"))
+
+(ul (@ (id "x")) ((li "a") (li "b")))      ; SIFT050: a child is a child
+(ul (@ (id "x")) (li "a") (li "b"))
+#+end_src
+
+*Why?*  SXML is Lisp used as markup — `(element (@ (attribute "value")) child
+...)` — and a formatter does not need to know that: an element is a list, and
+the attribute list, being the first argument, lines up under itself the way
+every call does.  A linter can say the two things the shape itself cannot: the
+attribute list belongs first and there is one of it, and a child is an element,
+a string or a number rather than a list of them.
+
+What makes these two rules safe to ship is the test for "is this markup": the
+attribute list itself.  A list whose head is a symbol and that holds an
+`(@ ...)` child is an element, and nothing else is judged.  `(f "a" "b")` in
+ordinary code is a call with two strings, and SXML has no opinion about it.
+
+Neither rule has a fix.  Moving an attribute list is a rearrangement of
+markup, and the missing element name in `((li "a") (li "b"))` is the author's
+to supply — a formatter that invented `div` there would be guessing at the
+document.
+
 ** Three rules about shape
 
 *SIFT008* (`empty-form`) exists because `()` reads as "the empty list" and

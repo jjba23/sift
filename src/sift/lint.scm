@@ -33,6 +33,8 @@
   #:use-module (sift checkers cl)
   #:use-module (sift checkers ergonomics)
   #:use-module (sift checkers naming)
+  #:use-module (sift checkers simplify)
+  #:use-module (sift checkers sxml)
   #:export (all-checkers
               find-checker
               checkers-for-dialect
@@ -62,7 +64,9 @@ other report over the whole set cannot drift from the set itself."
           elisp-checkers
           cl-checkers
           ergonomics-checkers
-          naming-checkers)
+          naming-checkers
+          simplify-checkers
+          sxml-checkers)
     (lambda (a b)
       (string<? (symbol->string (lint-checker-name a))
         (symbol->string (lint-checker-name b))))))
