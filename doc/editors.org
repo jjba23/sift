@@ -46,64 +46,124 @@ If you would rather not load the package, =compile= is enough:
 (setq compile-command "sift ci .")
 #+end_src
 
+* Emacs, with Eglot
+:PROPERTIES:
+:CUSTOM_ID: eglot
+:END:
+
+sift speaks the Language Server Protocol, so Eglot can talk to it: ~sift lsp~
+is a server on standard input and output that reports the findings, answers
+`textDocument/codeAction' with sift's own fixes, and formats the buffer.  That
+is the integration with *code actions* — `M-x eglot-code-actions' offers the
+same edits `sift fix' applies.
+
+#+begin_src elisp
+(add-to-list 'load-path "/path/to/sift/emacs")
+(require 'sift)
+(sift-eglot-setup)
+#+end_src
+
+`sift-eglot-setup` teaches `eglot-server-programs' about the three Lisp modes,
+turns `sift-mode` on for its keymap and its format-on-save hook, and keeps the
+Flymake backend out of the way: two backends would report every finding twice.
+
+| In an Eglot buffer     | What it does                                            |
+|------------------------+---------------------------------------------------------|
+| =M-x eglot-code-actions= or =C-c s A= | offer the fixes that apply here             |
+| =M-x eglot-format=     | format the buffer through the server                    |
+| =C-d= on a finding     | Eglot's own key: the rule's description, and its page   |
+| =C-c s f=              | format with the command instead, if you prefer          |
+
+The server is `sift lsp` by default.  If the program is not on your ~PATH~,
+`sift-executable` and `sift-eglot-command` say where it is; `sift-eglot-contact`
+is what Eglot calls, and it says so plainly when the program is missing.
+
+Without Eglot, the package's Flymake backend is the integration and needs
+nothing installed:
+
+#+begin_src elisp
+(require 'sift)
+(sift-setup)
+(sift-flymake-setup)
+#+end_src
+
+and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
+x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
+whole-project check.
+
+If you would rather not load the package, =compile= is enough:
+
+#+begin_src elisp
+(setq compile-command "sift ci .")
+#+end_src
+
 * Neovim
 :PROPERTIES:
 :CUSTOM_ID: neovim
 :END:
 
-The human format is what =:make= and =:compiler= parse, so the simplest
-integration is a compiler definition and a format-on-write autocommand:
+Neovim speaks the same protocol as Eglot, so the integration is a `vim.lsp`
+configuration and no plugin at all.  [[file:../editors/vim/neovim.lua][~editors/vim/neovim.lua~]] is a complete
+one: copy it, or require it from `init.lua`.
 
 #+begin_src lua
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "scheme", "lisp", "clojure" },
-  callback = function(args)
-    vim.bo[args.buf].makeprg = "sift lint --severity=warning %"
-    vim.bo[args.buf].errorformat = "%f:%l:%c: %t%*[^:]: [%n] %m"
+vim.lsp.start({
+  name = "sift",
+  cmd = { "sift", "lsp" },
+  root_dir = vim.fs.dirname(vim.fs.find({ "sift.yaml", ".git" }, { upward = true })[1]),
+  on_attach = function(_, bufnr)
+    vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, { buffer = bufnr })
+    vim.keymap.set("n", "<leader>cf", function() vim.lsp.buf.format() end, { buffer = bufnr })
   end,
 })
 #+end_src
 
-=:make= then fills the quickfix list, and =:cnext= jumps between findings.
-For formatting on save, format through stdin so the buffer keeps its undo
-history:
+The root directory is what makes one server answer for a whole project: the
+same configuration, the same rules, and one process instead of one per file.
 
-#+begin_src lua
-vim.api.nvim_create_autocmd("BufWritePre", {
-  pattern = { "*.scm", "*.el", "*.lisp", "*.cl" },
-  callback = function()
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    local formatted = vim.fn.systemlist("sift format --stdin --stdout", lines)
-    if vim.v.shell_error == 0 then
-      vim.api.nvim_buf_set_lines(0, 0, -1, false, formatted)
-    end
-  end,
-})
-#+end_src
-
-Editors that would rather talk LSP-style JSON than parse a line can read
-=--format=json= and map =severity= onto their own diagnostic levels:
-
-#+begin_src json
-[{"file":"src/foo.scm","line":12,"column":5,"checker":"empty-body",
-  "code":"SIFT005","severity":"warning","message":"`cond` clause has no body"}]
-#+end_src
-
-* Helix
+* Vim
 :PROPERTIES:
-:CUSTOM_ID: helix
+:CUSTOM_ID: vim
 :END:
 
-Helix speaks LSP, so it cannot call sift directly; what works is formatting on
-save through a small wrapper that reads the buffer on stdin, and keeping the
-linter in a terminal or in the pipeline:
+Vim has no language client of its own, so the plugin in
+[[file:../editors/vim][~editors/vim/~]] calls the program.  Copy the directory into `~/.vim`, or point a
+plugin manager at it, and the commands appear in the Lisp filetypes:
 
-#+begin_src toml
-# languages.toml
-[[language]]
-name = "scheme"
-formatter = { command = "sift", args = ["format", "--stdin", "--stdout", "--dialect", "scheme"] }
-auto-format = true
+| Command       | What it does                                                  |
+|---------------+---------------------------------------------------------------|
+| ~:SiftLint~   | fill the quickfix list with the findings, typed and coded      |
+| ~:SiftFormat~ | format the buffer, keeping the cursor where it was             |
+| ~:SiftFix~    | apply every fix, then lint again                               |
+| ~:SiftExplain~ | print what the rule on this line wants                        |
+
+The quickfix list is built from ~--format=json=, so an entry says which rule
+fired (`SIFT012`), which checker it is, and what it wants; `:cnext` walks them
+and `:SiftExplain` reads the rule's page for the one under the cursor.
+
+For `:make` instead, the compiler plugin is `:compiler sift`:
+
+#+begin_src vim
+:compiler sift
+:make
+#+end_src
+
+which runs `sift ci` over the current file: both questions, one list.  Set
+`b:sift_makeprg` to `check` or `lint` before `:make` to ask only one of them.
+
+Vim projects that already have an LSP client plugin — `vim-lsp`, `coc.nvim`,
+`ALE` — can point it at `sift lsp` instead, and get the same server Neovim
+gets:
+
+#+begin_src vim
+" vim-lsp
+if executable('sift')
+  au User lsp_setup call lsp#register_server({
+        \ 'name': 'sift',
+        \ 'cmd': {server_info -> ['sift', 'lsp']},
+        \ 'whitelist': ['scheme', 'scheme.guile', 'elisp', 'lisp'],
+        \ })
+endif
 #+end_src
 
 * Visual Studio Code
@@ -111,20 +171,35 @@ auto-format = true
 :CUSTOM_ID: vscode
 :END:
 
-The =sift= extension for VS Code reads =--format=json= as a diagnostics array;
-the settings are the executable and an optional dialect override:
+The extension in [[file:../editors/vscode][~editors/vscode/~]] is a pipe and nothing else: diagnostics come
+from ~sift lint --format=json~, quickfixes from ~sift fix~ for the rule that
+fired, and formatting from ~sift format~.  It has no dependencies and no build
+step, so packaging it is one command:
 
-#+begin_src json
-{
-  "sift.executable": "sift",
-  "sift.dialect": "",
-  "sift.checkOnSave": true,
-  "sift.fixOnSave": false
-}
+#+begin_src shell
+cd editors/vscode
+npx @vscode/vsce package     # writes sift-0.4.0.vsix
+code --install-extension sift-0.4.0.vsix
 #+end_src
 
-Any extension that reads a compiler line works with the human format instead;
-the =errorformat= is the same one Neovim uses.
+The settings:
+
+| Setting               | Default | Meaning                                                    |
+|-----------------------+---------+------------------------------------------------------------|
+| ~sift.executable~      | ~sift~  | the program; a bare name is looked up on the PATH          |
+| ~sift.severity~        | ~info~  | the lowest severity to report: error, warning or info      |
+| ~sift.dialect~         | ~auto~  | auto goes by the extension; or name scheme, elisp or cl    |
+| ~sift.lintOn~          | ~change~ | open, change or save                                      |
+| ~sift.formatOnSave~    | ~false~ | format before saving                                       |
+
+The commands are `sift: lint this file`, `sift: apply every fix in this file`,
+and `sift: explain the rule at the cursor`.  A quickfix appears on a finding,
+and it runs `sift fix --checker=<rule>` so that it fixes *that* rule and not
+every rule at once; the edit it applies is the smallest range that differs.
+
+A project that would rather not install an extension can point any generic
+language client extension at `sift lsp`, and get the server the other two
+editors get.
 
 * Git hooks
 :PROPERTIES:

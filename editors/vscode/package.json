@@ -1,0 +1,99 @@
+{
+  "name": "sift",
+  "displayName": "sift",
+  "description": "Formatting, linting and quickfixes for Scheme, Emacs Lisp and Common Lisp, from the sift executable.",
+  "version": "0.4.0",
+  "publisher": "jjba23",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Linters",
+    "Formatters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "scheme",
+    "guile",
+    "lisp",
+    "emacs lisp",
+    "common lisp",
+    "formatter",
+    "linter"
+  ],
+  "homepage": "https://github.com/jjba23/sift",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jjba23/sift.git"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "sift",
+      "properties": {
+        "sift.executable": {
+          "type": "string",
+          "default": "sift",
+          "description": "The sift program to run. An absolute path is used as it is; a bare name is looked up on the PATH."
+        },
+        "sift.severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "default": "info",
+          "description": "The lowest severity to report."
+        },
+        "sift.dialect": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "scheme",
+            "elisp",
+            "cl"
+          ],
+          "default": "auto",
+          "description": "The dialect to read a buffer as. `auto' goes by the file extension and then by the file's own first line."
+        },
+        "sift.lintOn": {
+          "type": "string",
+          "enum": [
+            "open",
+            "change",
+            "save"
+          ],
+          "default": "change",
+          "description": "When to lint. `change' lints a second after typing stops; `save' only when the file is written."
+        },
+        "sift.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Format before saving. sift never writes a file it was not asked to write, and this is the asking."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "sift.lint",
+        "title": "sift: lint this file"
+      },
+      {
+        "command": "sift.fix",
+        "title": "sift: apply every fix in this file"
+      },
+      {
+        "command": "sift.explain",
+        "title": "sift: explain the rule at the cursor"
+      }
+    ]
+  },
+  "scripts": {
+    "package": "vsce package"
+  }
+}

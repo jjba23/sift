@@ -70,6 +70,12 @@
 (require 'compile)
 (require 'subr-x)
 
+;; Eglot is loaded by the user, not by this package: the Flymake backend is the
+;; integration with no dependencies, and Eglot is the one with code actions.
+(declare-function eglot-code-actions "eglot" (&optional arg))
+(declare-function eglot-current-server "eglot" (&optional buffer))
+(defvar eglot-server-programs)
+
 (defgroup sift nil
   "Formatting and linting for Scheme, Emacs Lisp and Common Lisp."
   :group 'languages
@@ -88,13 +94,13 @@ The value is one of \"scheme\", \"elisp\" or \"cl\".  Leave it nil unless
 you edit a Lisp in a mode this package does not know: the project's own
 `sift.yaml' is the right place for a project-wide setting."
   :type '(choice (const :tag "From the major mode" nil)
-                 (const "scheme") (const "elisp") (const "cl"))
+           (const "scheme") (const "elisp") (const "cl"))
   :group 'sift)
 
 (defcustom sift-format-style nil
   "Formatting style to ask for, or nil to let sift decide."
   :type '(choice (const :tag "Default" nil)
-                 (const "community") (const "dangling"))
+           (const "community") (const "dangling"))
   :group 'sift)
 
 (defcustom sift-comment-align nil
@@ -128,10 +134,21 @@ you edit a Lisp in a mode this package does not know: the project's own
 
 ;;; Running sift
 
+(defun sift--add-mode-hook (mode function)
+  "Add FUNCTION to MODE's hook, defining the hook when it does not exist yet.
+
+A mode that has not been loaded has no hook variable, and `add-hook' signals
+on a variable that is not bound: setting it to nil first is what lets an init
+file call `sift-setup' before Scheme or Lisp mode has ever been opened."
+  (let ((hook (intern (format "%s-hook" mode))))
+    (unless (boundp hook)
+      (set-default hook nil))
+    (add-hook hook function)))
+
 (defun sift--dialect ()
   "Return the dialect of the current buffer, as a string, or nil."
   (or sift-dialect
-      (cdr (assq major-mode sift--mode-dialects))))
+    (cdr (assq major-mode sift--mode-dialects))))
 
 (defun sift--require-dialect ()
   "Return the dialect of the buffer, or signal a user error.
@@ -139,7 +156,7 @@ you edit a Lisp in a mode this package does not know: the project's own
 sift cannot read a Lisp without being told which Lisp it is, and guessing
 from the text is exactly what its `--dialect' option exists to avoid."
   (or (sift--dialect)
-      (user-error "sift: no dialect for `%s'; set `sift-dialect'" major-mode)))
+    (user-error "sift: no dialect for `%s'; set `sift-dialect'" major-mode)))
 
 (defun sift--label ()
   "Return the name sift should use for the current buffer."
@@ -148,9 +165,9 @@ from the text is exactly what its `--dialect' option exists to avoid."
 (defun sift--options ()
   "Return the arguments every invocation shares."
   (append
-   (when sift-format-style (list (concat "--style=" sift-format-style)))
-   (when sift-comment-align (list "--comment-align"))
-   sift-extra-arguments))
+     (when sift-format-style (list (concat "--style=" sift-format-style)))
+     (when sift-comment-align (list "--comment-align"))
+     sift-extra-arguments))
 
 (defun sift--process-environment ()
   "Return the environment sift runs in."
@@ -166,14 +183,14 @@ are invisible, and not by Flymake."
     (when source (insert source))
     (let* ((error-file (make-temp-file "sift-stderr-"))
            (status
-            (apply #'call-process-region (point-min) (point-max)
-                   sift-executable
-                   ;; the buffer holds the input: empty it, and let sift's
-                   ;; output land in its place
-                   t
-                   (list t error-file)
-                   nil
-                   (append arguments (sift--options))))
+              (apply #'call-process-region (point-min) (point-max)
+                sift-executable
+                ;; the buffer holds the input: empty it, and let sift's
+                ;; output land in its place
+                t
+                (list t error-file)
+                nil
+                (append arguments (sift--options))))
            (stdout (buffer-string))
            (stderr (with-temp-buffer
                      (insert-file-contents error-file)
@@ -190,27 +207,27 @@ on a large file."
   (let* ((stdout-buffer (generate-new-buffer " *sift-stdout*"))
          (stderr-buffer (generate-new-buffer " *sift-stderr*"))
          (process-environment (append (sift--process-environment)
-                                      process-environment))
+                                process-environment))
          (process
-          (make-process
-           :name "sift"
-           :buffer stdout-buffer
-           :stderr stderr-buffer
-           :command (cons sift-executable
-                          (append arguments (sift--options)))
-           :coding 'utf-8-unix
-           :connection-type 'pipe
-           :noquery t
-           :sentinel
-           (lambda (proc _event)
-             (when (memq (process-status proc) '(exit signal))
-               (let ((status (process-exit-status proc))
-                     (stdout (with-current-buffer stdout-buffer (buffer-string)))
-                     (stderr (with-current-buffer stderr-buffer (buffer-string))))
-                 (kill-buffer stdout-buffer)
-                 (kill-buffer stderr-buffer)
-                 (funcall callback
-                          (list :status status :stdout stdout :stderr stderr))))))))
+            (make-process
+                          :name "sift"
+                          :buffer stdout-buffer
+                          :stderr stderr-buffer
+                          :command (cons sift-executable
+                                     (append arguments (sift--options)))
+                          :coding 'utf-8-unix
+                          :connection-type 'pipe
+                          :noquery t
+                          :sentinel
+                          (lambda (proc _event)
+                            (when (memq (process-status proc) '(exit signal))
+                              (let ((status (process-exit-status proc))
+                                    (stdout (with-current-buffer stdout-buffer (buffer-string)))
+                                    (stderr (with-current-buffer stderr-buffer (buffer-string))))
+                                (kill-buffer stdout-buffer)
+                                (kill-buffer stderr-buffer)
+                                (funcall callback
+                                  (list :status status :stdout stdout :stderr stderr))))))))
     (process-send-string process source)
     (process-send-eof process)
     process))
@@ -219,12 +236,12 @@ on a large file."
   "Return a message for a run that failed, or nil."
   (let ((status (plist-get result :status)))
     (cond
-     ((= status 0) nil)
-     ((= status 1) nil) ; findings, not a failure
-     ((= status 2)
-      (string-trim (plist-get result :stderr)))
-     (t (format "sift exited %s: %s" status
-                (string-trim (plist-get result :stderr)))))))
+      ((= status 0) nil)
+      ((= status 1) nil) ; findings, not a failure
+      ((= status 2)
+       (string-trim (plist-get result :stderr)))
+      (t (format "sift exited %s: %s" status
+           (string-trim (plist-get result :stderr)))))))
 
 ;;; Formatting
 
@@ -232,14 +249,14 @@ on a large file."
   "Return TEXT formatted with sift, or nil if it could not be."
   (let* ((dialect (sift--require-dialect))
          (result (sift--run
-                  (append (list "format" "--stdin" "--stdout"
-                                (concat "--label=" (sift--label))
-                                (concat "--dialect=" dialect)))
-                  text)))
+                    (append (list "format" "--stdin" "--stdout"
+                              (concat "--label=" (sift--label))
+                              (concat "--dialect=" dialect)))
+                    text)))
     (if (sift--failure result)
-        (progn
-          (message "sift: %s" (sift--failure result))
-          nil)
+      (progn
+        (message "sift: %s" (sift--failure result))
+        nil)
       (plist-get result :stdout))))
 
 (defun sift-format-buffer ()
@@ -250,20 +267,20 @@ nothing is written to disk and the change is one `undo' away.  The point is
 kept where it was, unless the formatting changed the text before it."
   (interactive)
   (let ((formatted (sift--format-string
-                    (buffer-substring-no-properties (point-min) (point-max)))))
+                      (buffer-substring-no-properties (point-min) (point-max)))))
     (cond
-     ((null formatted) nil)
-     ((string= formatted (buffer-substring-no-properties
-                          (point-min) (point-max)))
-      (message "sift: already formatted"))
-     (t
-      (let ((point (point)))
-        (atomic-change-group
-          (let ((inhibit-modification-hooks nil))
-            (erase-buffer)
-            (insert formatted)))
-        (goto-char (min point (point-max)))
-        (message "sift: formatted"))))))
+      ((null formatted) nil)
+      ((string= formatted (buffer-substring-no-properties
+                             (point-min) (point-max)))
+       (message "sift: already formatted"))
+      (t
+         (let ((point (point)))
+           (atomic-change-group
+              (let ((inhibit-modification-hooks nil))
+                (erase-buffer)
+                (insert formatted)))
+           (goto-char (min point (point-max)))
+           (message "sift: formatted"))))))
 
 (defun sift-format-region (beg end)
   "Format the region between BEG and END with sift.
@@ -275,14 +292,14 @@ the buffer is left alone."
   (let* ((text (buffer-substring-no-properties beg end))
          (formatted (sift--format-string text)))
     (cond
-     ((null formatted) nil)
-     ((string= formatted text) (message "sift: already formatted"))
-     (t
-      (atomic-change-group
-        (delete-region beg end)
-        (goto-char beg)
-        (insert formatted))
-      (message "sift: formatted the region")))))
+      ((null formatted) nil)
+      ((string= formatted text) (message "sift: already formatted"))
+      (t
+         (atomic-change-group
+            (delete-region beg end)
+            (goto-char beg)
+            (insert formatted))
+         (message "sift: formatted the region")))))
 
 ;;; Fixing
 
@@ -293,25 +310,25 @@ CHECKERS, when given, restricts the fixes to those rules, which is what
 makes a per-diagnostic code action possible."
   (let* ((dialect (sift--require-dialect))
          (result (sift--run
-                  (append (list "lint" "--fix" "--stdin" "--format=null"
-                                (concat "--label=" (sift--label))
-                                (concat "--dialect=" dialect))
-                          (mapcan (lambda (checker)
-                                    (list (concat "--checker=" (symbol-name checker))))
-                                  checkers))
-                  text)))
+                    (append (list "lint" "--fix" "--stdin" "--format=null"
+                              (concat "--label=" (sift--label))
+                              (concat "--dialect=" dialect))
+                      (mapcan (lambda (checker)
+                                (list (concat "--checker=" (symbol-name checker))))
+                        checkers))
+                    text)))
     (if (sift--failure result)
-        (progn
-          (message "sift: %s" (sift--failure result))
-          nil)
+      (progn
+        (message "sift: %s" (sift--failure result))
+        nil)
       (plist-get result :stdout))))
 
 (defun sift--replace-buffer (text what)
   "Replace the buffer with TEXT, saying WHAT was done."
   (let ((point (point)))
     (atomic-change-group
-      (erase-buffer)
-      (insert text))
+       (erase-buffer)
+       (insert text))
     (goto-char (min point (point-max)))
     (message "sift: %s" what)))
 
@@ -324,9 +341,9 @@ of one rule only."
   (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
          (fixed (sift--fix-string source)))
     (cond
-     ((null fixed) nil)
-     ((string= fixed source) (message "sift: nothing to fix"))
-     (t (sift--replace-buffer fixed "fixed")))))
+      ((null fixed) nil)
+      ((string= fixed source) (message "sift: nothing to fix"))
+      (t (sift--replace-buffer fixed "fixed")))))
 
 (defun sift--diagnostic-at-point ()
   "Return the Flymake diagnostic at point, or nil.
@@ -350,15 +367,15 @@ changes them all."
   (interactive)
   (let ((checker (sift--diagnostic-checker (sift--diagnostic-at-point))))
     (if (not checker)
-        (user-error "No sift diagnostic at point")
+      (user-error "No sift diagnostic at point")
       (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
              (fixed (sift--fix-string source (list checker))))
         (cond
-         ((null fixed) nil)
-         ((string= fixed source)
-          (message "sift: `%s` has no fix" checker))
-         (t (sift--replace-buffer fixed
-                                  (format "fixed `%s`" checker))))))))
+          ((null fixed) nil)
+          ((string= fixed source)
+           (message "sift: `%s` has no fix" checker))
+          (t (sift--replace-buffer fixed
+               (format "fixed `%s`" checker))))))))
 
 ;;; Checking and linting
 
@@ -367,15 +384,15 @@ changes them all."
   (interactive)
   (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
          (result (sift--run
-                  (append (list "check" "--stdin"
-                                (concat "--label=" (sift--label))
-                                (concat "--dialect=" (sift--require-dialect)))
-                          nil)
-                  source)))
+                    (append (list "check" "--stdin"
+                              (concat "--label=" (sift--label))
+                              (concat "--dialect=" (sift--require-dialect)))
+                      nil)
+                    source)))
     (if (sift--failure result)
-        (message "sift: %s" (sift--failure result))
+      (message "sift: %s" (sift--failure result))
       (if (= 0 (plist-get result :status))
-          (message "sift: formatted")
+        (message "sift: formatted")
         (message "sift: this buffer would be reformatted (M-x sift-format-buffer)")))))
 
 (defconst sift--error-regexp
@@ -383,7 +400,7 @@ changes them all."
   "Regexp matching one line of sift's human-readable output.")
 
 (add-to-list 'compilation-error-regexp-alist-alist
-             `(sift ,sift--error-regexp 1 2 3 (4 . nil) 5))
+  `(sift ,sift--error-regexp 1 2 3 (4 . nil) 5))
 (add-to-list 'compilation-error-regexp-alist 'sift)
 
 (defun sift-lint ()
@@ -403,13 +420,13 @@ no file to report them in."
     (save-buffer))
   (let* ((dialect (sift--dialect))
          (command (string-join
-                   (append (list (shell-quote-argument sift-executable)
-                                 "lint"
-                                 (concat "--severity=" sift-lint-severity))
-                           (sift--options)
-                           (when dialect (list (concat "--dialect=" dialect)))
-                           (list (shell-quote-argument (buffer-file-name))))
-                   " ")))
+                     (append (list (shell-quote-argument sift-executable)
+                               "lint"
+                               (concat "--severity=" sift-lint-severity))
+                       (sift--options)
+                       (when dialect (list (concat "--dialect=" dialect)))
+                       (list (shell-quote-argument (buffer-file-name))))
+                     " ")))
     (compilation-start command nil (lambda (_mode) "*sift-lint*"))))
 
 ;;; Explaining rules
@@ -417,16 +434,16 @@ no file to report them in."
 (defun sift-explain (rule)
   "Show sift's documentation of RULE in a buffer."
   (interactive
-   (list (completing-read "Rule: "
-                          (sift--rule-names) nil nil
-                          (sift--rule-at-point))))
+    (list (completing-read "Rule: "
+            (sift--rule-names) nil nil
+            (sift--rule-at-point))))
   (let ((result (sift--run (list "explain" rule)))
         (buffer (get-buffer-create "*sift-explain*")))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
         (insert (if (= 0 (plist-get result :status))
-                    (plist-get result :stdout)
+                  (plist-get result :stdout)
                   (string-trim (plist-get result :stderr))))
         (goto-char (point-min))
         (special-mode)))
@@ -440,19 +457,19 @@ the repository root.  `next-error' walks the findings, and the exit status
 is the one a CI job would see."
   (interactive)
   (let ((default-directory (or (locate-dominating-file default-directory ".git")
-                               default-directory)))
+                             default-directory)))
     (compilation-start (concat (shell-quote-argument sift-executable) " ci")
-                       nil (lambda (_mode) "*sift-ci*"))))
+      nil (lambda (_mode) "*sift-ci*"))))
 
 (defun sift--rule-names ()
   "Return every rule name sift knows about."
   (let ((result (sift--run (list "list-checkers"))))
     (when (= 0 (plist-get result :status))
       (delq nil
-            (mapcar (lambda (line)
-                      (when (string-match "^\\([a-z0-9-]+\\) +SIFT[0-9]+" line)
-                        (match-string 1 line)))
-                    (split-string (plist-get result :stdout) "\n"))))))
+        (mapcar (lambda (line)
+                  (when (string-match "^\\([a-z0-9-]+\\) +SIFT[0-9]+" line)
+                    (match-string 1 line)))
+          (split-string (plist-get result :stdout) "\n"))))))
 
 (defun sift--rule-at-point ()
   "Return the name of the rule named on this line, or nil.
@@ -462,11 +479,11 @@ diagnostic (which carries the rule as data), and on a `C-h f'-style doc
 buffer."
   (or (let ((checker (sift--diagnostic-checker (sift--diagnostic-at-point))))
         (and checker (symbol-name checker)))
-      (save-excursion
-        (let ((line (buffer-substring-no-properties
+    (save-excursion
+      (let ((line (buffer-substring-no-properties
                      (line-beginning-position) (line-end-position))))
-          (when (string-match "\\[\\([a-z][a-z0-9-]+\\)\\]" line)
-            (match-string 1 line))))))
+        (when (string-match "\\[\\([a-z][a-z0-9-]+\\)\\]" line)
+          (match-string 1 line))))))
 
 (defun sift-explain-at-point ()
   "Explain the rule reported at point.
@@ -476,7 +493,7 @@ Flymake diagnostic it reads the rule out of the diagnostic."
   (interactive)
   (let ((rule (sift--rule-at-point)))
     (if rule
-        (sift-explain rule)
+      (sift-explain rule)
       (call-interactively #'sift-explain))))
 
 ;;; Flymake
@@ -520,19 +537,19 @@ so a line of UTF-8 text lands where the executable said it would."
              (begin (sift--position line column))
              (end (sift--position line (1+ column))))
         (push (flymake-make-diagnostic
-               (current-buffer) begin end
-               (sift--flymake-type severity)
-               ;; The rule's code leads the text: `flymake-show-buffer-diagnostics'
-               ;; then lists sift's codes, and `C-c s e' can find the rule by
-               ;; name.  A list here would be rendered as a list before Emacs 31,
-               ;; so the text is a string on every version.
-               (format "%s [%s] %s" code checker message)
-               ;; …and the rule name as data, which is what a code action
-               ;; needs to fix exactly this rule.
-               (list :checker (and checker (intern checker))
-                     :code code
-                     :severity severity))
-              diagnostics)))))
+                 (current-buffer) begin end
+                 (sift--flymake-type severity)
+                 ;; The rule's code leads the text: `flymake-show-buffer-diagnostics'
+                 ;; then lists sift's codes, and `C-c s e' can find the rule by
+                 ;; name.  A list here would be rendered as a list before Emacs 31,
+                 ;; so the text is a string on every version.
+                 (format "%s [%s] %s" code checker message)
+                 ;; …and the rule name as data, which is what a code action
+                 ;; needs to fix exactly this rule.
+                 (list :checker (and checker (intern checker))
+                       :code code
+                       :severity severity))
+          diagnostics)))))
 
 (defun sift-flymake (report-fn &rest _arguments)
   "Flymake backend running `sift lint' on the current buffer.
@@ -548,30 +565,30 @@ it."
         ;; exits, so the buffer the question was asked about is captured now
         (origin (current-buffer)))
     (if (not dialect)
-        (funcall report-fn :panic
-                 (format "sift: no dialect for %s; set `sift-dialect'" major-mode))
+      (funcall report-fn :panic
+               (format "sift: no dialect for %s; set `sift-dialect'" major-mode))
       (sift--run-async
-       (list "lint" "--stdin" "--format=json"
-             (concat "--severity=" sift-lint-severity)
-             (concat "--dialect=" dialect)
-             (concat "--label=" label))
-       source
-       (lambda (result)
-         (let ((failure (sift--failure result)))
-           (cond
-            (failure
-             (funcall report-fn :panic failure))
-            ;; a buffer that was killed while sift was running has nothing
-            ;; left to report into
-            ((not (buffer-live-p origin)) nil)
-            (t
-             (with-current-buffer origin
-               (condition-case error
-                   (funcall report-fn (sift--diagnostics (plist-get result :stdout)))
-                 (error
-                  (funcall report-fn :panic
-                           (format "sift: could not read its JSON: %s"
-                                   (error-message-string error))))))))))))))
+         (list "lint" "--stdin" "--format=json"
+           (concat "--severity=" sift-lint-severity)
+           (concat "--dialect=" dialect)
+           (concat "--label=" label))
+         source
+         (lambda (result)
+           (let ((failure (sift--failure result)))
+             (cond
+               (failure
+                  (funcall report-fn :panic failure))
+               ;; a buffer that was killed while sift was running has nothing
+               ;; left to report into
+               ((not (buffer-live-p origin)) nil)
+               (t
+                  (with-current-buffer origin
+                    (condition-case error
+                      (funcall report-fn (sift--diagnostics (plist-get result :stdout)))
+                      (error
+                         (funcall report-fn :panic
+                                  (format "sift: could not read its JSON: %s"
+                                    (error-message-string error))))))))))))))
 
 ;;;###autoload
 (define-minor-mode sift-flymake-mode
@@ -579,13 +596,98 @@ it."
   :lighter " sift"
   :group 'sift
   (if sift-flymake-mode
-      (progn
-        (unless (sift--dialect)
-          (setq sift-flymake-mode nil)
-          (user-error "No sift dialect for `%s'; set `sift-dialect'" major-mode))
-        (add-hook 'flymake-diagnostic-functions #'sift-flymake nil t)
-        (flymake-mode 1))
+    (progn
+      (unless (sift--dialect)
+        (setq sift-flymake-mode nil)
+        (user-error "No sift dialect for `%s'; set `sift-dialect'" major-mode))
+      (add-hook 'flymake-diagnostic-functions #'sift-flymake nil t)
+      (flymake-mode 1))
     (remove-hook 'flymake-diagnostic-functions #'sift-flymake t)))
+
+;;; Eglot
+
+;; sift speaks the Language Server Protocol, so Eglot can talk to it.  That is
+;; the integration that has code actions: Eglot asks the server for the actions
+;; that apply at point, and the server answers with sift's own fixes, which is
+;; the same code `sift fix' runs.  The Flymake backend above is what remains
+;; when there is no Eglot -- a second backend in an Eglot buffer would report
+;; every finding twice.
+
+(defcustom sift-eglot-modes '(scheme-mode emacs-lisp-mode lisp-mode)
+  "The major modes Eglot starts a sift language server for."
+  :type '(repeat symbol)
+  :group 'sift)
+
+(defcustom sift-eglot-command nil
+  "The command that starts sift's language server.
+
+Nil means `sift-executable' followed by `lsp', which is what almost everyone
+wants: one setting names the program, and the server is that program with a
+subcommand.  Set it when the server is somewhere else -- another build, or a
+wrapper that adds arguments."
+  :type '(choice (const :tag "sift-executable with `lsp'" nil)
+           (repeat string))
+  :group 'sift)
+
+(defun sift-eglot-server-command ()
+  "Return the argv that starts the language server."
+  (or sift-eglot-command (list sift-executable "lsp")))
+
+(defun sift-eglot-contact (&rest _)
+  "Return the command Eglot runs, or say that sift is missing.
+
+A program named by an absolute path is checked as a file as well as by
+`executable-find', because that is what a user who set `sift-executable' to
+one meant."
+  (let ((command (sift-eglot-server-command)))
+    (if (or (executable-find (car command))
+          (file-executable-p (car command)))
+      command
+      (user-error "sift: `%s' is not executable; set `sift-executable' or `sift-eglot-command'"
+        (car command)))))
+
+(defun sift--eglot-silence-flymake ()
+  "Keep sift's Flymake backend out of an Eglot-managed buffer.
+
+The server reports the same findings Eglot already shows through Flymake, so a
+buffer with both backends carries every finding twice.  Turning the backend off
+here rather than telling the user not to run `sift-flymake-setup' means both
+entry points can be safe."
+  (when (and (bound-and-true-p eglot--managed-mode)
+          (memq #'sift-flymake flymake-diagnostic-functions))
+    (remove-hook 'flymake-diagnostic-functions #'sift-flymake t)))
+
+(defun sift-code-actions ()
+  "Offer the code actions sift's server has at point, through Eglot.
+
+The actions are sift's own fixes -- the ones `sift fix' applies -- so the
+buffer gets the same edit whether it was fixed here or by the executable."
+  (interactive)
+  (unless (fboundp 'eglot-code-actions)
+    (user-error "sift: code actions need Eglot; run `sift-eglot-setup' first"))
+  (unless (eglot-current-server)
+    (user-error "sift: no language server here; start Eglot with `M-x eglot'"))
+  (call-interactively #'eglot-code-actions))
+
+(defun sift-eglot-setup ()
+  "Give Eglot `sift lsp' for the Lisp modes, and turn `sift-mode' on.
+
+Put it in your init file beside the other setup calls:
+
+  (sift-eglot-setup)
+
+The keymap and the format-on-save hook then come from `sift-mode', the
+findings and the code actions from the server, and `sift-flymake-mode' stays
+out of the way."
+  (interactive)
+  (with-eval-after-load 'eglot
+    (add-to-list 'eglot-server-programs
+      (cons sift-eglot-modes #'sift-eglot-contact))
+    (add-hook 'eglot-managed-mode-hook #'sift--eglot-silence-flymake))
+  (dolist (mode sift-eglot-modes)
+    (sift--add-mode-hook mode #'sift-mode)
+    (sift--add-mode-hook mode #'sift--eglot-silence-flymake))
+  t)
 
 ;;; The minor mode
 
@@ -600,6 +702,7 @@ it."
     (define-key map (kbd "C-c s e") #'sift-explain-at-point)
     (define-key map (kbd "C-c s p") #'sift-ci)
     (define-key map (kbd "C-c s d") #'sift-flymake-mode)
+    (define-key map (kbd "C-c s A") #'sift-code-actions)
     map)
   "Keymap for `sift-mode'.")
 
@@ -622,10 +725,10 @@ by `sift-flymake-mode', which `sift-setup' turns on with this mode."
   :keymap sift-mode-map
   :group 'sift
   (if sift-mode
-      (progn
-        (add-hook 'before-save-hook #'sift--format-before-save nil t)
-        (when (and (not sift-dialect) (not (sift--dialect)))
-          (message "sift: no dialect for `%s'; set `sift-dialect'" major-mode)))
+    (progn
+      (add-hook 'before-save-hook #'sift--format-before-save nil t)
+      (when (and (not sift-dialect) (not (sift--dialect)))
+        (message "sift: no dialect for `%s'; set `sift-dialect'" major-mode)))
     (remove-hook 'before-save-hook #'sift--format-before-save t)))
 
 ;;;###autoload
@@ -635,16 +738,16 @@ by `sift-flymake-mode', which `sift-setup' turns on with this mode."
 Use it from your init file instead of three `add-hook' calls:
 
   (sift-setup)"
-  (add-hook 'scheme-mode-hook #'sift-mode)
-  (add-hook 'emacs-lisp-mode-hook #'sift-mode)
-  (add-hook 'lisp-mode-hook #'sift-mode))
+  (sift--add-mode-hook 'scheme-mode #'sift-mode)
+  (sift--add-mode-hook 'emacs-lisp-mode #'sift-mode)
+  (sift--add-mode-hook 'lisp-mode #'sift-mode))
 
 ;;;###autoload
 (defun sift-flymake-setup ()
   "Turn `sift-flymake-mode' on in the Lisp modes this package knows."
-  (add-hook 'scheme-mode-hook #'sift-flymake-mode)
-  (add-hook 'emacs-lisp-mode-hook #'sift-flymake-mode)
-  (add-hook 'lisp-mode-hook #'sift-flymake-mode))
+  (sift--add-mode-hook 'scheme-mode #'sift-flymake-mode)
+  (sift--add-mode-hook 'emacs-lisp-mode #'sift-flymake-mode)
+  (sift--add-mode-hook 'lisp-mode #'sift-flymake-mode))
 
 (provide 'sift)
 ;;; sift.el ends here

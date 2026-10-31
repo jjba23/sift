@@ -244,7 +244,8 @@ one to trust with anyone else's."
     ("doc/editors.org" . "sift ~a")
     (".pre-commit-hooks.yaml" . "v~a")
     ("action.yml" . "v~a")
-    (".github/workflows/sift.yml" . "v~a")))
+    (".github/workflows/sift.yml" . "v~a")
+    ("editors/vscode/package.json" . "\"version\": \"~a\"")))
 
 (define (release-error message . args)
   "Stop the release with @var{message}, a format string and its arguments."

@@ -621,11 +621,15 @@ line is tested as a subprocess, by exit status.
 :CUSTOM_ID: editors
 :END:
 
-=emacs/sift.el= covers Emacs; everything else talks to the program, which
-already speaks the shapes an editor or a pipeline needs: the human line that
-=:make=, =compilation-mode= and a CI log parse; a JSON array for editors that
-want structure; SARIF 2.1.0 for code scanning; and =--format=github= for
-annotations on a pull request.
+sift speaks the Language Server Protocol (`sift lsp'), so the editors that do
+too -- Emacs through Eglot, Neovim, and VS Code through any language client --
+get diagnostics, code actions and formatting from one server.  For everyone
+else the program itself speaks the shapes an editor or a pipeline needs: the
+human line that `:make`, `compilation-mode` and a CI log parse; a JSON array
+for editors that want structure; SARIF 2.1.0 for code scanning; and
+`--format=github` for annotations on a pull request.  There are ready-made
+integrations for Emacs (with or without Eglot), Neovim, Vim and VS Code in
+`emacs/` and `editors/`.
 
 [[file:doc/editors.org][doc/editors.org]] has the recipes: Neovim, Helix, VS Code, the pre-commit
 framework, a Git hook that checks only the staged files, and the two CI

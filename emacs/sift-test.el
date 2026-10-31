@@ -17,15 +17,15 @@
 
 (defconst sift-test--root
   (file-name-directory
-   (directory-file-name
-    (file-name-directory (or load-file-name buffer-file-name))))
+     (directory-file-name
+        (file-name-directory (or load-file-name buffer-file-name))))
   "The checkout these tests belong to.")
 
 (defun sift-test--setup ()
   "Point the package at this checkout's executable."
   (setq sift-executable (expand-file-name "bin/sift" sift-test--root)
-        sift-dialect nil
-        sift-extra-arguments nil))
+    sift-dialect nil
+    sift-extra-arguments nil))
 
 (sift-test--setup)
 
@@ -122,7 +122,7 @@
     (setq major-mode 'scheme-mode)
     (let ((all (sift--fix-string "(if (a) (b))   \n" nil))
           (only-whitespace (sift--fix-string "(if (a) (b))   \n"
-                                             '(trailing-whitespace))))
+                             '(trailing-whitespace))))
       (should (equal "(when (a) (b))\n" all))
       (should (equal "(if (a) (b))\n" only-whitespace)))))
 
@@ -133,13 +133,13 @@
   (with-temp-buffer
     (insert "(if (a) (b))\n")
     (let ((diagnostics
-           (sift--diagnostics
-            "[{\"file\":\"x.scm\",\"line\":1,\"column\":2,\"checker\":\"if-without-else\",\"code\":\"SIFT012\",\"severity\":\"warning\",\"message\":\"`if` has no else branch\"}]")))
+             (sift--diagnostics
+                "[{\"file\":\"x.scm\",\"line\":1,\"column\":2,\"checker\":\"if-without-else\",\"code\":\"SIFT012\",\"severity\":\"warning\",\"message\":\"`if` has no else branch\"}]")))
       (should (= 1 (length diagnostics)))
       (let ((diagnostic (car diagnostics)))
         (should (equal "SIFT012" (sift-diagnostic-code diagnostic)))
         (should (eq 'if-without-else
-                    (plist-get (flymake-diagnostic-data diagnostic) :checker)))
+                  (plist-get (flymake-diagnostic-data diagnostic) :checker)))
         (should (eq :warning (flymake-diagnostic-type diagnostic)))
         ;; line 1, column 2 is the second character of the buffer
         (should (equal (+ (point-min) 1) (flymake-diagnostic-beg diagnostic)))))))
@@ -188,11 +188,11 @@
   "Explaining a rule shows its documentation and its code."
   (let ((buffer (get-buffer-create "*sift-explain*")))
     (unwind-protect
-        (progn
-          (sift-explain "if-without-else")
-          (with-current-buffer buffer
-            (should (string-match-p "SIFT012" (buffer-string)))
-            (should (string-match-p "DIALECTS" (buffer-string)))))
+      (progn
+        (sift-explain "if-without-else")
+        (with-current-buffer buffer
+          (should (string-match-p "SIFT012" (buffer-string)))
+          (should (string-match-p "DIALECTS" (buffer-string)))))
       (kill-buffer buffer))))
 
 (ert-deftest sift-test-ci-command ()
@@ -231,6 +231,60 @@ the directory, not about how long linting this repository takes."
     (should (equal "5" (match-string 3)))
     (should (equal "warning" (match-string 4)))
     (should (equal "empty-body" (match-string 5)))))
+
+;;; ===== Eglot =====
+
+(ert-deftest sift-test-eglot-contact-runs-the-server ()
+  "The contact Eglot is given is the language server, not the linter."
+  (should (equal (list sift-executable "lsp") (sift-eglot-contact)))
+  (let ((sift-eglot-command '("sift" "lsp" "--severity=warning")))
+    (should (equal '("sift" "lsp" "--severity=warning")
+              (sift-eglot-server-command)))))
+
+(ert-deftest sift-test-eglot-contact-says-when-sift-is-missing ()
+  "A program that is not there is a message, not a broken process."
+  (let ((sift-executable "/nonexistent/sift"))
+    (should-error (sift-eglot-contact) :type 'user-error)))
+
+(ert-deftest sift-test-eglot-setup-registers-the-modes ()
+  "After setup, Eglot finds sift for the three Lisp modes."
+  (require 'eglot)
+  (let ((eglot-server-programs eglot-server-programs))
+    (sift-eglot-setup)
+    (dolist (mode sift-eglot-modes)
+      (should (eglot--lookup-mode mode)))))
+
+(ert-deftest sift-test-eglot-setup-leaves-the-flymake-backend-alone ()
+  "Setup does not turn the Flymake backend on: the server reports the findings.
+
+`add-hook' writes a hook's default value, and `scheme-mode-hook' does not exist
+until Scheme mode is loaded, so the question is asked about a hook that is
+always there, and the answer restored afterwards."
+  (require 'eglot)
+  (let ((saved (default-value 'emacs-lisp-mode-hook)))
+    (unwind-protect
+      (progn
+        (set-default 'emacs-lisp-mode-hook nil)
+        (sift-eglot-setup)
+        (should-not (memq #'sift-flymake-mode
+                      (default-value 'emacs-lisp-mode-hook)))
+        (should (memq #'sift-mode (default-value 'emacs-lisp-mode-hook)))
+        (should (memq #'sift--eglot-silence-flymake
+                  (default-value 'emacs-lisp-mode-hook))))
+      (set-default 'emacs-lisp-mode-hook saved))))
+
+(ert-deftest sift-test-eglot-silences-the-flymake-backend ()
+  "In an Eglot-managed buffer, sift's own backend is removed."
+  (with-temp-buffer
+    (add-hook 'flymake-diagnostic-functions #'sift-flymake nil t)
+    (let ((eglot--managed-mode t))
+      (sift--eglot-silence-flymake))
+    (should-not (memq #'sift-flymake flymake-diagnostic-functions))))
+
+(ert-deftest sift-test-code-actions-need-a-server ()
+  "Asking for code actions without Eglot says what to do instead of failing."
+  (with-temp-buffer
+    (should-error (sift-code-actions) :type 'user-error)))
 
 (provide 'sift-test)
 ;;; sift-test.el ends here
