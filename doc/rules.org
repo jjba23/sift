@@ -9,7 +9,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 39 rules in sift 0.2.0.
+There are 44 rules in sift 0.2.0.
 
 * Summary
 
@@ -39,18 +39,23 @@ There are 39 rules in sift 0.2.0.
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
 | line-length | SIFT003 | all | warning | Line exceeds the configured soft limit |
 | loop-keyword-style | SIFT029 | cl | info | Symbolic LOOP keywords where the project style asks for literal ~:keywords~ |
+| naming-convention | SIFT040 | all | warning | An underscore or camelCase in the name of a definition |
 | negated-if | SIFT033 | scheme, elisp, cl | warning | ~if~ or ~when~ with a negated test, which ~unless~ says directly |
+| nesting-depth | SIFT044 | all | warning | A definition whose body nests deeper than the configured limit |
 | package-prefix | SIFT025 | cl | warning | Exported symbols referenced without a package prefix |
+| predicate-name | SIFT041 | all | info | A procedure that answers a question but is not named like one |
 | provide-missing | SIFT023 | elisp | warning | The file defines a package but has no final ~(provide 'feature)~ |
 | quasiquote-unquote-constant | SIFT016 | scheme | info | ~(quasiquote (unquote constant))~ can be simplified |
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
+| special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
 | tabs | SIFT002 | all | warning | Tab characters used for indentation |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
 | unless-without-body | SIFT014 | scheme, cl | warning | ~unless~ form with no body |
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
+| unused-argument | SIFT043 | all | info | A parameter that the definition never refers to |
 | unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
 | when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
@@ -562,6 +567,26 @@ Run ~sift explain loop-keyword-style~ at the command line, or ~M-x sift-explain-
 #+end_quote
 
 
+** SIFT040 naming-convention
+:PROPERTIES:
+:CUSTOM_ID: naming-convention
+:END:
+
+An underscore or camelCase in the name of a definition
+
+- *Dialects:* all
+- *Severity:* warning
+- *Fix:* no automatic fix; renaming changes every call site
+
+#+begin_src scheme
+(define (read_file path) ...)
+#+end_src
+
+#+begin_quote
+Run ~sift explain naming-convention~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT033 negated-if
 :PROPERTIES:
 :CUSTOM_ID: negated-if
@@ -579,6 +604,28 @@ Run ~sift explain loop-keyword-style~ at the command line, or ~M-x sift-explain-
 
 #+begin_quote
 Run ~sift explain negated-if~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT044 nesting-depth
+:PROPERTIES:
+:CUSTOM_ID: nesting-depth
+:END:
+
+A definition whose body nests deeper than the configured limit
+
+- *Dialects:* all
+- *Severity:* warning
+- *Fix:* no automatic fix; extract the inner form into its own procedure
+
+#+begin_src scheme
+(define (f x)
+  (if (a) (if (b) (if (c)
+    (if (d) (if (e) 1 2))))))
+#+end_src
+
+#+begin_quote
+Run ~sift explain nesting-depth~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -600,6 +647,26 @@ Exported symbols referenced without a package prefix
 
 #+begin_quote
 Run ~sift explain package-prefix~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT041 predicate-name
+:PROPERTIES:
+:CUSTOM_ID: predicate-name
+:END:
+
+A procedure that answers a question but is not named like one
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* no automatic fix; rename it to ~positive?~
+
+#+begin_src scheme
+(define (positive x) (> x 0))
+#+end_src
+
+#+begin_quote
+Run ~sift explain predicate-name~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -703,6 +770,26 @@ Run ~sift explain redundant-identity~ at the command line, or ~M-x sift-explain-
 
 #+begin_quote
 Run ~sift explain redundant-progn~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT042 special-variable-name
+:PROPERTIES:
+:CUSTOM_ID: special-variable-name
+:END:
+
+A special variable or constant whose name does not say so
+
+- *Dialects:* elisp, cl
+- *Severity:* info
+- *Fix:* no automatic fix; rename it to ~*port*~
+
+#+begin_src scheme
+(defparameter port 8080)
+#+end_src
+
+#+begin_quote
+Run ~sift explain special-variable-name~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -811,6 +898,26 @@ Unbalanced or unmatched parentheses or brackets
 
 #+begin_quote
 Run ~sift explain unmatched-parens~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT043 unused-argument
+:PROPERTIES:
+:CUSTOM_ID: unused-argument
+:END:
+
+A parameter that the definition never refers to
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* no automatic fix; use it, drop it, or name it ~_y~
+
+#+begin_src scheme
+(define (f x y) (list x))
+#+end_src
+
+#+begin_quote
+Run ~sift explain unused-argument~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

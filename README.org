@@ -333,7 +333,7 @@ a default severity, a procedure, and an example.  The driver reads the file
 once, runs the applicable rules, folds in what the reader found, applies the
 suppression comments, sorts by file, line, column and rule, and reports.
 
-There are 38 rules.  They are listed one by one, with their codes, in
+There are 44 rules.  They are listed one by one, with their codes, in
 [[file:doc/rules.org][doc/rules.org]] — a document generated from those records, so it cannot
 describe a rule that does not exist, and a test fails when it falls behind.
 The reasoning behind them, and behind the style they belong to, is in

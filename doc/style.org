@@ -274,6 +274,26 @@ should not require arithmetic.  Both rewrites are purely syntactic: the
 same test is evaluated and the same forms run.  The checks are SIFT012
 (`if-without-else`), SIFT033 (`negated-if`), SIFT013 and SIFT014.
 
+** Names carry the type
+
+A Lisp has no type declarations to read, so the name is most of what a reader
+knows: `positive?` is a boolean, `positive` is a number, `*port*` is special,
+`+pi+` is a constant.  Four rules keep the three dialects' conventions apart:
+
+- *SIFT040* `naming-convention`: a definition name with an underscore
+  (`read_file`) or camelCase (`readFile`) is not a Lisp name.  The rule looks
+  at definitions only, because a variable bound to somebody else's function is
+  not the linter's to rename.
+- *SIFT041* `predicate-name`: a procedure whose *last* body form is a
+  comparison or another predicate returns a boolean, so its name should end in
+  `?` in Scheme and Common Lisp, and in `-p` (or `?`) in Emacs Lisp.  Only the
+  last form counts, because that is the value the procedure returns.
+- *SIFT042* `special-variable-name`: Common Lisp earmuffs its special
+  variables (`*port*`) and plus-quotes its constants (`+pi+`); Emacs Lisp does
+  neither, so `*port*` in an Emacs file is a habit from the other dialect.
+- None of them has a fix.  Renaming a definition changes every call site in
+  every file, and a formatter that renames one of them has broken the program.
+
 ** A long expression is a `let` waiting to happen
 :PROPERTIES:
 :CUSTOM_ID: let
@@ -361,6 +381,10 @@ grouped by dialect, with the case for each one.
 | SIFT010 | trailing-blank-lines    | info     | more than two blank lines at end of file                   |
 | SIFT033 | negated-if              | warning  | `if`/`when` with a negated test is an `unless`             |
 | SIFT037 | duplicate-binding       | warning  | the same name bound twice in one binding list              |
+| SIFT040 | naming-convention       | warning  | an underscore or camelCase in the name of a definition     |
+| SIFT041 | predicate-name          | info     | a procedure that answers a question but is not named `?`   |
+| SIFT043 | unused-argument         | info     | a parameter the definition never refers to                 |
+| SIFT044 | nesting-depth           | warning  | a definition that chains conditionals deeper than the limit |
 | SIFT008 | empty-form              | warning  | `()` where a value is expected                             |
 | SIFT009 | duplicate-keyword       | warning  | a keyword argument given twice in one call                  |
 | SIFT031 | wrap-in-let             | info     | a body form is too deep or too long to read at once        |
@@ -443,6 +467,7 @@ binding, which changes what a closure captures.
 | SIFT026 | double-colon          | warning  | `package::symbol` reaches into another package's internals |
 | SIFT027 | dangling-paren        | warning  | a closing parenthesis is on its own line                   |
 | SIFT028 | defun-no-docstring    | info     | `defun`/`defmacro`/`defgeneric` with no docstring          |
+| SIFT042 | special-variable-name | info     | a special variable or constant whose name does not say so  |
 | SIFT029 | loop-keyword-style    | info     | symbolic LOOP keywords where the project writes `:keywords` |
 | SIFT030 | redundant-identity    | info     | `(identity x)` or `(funcall #'foo …)` where the value would do |
 

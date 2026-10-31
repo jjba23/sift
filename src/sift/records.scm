@@ -332,7 +332,12 @@ cannot move when the list is re-sorted."
     (clause-brackets . "SIFT036")
     (duplicate-binding . "SIFT037")
     (docstring-before-interactive . "SIFT038")
-    (unused-binding . "SIFT039")))
+    (unused-binding . "SIFT039")
+    (naming-convention . "SIFT040")
+    (predicate-name . "SIFT041")
+    (special-variable-name . "SIFT042")
+    (unused-argument . "SIFT043")
+    (nesting-depth . "SIFT044")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

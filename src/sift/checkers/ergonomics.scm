@@ -88,6 +88,170 @@ form is written as one long expression instead of a few named steps."
     #:example '((input . "(define (f x)\n  (list (car (cdr (assq 'a (cdr x))))))")
                 (fix . "no automatic fix; bind the repeated part in a `let`"))))
 
+;;; ===== unused-argument =====
+
+(define definition-heads
+  '(define define* define-public lambda lambda* defun defmacro defsubst
+     cl-defun cl-defmacro cl-defsubst defmethod defgeneric))
+
+(define (formals-of node)
+  "Return the parameter nodes of a definition @var{node}, or @code{#f}.
+
+For `(define (f x y) ...)' the parameters are the elements of the head list
+after the name; for `(defun f (x y) ...)' they are the elements of the second
+argument."
+  (let* ((head (node-head-name node))
+         (elements (node-elements node))
+         (second (and (pair? elements) (pair? (cdr elements)) (cadr elements)))
+         (third (and (pair? elements) (pair? (cdr elements))
+                  (pair? (cddr elements)) (car (cddr elements)))))
+    (cond
+      [(not head) #f]
+      [(memq head '(lambda lambda*))
+       (and (node-list? second) (node-elements second))]
+      [(memq head '(define define* define-public))
+       (and (node-list? second)
+         (let ((rest (node-elements second)))
+           (and (pair? rest) (cdr rest))))]
+      [(memq head '(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
+                     defmethod defgeneric))
+       ;; the name comes first, the parameter list second
+       (and (node-list? third) (node-elements third))]
+      [else #f])))
+
+(define (formal-names formals)
+  "Return the parameter names in @var{formals}, as @code{(node . text)} pairs.
+
+Markers (`&optional', `#:key') and destructuring lists are not parameters of
+their own; a parameter written `(name default)' contributes `name'."
+  (append-map
+     (lambda (element)
+       (cond
+         [(and (node-atom? element) (eq? (node-atom-type element) 'symbol))
+          (let ((text (node-value element)))
+            (if (or (string-prefix? "&" text) (string-prefix? "#:" text))
+              '()
+              (list (cons element text))))]
+         [(node-list? element)
+          ;; a parameter with a default, `(name value)'
+          (let ((first (node-head element)))
+            (if (and first (node-atom? first)
+                  (eq? (node-atom-type first) 'symbol))
+              (list (cons first (node-value first)))
+              (formal-names (node-elements element))))]
+         [else '()]))
+     formals))
+
+(define (name-uses node name)
+  "Return how many times the symbol @var{name} appears under @var{node}."
+  (fold-nodes
+     (lambda (candidate count)
+       (if (and (node-atom? candidate)
+             (eq? (node-atom-type candidate) 'symbol)
+             (string=? (node-value candidate) name))
+         (+ count 1)
+         count))
+     0
+     (list node)))
+
+(define (ignored-parameter? name)
+  (or (string-prefix? "_" name)
+    (string=? name "-")
+    (string=? name "ignored")))
+
+(define (unused-argument-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+       (lambda (node)
+         (let ((formals (and (memq (node-head-name node) definition-heads)
+                          (formals-of node))))
+           (when formals
+             (for-each
+                (lambda (parameter)
+                  (let ((name (cdr parameter)))
+                    (unless (ignored-parameter? name)
+                      ;; the binding counts once; anything else is a use, and
+                      ;; `_' in front of the name is how a program says it is
+                      ;; taking an argument it does not need
+                      (when (< (name-uses node name) 2)
+                        (set! warnings
+                          (cons (make-lint-warning 'unused-argument 'info
+                                  (format #f "the argument `~a` is never used; name it `_~a`"
+                                    name name)
+                                  (node-start (car parameter)))
+                            warnings))))))
+                (formal-names formals)))))
+       ast)
+    (reverse warnings)))
+
+(define unused-argument-checker
+  (checker 'unused-argument
+    "A parameter that the definition never refers to"
+    'all
+    unused-argument-warnings
+    #:severity 'info
+    #:example '((input . "(define (f x y) (list x))")
+                (fix . "no automatic fix; use it, drop it, or name it `_y`"))))
+
+;;; ===== nesting-depth =====
+
+;; A Lisp nests: a `let' inside a `define' inside a `cond' clause is ordinary
+;; code.  What is *not* ordinary is a decision inside a decision inside a
+;; decision -- the form a reader has to hold four alternatives of at once.
+;; So the depth that counts is the number of enclosing *conditional* forms,
+;; not the number of enclosing parentheses.
+(define conditional-heads
+  '(if cond case when unless and or do loop while match pcase cond-expand
+     if-let when-let if-let* when-let* typecase etypecase ctypecase ecase
+     ccase handler-case restart-case))
+
+(define (conditional-depth node)
+  "Return the deepest chain of conditionals inside @var{node}."
+  (if (node-list? node)
+    (let ((inside (apply max 0 (map conditional-depth (node-elements node)))))
+      (if (memq (node-head-name node) conditional-heads)
+        (+ 1 inside)
+        inside))
+    0))
+
+(define (definition-body-depth node)
+  "Return the deepest chain of conditionals in the body of @var{node}."
+  (let ((head (node-head-name node)))
+    (case head
+      [(lambda lambda*) (apply max 0 (map conditional-depth (body-elements node 1)))]
+      [(define define* define-public)
+       (apply max 0 (map conditional-depth (body-elements node 2)))]
+      [(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
+         defmethod defgeneric)
+       (apply max 0 (map conditional-depth (body-elements node 3)))]
+      [else 0])))
+
+(define (nesting-depth-warnings ast source dialect)
+  (let ((limit (or (option 'max-definition-depth 4)))
+        (warnings '()))
+    (for-each-form
+       (lambda (node)
+         (when (memq (node-head-name node) definition-heads)
+           (let ((depth (definition-body-depth node)))
+             (when (> depth limit)
+               (set! warnings
+                 (cons (make-lint-warning 'nesting-depth 'warning
+                         (format #f "this definition chains ~a conditionals deep; split it"
+                           depth)
+                         (node-start node))
+                   warnings))))))
+       ast)
+    (reverse warnings)))
+
+(define nesting-depth-checker
+  (checker 'nesting-depth
+    "A definition whose body nests deeper than the configured limit"
+    'all
+    nesting-depth-warnings
+    #:severity 'warning
+    #:example '((input . "(define (f x)\n  (if (a) (if (b) (if (c)\n    (if (d) (if (e) 1 2))))))")
+                (fix . "no automatic fix; extract the inner form into its own procedure"))))
+
 ;;; ===== keyword-arguments =====
 
 ;; Calls that are meant to take as many arguments as you like.  Reporting
@@ -138,4 +302,7 @@ form is written as one long expression instead of a few named steps."
 ;;; ===== The list =====
 
 (define ergonomics-checkers
-  (list wrap-in-let-checker keyword-arguments-checker))
+  (list wrap-in-let-checker
+    keyword-arguments-checker
+    unused-argument-checker
+    nesting-depth-checker))

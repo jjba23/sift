@@ -149,6 +149,11 @@ one entry per key and `config-ref' always answers with the winning layer."
        (default . 20)
        (flag . #f)
        (description . "Size at which wrap-in-let suggests a binding. Config-only."))
+    (max-definition-depth
+       (type . integer)
+       (default . 6)
+       (flag . #f)
+       (description . "Conditionals deep at which nesting-depth warns. Config-only."))
     (max-positional
        (type . integer)
        (default . 5)
@@ -655,4 +660,5 @@ expect."
     (cons 'brackets (config-ref config 'brackets))
     (cons 'max-depth (config-ref config 'max-depth))
     (cons 'max-elements (config-ref config 'max-elements))
-    (cons 'max-positional (config-ref config 'max-positional))))
+    (cons 'max-positional (config-ref config 'max-positional))
+    (cons 'max-definition-depth (config-ref config 'max-definition-depth))))

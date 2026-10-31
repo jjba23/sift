@@ -606,7 +606,8 @@ only has to answer with the usage status."
     (cons 'brackets (config-ref config 'brackets))
     (cons 'max-depth (config-ref config 'max-depth))
     (cons 'max-elements (config-ref config 'max-elements))
-    (cons 'max-positional (config-ref config 'max-positional))))
+    (cons 'max-positional (config-ref config 'max-positional))
+    (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
 
 (define* (lint-text config source #:key (path #f) (label #f))
   "Lint one source, returning @code{(values warnings dialect status)}."
