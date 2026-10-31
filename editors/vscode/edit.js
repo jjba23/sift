@@ -56,7 +56,6 @@ function minimalEdit(original, updated) {
 function dialectFor(fileName, fallback) {
   const dialects = {
     scm: 'scheme', ss: 'scheme', sld: 'scheme', sls: 'scheme',
-    scm: 'scheme',
     el: 'elisp',
     lisp: 'cl', cl: 'cl', asd: 'cl',
   };
