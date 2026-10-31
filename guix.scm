@@ -79,7 +79,7 @@ specific language for test suites.")
      (list #:source-directory "src"
            #:phases
            #~(modify-phases %standard-phases
-               (add-after 'install 'install-launcher
+               (add-after 'install-documentation 'install-launcher
                  (lambda* (#:key outputs #:allow-other-keys)
                    (let* ((out (assoc-ref outputs "out"))
                           (bin (string-append out "/bin"))
@@ -87,9 +87,24 @@ specific language for test suites.")
                                                "/share/guile/site/3.0")))
                      (mkdir-p bin)
                      (install-file "bin/sift" bin)
+                     (chmod (string-append bin "/sift") #o755)
                      (substitute* (string-append bin "/sift")
-                       (("\\$here/../src")
-                        site))))))))
+                       ;; The launcher finds its modules next to itself in a
+                       ;; checkout; in the store they are in the site
+                       ;; directory this package installed them into, and the
+                       ;; compiled ones in the build system's ccache, which
+                       ;; Guile has to be told about or every first run
+                       ;; recompiles the library into the user's cache.
+                       (("-L \"\\$here/../src\"")
+                        (string-append "-L \"" site "\" -C \""
+                                       out "/lib/guile/3.0/site-ccache\""))
+                       ;; And it would run whatever `guile' the user's PATH
+                       ;; happens to hold.  A built sift runs the Guile it was
+                       ;; built against, so `$out/bin/sift' works on its own.
+                       (("exec guile")
+                        (string-append
+                         "exec " #$(file-append guile-3.0 "/bin/guile"))))))))))
+
     (native-inputs (list guile-veritas))
     (inputs (list guile-3.0))
     (home-page "https://github.com/jjba23/sift")
