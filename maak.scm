@@ -361,7 +361,7 @@ what would have to be typed to release the next one -- and change nothing.
 
 With a version, do the whole ritual in one command: write the number into the
 library and into every place that quotes it, regenerate the rule catalogue,
-run every gate, commit everything tracked as `chore: Release vX.Y.Z', and tag
+run every gate, commit everything tracked as `chore(release): vX.Y.Z', and tag
 that commit `vX.Y.Z' with an annotation that names it.
 
 The gates run before the commit rather than after it, so a release that would
@@ -402,7 +402,7 @@ files already state is how a bump made by hand is released."
                   written)))
            (gates)
            (git:git (list "add" "--all"))
-           (let* ((message (format #f "chore: Release v~a" requested))
+           (let* ((message (format #f "chore(release): v~a" requested))
                   (staged (string-trim-both
                              (git:git-output (list "diff" "--cached"
                                                "--name-only")))))

@@ -1026,6 +1026,15 @@ maak editors-check # Vim in batch, Node over the VS Code logic
 Docstrings are Texinfo-flavoured (~@var{}~, ~@code{}~), the first line is a
 sentence, and every paragraph explains *why* as well as what — that is the
 only reason this project has a README you can read without a spec next to it.
+
+A commit message is a type and then a sentence: ~feat:~ for something that was
+not there before, ~fix:~ for something that was wrong, and ~docs:~, ~test:~,
+~refactor:~, ~build:~, ~ci:~ or ~chore:~ for everything else, scoped in
+parentheses when it narrows the subject (~fix(lsp):~, ~refactor(reader):~).
+The reader that matters is the one scrolling ~git log~ for the change that
+broke their build, and a type is what lets them skip nine commits out of ten
+without opening one.
+
 Patches are welcome as a pull request on
 [[https://github.com/jjba23/sift][GitHub]] or as a patch sent with ~git format-patch~ and ~git send-email~, which
 is how the author usually works.  Be kind: the code review is about the code.
