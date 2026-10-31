@@ -34,7 +34,8 @@
               list-checkers-table
               explain-checker
               unified-diff
-              json-escape))
+              json-escape
+              sift-rules-page))
 
 ;;; ===== Colour =====
 

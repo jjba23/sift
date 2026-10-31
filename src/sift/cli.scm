@@ -34,6 +34,7 @@
   #:use-module (sift reader)
   #:use-module (sift format)
   #:use-module (sift lint)
+  #:use-module (sift lsp)
   #:use-module (sift render)
   #:use-module (sift config)
   ;; `sift-version' lives in (sift records); re-exporting it is how the
@@ -53,6 +54,7 @@
   sift ci [OPTIONS] [FILE-OR-DIR...]  # format check + lint; exits 1 if either fails
   sift install-hooks [--force]        # a pre-commit hook that runs `sift ci`
   sift doctor                         # what ran, what it read, what it decided
+  sift lsp                            # a language server on stdin and stdout
   sift list-checkers [--dialect DIALECT]
   sift explain CHECKER-NAME
   sift config show|explain|trust ...
@@ -950,6 +952,25 @@ the tree it is judging is a CI job nobody trusts."
                              0])))))
             status))))))
 
+;;; ===== lsp =====
+
+(define (command-lsp args)
+  "Serve an editor over standard input and output.
+
+The configuration is the one every other command uses -- the project's own
+`sift.yaml`, the user's, and `--severity' and the rest on top -- so the
+findings an editor shows are the findings a pipeline would report.  Nothing is
+written to stdout but protocol: an editor reading a stray line of prose as a
+message would stop speaking to the server."
+  (let* ((state (parse-options args))
+         (overrides (build-overrides state)))
+    (when (assq 'help state)
+      (display usage-text)
+      (exit 0))
+    (with-config overrides state
+      (lambda (config)
+        (lsp-serve config)))))
+
 ;;; ===== install-hooks =====
 
 (define (parent-directory directory)
@@ -1156,6 +1177,7 @@ untrusted.  That is what this prints."
        [(ci) (command-ci rest)]
        [(doctor) (command-doctor rest)]
        [(install-hooks) (command-install-hooks rest)]
+       [(lsp) (command-lsp rest)]
        [(version --version -V) (command-version rest)]
        [(help --help -h) (display usage-text) 0]
        [else (usage-error "unknown command `~a'" command)]))))
