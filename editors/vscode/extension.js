@@ -25,17 +25,11 @@
 
 const vscode = require('vscode');
 const { execFile } = require('child_process');
+const { minimalEdit, dialectFor } = require('./edit');
 
-const DIALECTS = {
-  scm: 'scheme',
-  ss: 'scheme',
-  sld: 'scheme',
-  sls: 'scheme',
-  el: 'elisp',
-  lisp: 'cl',
-  cl: 'cl',
-  asd: 'cl',
-};
+// The extensions this extension answers for.  The dialect of one is in
+// `edit.js`, next to the arithmetic, so that it can be tested without VS Code.
+const DIALECTS = ['scm', 'ss', 'sld', 'sls', 'el', 'lisp', 'cl', 'asd'];
 
 /** The document filter every provider here is registered with. */
 const SELECTOR = { scheme: 'file', pattern: '**/*.{scm,ss,sld,sls,el,lisp,cl,asd}' };
@@ -55,8 +49,7 @@ function dialectOf(document) {
   if (chosen && chosen !== 'auto') {
     return chosen;
   }
-  const extension = document.fileName.split('.').pop().toLowerCase();
-  return DIALECTS[extension] || 'scheme';
+  return dialectFor(document.fileName, 'scheme');
 }
 
 /**
@@ -145,36 +138,19 @@ function lintLater(document) {
   }
 }
 
-/** Return the position of `offset` in `text`. */
-function positionAt(text, offset) {
-  const before = text.slice(0, offset);
-  const lines = before.split('\n');
-  return new vscode.Position(lines.length - 1, lines[lines.length - 1].length);
-}
-
 /**
- * Return the edit that turns `original` into `updated`, as a range and a text.
- *
- * The common prefix and suffix are trimmed, so a fix that changes one word
- * replaces one word: the whole document is never rewritten for a change the
- * author can see.
+ * Return the edit that turns `original` into `updated`, as a VS Code range and
+ * a replacement: the arithmetic is in `edit.js`, and this is the one line that
+ * turns a plain position into the editor's own type.
  */
-function minimalEdit(original, updated) {
-  let start = 0;
-  const shortest = Math.min(original.length, updated.length);
-  while (start < shortest && original[start] === updated[start]) {
-    start += 1;
-  }
-  let end = original.length;
-  let endUpdated = updated.length;
-  while (end > start && endUpdated > start &&
-         original[end - 1] === updated[endUpdated - 1]) {
-    end -= 1;
-    endUpdated -= 1;
-  }
+function editFor(original, updated) {
+  const edit = minimalEdit(original, updated);
   return {
-    range: new vscode.Range(positionAt(original, start), positionAt(original, end)),
-    text: updated.slice(start, endUpdated),
+    range: new vscode.Range(
+      new vscode.Position(edit.start.line, edit.start.character),
+      new vscode.Position(edit.end.line, edit.end.character)
+    ),
+    text: edit.text,
   };
 }
 
@@ -190,7 +166,7 @@ function fixEdit(document, checker) {
     if (result.status > 1 || !result.stdout) {
       return null;
     }
-    return minimalEdit(document.getText(), result.stdout);
+    return editFor(document.getText(), result.stdout);
   });
 }
 
@@ -199,7 +175,7 @@ function activate(context) {
 
   function matches(document) {
     const extension = document.fileName.split('.').pop().toLowerCase();
-    return Object.prototype.hasOwnProperty.call(DIALECTS, extension);
+    return DIALECTS.includes(extension);
   }
 
   function lintDocument(document) {
@@ -245,7 +221,7 @@ function activate(context) {
       vscode.window.showErrorMessage(`sift: ${result.stderr.trim()}`);
       return;
     }
-    const edit = minimalEdit(editor.document.getText(), result.stdout);
+    const edit = editFor(editor.document.getText(), result.stdout);
     await editor.edit((builder) => builder.replace(edit.range, edit.text));
     lint(editor.document);
   }));

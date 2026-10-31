@@ -20,6 +20,7 @@
   #:use-module (srfi srfi-13)
   #:export (test
              check
+             editors-check
              install
              uninstall
              fixture-check
@@ -151,6 +152,23 @@ its operands and a flag cannot be passed through this way."
      (append (list "guile" "-L" "./src" "-L" "." "etc/complexity.scm")
        (if (null? args) (list "src") args))
      #:verbose? #t))
+
+(define (editors-check)
+  "Run the Vim plugin's tests and the VS Code extension's.
+
+Each editor's own runner is the framework: Vim executes the plugin in batch
+and answers with its exit status, and Node executes the extension's
+arithmetic.  Neither needs a test framework installed, which is the point --
+an integration that needs a toolchain to test is an integration nobody tests.
+
+`maak emacs-test' is the Emacs side, and Neovim is `editors/vim/neovim.lua':
+configuration rather than code, run by the editor that reads it."
+  (dsl:run (list "vim" "-es" "-u" "NORC" "-N" "-S"
+             "editors/vim/test/sift.vim")
+    #:verbose? #t)
+  (dsl:run (list "node" "editors/vscode/edit.test.js") #:verbose? #t)
+  (dsl:run (list "node" "--check" "editors/vscode/extension.js")
+    #:verbose? #t))
 
 (define (emacs-test)
   "Run the Emacs package's ERT suite.

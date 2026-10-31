@@ -69,6 +69,12 @@ jobs:
             emacs -Q --batch -L emacs -l ert -l emacs/sift-test.el \
               -f ert-run-tests-batch-and-exit
 
+      # The Vim and VS Code integrations are tested by their own tools, which
+      # the runner has: Vim executes the plugin in batch, and Node executes the
+      # extension's arithmetic.  Neither needs the Guix environment.
+      - name: Run the Vim and VS Code tests
+        run: maak editors-check
+
       # --- the gate ----------------------------------------------------
 
       - name: Check that sift is formatted by sift

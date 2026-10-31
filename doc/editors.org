@@ -121,6 +121,44 @@ vim.lsp.start({
 The root directory is what makes one server answer for a whole project: the
 same configuration, the same rules, and one process instead of one per file.
 
+* When a buffer does not parse
+:PROPERTIES:
+:CUSTOM_ID: broken
+:END:
+
+A half-written form is the normal state of a buffer being typed, so every
+integration here has an answer for ~(define (f x)~ with the rest of the form
+still to come, and none of them is "stop working".
+
+| What you ask        | What happens when the text is not a program                   |
+|---------------------+---------------------------------------------------------------|
+| diagnostics         | the reader's own findings, at severity ~error~, with the code ~reader~ or the parentheses rule that fired: the file is reported, not skipped |
+| code actions        | still offered for the findings that do apply; a quickfix only ever edits the span its rule named |
+| format              | refused, and *said so*: the server sends ~window/showMessage~ with the reader's reason, and the command exits 2 with the reason on stderr |
+| fix                 | refused, the same way: a fix computed around a missing parenthesis would be a guess at where it goes. ~--force~ overrides it for a caller who knows better |
+| hover               | whatever rule is on the position, if any                              |
+
+The reason the language server can be this relaxed is that sift's reader
+never abandons a file: ~read-source~ returns the forms it could read *and*
+the errors it found, and the linter runs the rules over what it got.  A buffer
+with a broken tail therefore has findings for its whole beginning, which is
+what an editor needs while someone is typing.
+
+The server itself is written to keep answering:
+
+| What goes wrong             | What the server does                                   |
+|-----------------------------+--------------------------------------------------------|
+| a message that is not JSON  | answers ~-32700~ with a null id, and reads the next one |
+| a message with no length    | answers ~-32700~, and reads the next one                |
+| a request before initialize | answers ~-32002~, the protocol's own rule              |
+| a handler that raises       | answers ~-32603~ (or a ~showMessage~ for a notification) and keeps serving |
+| the input closes            | exits 0: an editor that closed the file is not a failure |
+| ~exit~ without ~shutdown~    | exits 1, which is how an editor tells a goodbye from a crash |
+
+The tests for all of that are in ~tests/lsp.scm~, and they talk to the process
+the way an editor does: a session is a list of messages on its standard input
+and the frames that come back.
+
 * Vim
 :PROPERTIES:
 :CUSTOM_ID: vim

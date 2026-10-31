@@ -37,8 +37,14 @@ function! s:run(arguments, lines) abort
   return [l:status, l:output, l:stderr]
 endfunction
 
-function! sift#lint() abort
-  "Put sift's findings for this buffer in the quickfix list."
+function! sift#lint(...) abort
+  "Put sift's findings for this buffer in the quickfix list.
+  "
+  " With a 0 for the first argument the list is filled without opening the
+  " window: a fix should leave the cursor where the author put it, and a
+  " window that jumps in front of the buffer on every `:SiftFix' is a window
+  " that has to be closed again every time.
+  let l:open = a:0 > 0 ? a:1 : 1"
   let l:dialect = s:dialect()
   if empty(l:dialect)
     echoerr 'sift: no dialect for ' . &filetype
@@ -74,7 +80,9 @@ function! sift#lint() abort
     echo 'sift: nothing to report'
   else
     echo printf('sift: %d finding(s)', len(l:items))
-    copen
+    if l:open
+      copen
+    endif
   endif
 endfunction
 
@@ -118,15 +126,26 @@ function! sift#fix() abort
 
   call setline(1, l:out)
   call winrestview(l:view)
-  call sift#lint()
+  " The list is refreshed; the window is not opened over the buffer the author
+  " is working in.
+  call sift#lint(0)
 endfunction
 
 function! sift#explain() abort
-  "Print what the rule that fired on this line wants."
+  "Show what the rule that fired on this line wants, in a scratch buffer.
+
+  " A scratch buffer rather than `:read !', which would put the rule's
+  " documentation into the file being edited.
   for l:item in getqflist()
     if l:item.lnum == line('.') && !empty(l:item.user_data)
-      execute 'silent read !' . shellescape(s:sift) . ' explain '
-            \ . shellescape(l:item.user_data)
+      let l:lines = systemlist(s:sift . ' explain ' . shellescape(l:item.user_data))
+      " `enew!' because the buffer the author is in may have unsaved changes,
+      " and an explanation is not a reason to refuse to open a window.
+      enew!
+      setlocal buftype=nofile bufhidden=wipe noswapfile
+      execute 'silent file' fnameescape('sift explain ' . l:item.user_data)
+      call setline(1, l:lines)
+      setlocal nomodifiable
       return
     endif
   endfor

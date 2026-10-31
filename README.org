@@ -600,13 +600,19 @@ maak fixture-check
 maak docs        # regenerate doc/rules.org from the rules
 #+end_src
 
-The Emacs package is tested with ERT, which Emacs ships, because that is the
-framework an Emacs user already has:
+The editors are tested with the test framework each editor ships, because
+that is the one a user of that editor already has:
 
 #+begin_src shell
-maak emacs-test    # 19 tests
-maak emacs-check   # byte-compile, warnings are errors
+maak emacs-test     # ERT: the package, its Flymake backend and its Eglot entry
+maak emacs-check    # byte-compile, warnings are errors
+maak editors-check  # Vim in batch over the plugin, Node over the VS Code logic
 #+end_src
+
+`maak editors-check` needs `vim` and `node`, and nothing else: the Vim test
+sources the plugin and drives it through `:SiftLint` and `:SiftFix`, and the
+VS Code test runs the extension's own arithmetic — the ranges a quickfix
+replaces — with Node's `assert`.
 
 The suite is not a smoke test.  The reader is tested dialect by dialect on
 every reader macro, every escape, CRLF and UTF-8 columns; the formatter on a
