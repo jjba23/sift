@@ -198,18 +198,29 @@ cannot drift from the specification above it."
                     out))]))])))
 
 (define* (parse-options args)
-  "Parse @var{args} and return @code{(state . files)}.
+  "Parse @var{args} and return @var{state}, the alist of what was said.
 
-@var{state} is an alist of what the command line said; @var{files} are the
-operands, in the order they were written.  A `--' stops option parsing, so a
-file whose name begins with a dash can still be named."
-  (args-fold (normalise-long-options args)
-    option-specification
-    (lambda (opt name arg state)
-      (usage-error "unrecognized option `~a'" name)
-      state)
-    (lambda (operand state) (acons 'operand operand state))
-    '()))
+The operands are in it, in the order they were written.  A `--' stops option
+parsing, so a file whose name begins with a dash can still be named.
+
+`--stdin' is checked here rather than in each command, because \"at most one
+file may be named beside it\" is a property of the flag and not of what the
+command does with the source: a second operand would be silently ignored, and
+a label that stands for nothing is exactly the kind of quiet lie the rest of
+this program refuses to tell."
+  (let* ((state (args-fold (normalise-long-options args)
+                  option-specification
+                  (lambda (opt name arg state)
+                    (usage-error "unrecognized option `~a'" name)
+                    state)
+                  (lambda (operand state) (acons 'operand operand state))
+                  '()))
+         (files (filter-map (lambda (entry)
+                              (and (eq? (car entry) 'operand) (cdr entry)))
+                  state)))
+    (when (and (assq 'stdin state) (> (length files) 1))
+      (usage-error "--stdin reads one source; at most one file may be named, as a label"))
+    state))
 
 ;;; ===== Turning the command line into configuration =====
 
@@ -623,8 +634,6 @@ only has to answer with the usage status."
 (define (run-format config files state)
   (cond
     [(assq 'stdin state)
-     (when (> (length files) 1)
-       (usage-error "--stdin reads one source; at most one file may be named, as a label"))
      (let ((source (get-string-all (current-input-port)))
            (label (or (assq-ref state 'label) (and (pair? files) (car files)))))
        (if (assq 'write state)
@@ -1071,11 +1080,15 @@ followed; nothing is assumed about where the repository lives."
 ;;; ===== doctor =====
 
 (define (library-directory)
-  "Return the directory the sift modules were loaded from, if it can be told."
-  (or (find (lambda (directory)
-              (file-exists? (string-append directory "/sift/cli.scm")))
-        %load-path)
-    "unknown"))
+  "Return the directory the sift modules were loaded from, if it can be told.
+
+The answer is canonical, because the launcher puts `bin/../src' on the load
+path: a path with a `..' in it is a path that makes a reader stop to work it
+out, and this line exists to save them the work."
+  (let ((found (find (lambda (directory)
+                       (file-exists? (string-append directory "/sift/cli.scm")))
+                 %load-path)))
+    (if found (canonicalize-path found) "unknown")))
 
 (define* (command-doctor args)
   "Say what sift this is, what it found to configure itself, and what it decided.

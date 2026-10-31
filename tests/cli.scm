@@ -275,6 +275,23 @@ has exactly one of, which is a question `assert-contains' cannot ask."
            (assert-status #:expect 2 #:got result)
            (assert-contains #:expect (caddr result) #:got "unknown checker")))
 
+       ;; `--stdin' reads one source.  A second operand used to be accepted
+       ;; and silently ignored, which turned `--label' into a claim about a
+       ;; file that was never opened -- and a linter that answers about some
+       ;; other file is worse than one that refuses.
+       (test "--stdin with more than one file is a usage error"
+         (let ((result (run-sift
+                          '("lint" "--stdin" "--dialect=scheme" "a.scm" "b.scm")
+                          #:stdin "(define x 1)\n")))
+           (assert-status #:expect 2 #:got result)
+           (assert-contains #:expect (caddr result) #:got "at most one file")))
+
+       (test "--stdin with one file is the label, and is not a usage error"
+         (let ((result (run-sift
+                          '("lint" "--stdin" "--dialect=scheme" "my-buffer.scm")
+                          #:stdin "(define x 1)\n")))
+           (assert-status #:expect 0 #:got result)))
+
        (test "an unreadable file is a usage error"
          (let ((result (run-sift '("format" "tests/fixtures/no-such-file.scm"))))
            (assert-status #:expect 2 #:got result)
@@ -305,257 +322,275 @@ has exactly one of, which is a question `assert-contains' cannot ask."
                               #:directory directory)))
                 (assert-status #:expect 1 #:got result)
                 (assert-contains #:expect (cadr result) #:got "real.scm"
-                  #:name "the file that could be read was read"))))
+                  #:name "the file that could be read was read")))))
 
-         (test "fix refuses a file that does not parse, and says why"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((path (string-append directory "/broken.scm"))
-                      (before "(define (f x)\n  (a b\n"))
-                  (spit path before)
-                  (let ((result (run-sift (list "fix" path))))
-                    (assert-status #:expect 2 #:got result)
-                    (assert-contains #:expect (caddr result) #:got "parse error")
-                    (assert-same-text #:expect before #:got (slurp path)
-                      #:name "the file is left exactly as it was"))))))
+       ;; The tests below this line were written inside the test above for
+       ;; as long as it was missing a closing parenthesis: they were built
+       ;; when it ran, and never registered as tests of their own, so the
+       ;; suite reported success for a quarter of itself.
+       (test "fix refuses a file that does not parse, and says why"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((path (string-append directory "/broken.scm"))
+                    (before "(define (f x)\n  (a b\n"))
+                (spit path before)
+                (let ((result (run-sift (list "fix" path))))
+                  (assert-status #:expect 2 #:got result)
+                  (assert-contains #:expect (caddr result) #:got "parse error")
+                  (assert-same-text #:expect before #:got (slurp path)
+                    #:name "the file is left exactly as it was"))))))
 
-         (test "fix --force fixes what it can read"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((path (string-append directory "/broken.scm")))
-                  (spit path "(define (f x)   \n  (a b\n")
-                  (let ((result (run-sift (list "fix" "--force" path))))
-                    (assert-status #:expect 1 #:got result)
-                    (assert-contains #:expect (slurp path)
-                      #:got "(define (f x)\n"
-                      #:name "the trailing whitespace is gone"))))))
+       (test "fix --force fixes what it can read"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((path (string-append directory "/broken.scm")))
+                (spit path "(define (f x)   \n  (a b\n")
+                (let ((result (run-sift (list "fix" "--force" path))))
+                  (assert-status #:expect 1 #:got result)
+                  (assert-contains #:expect (slurp path)
+                    #:got "(define (f x)\n"
+                    #:name "the trailing whitespace is gone"))))))
 
-         (test "fix --stdin refuses a buffer that does not parse"
-           (let ((result (run-sift '("fix" "--stdin" "--dialect=scheme")
-                           #:stdin "(define (f x)\n  (a b\n")))
-             (assert-status #:expect 2 #:got result)
-             (assert-same-text #:expect "" #:got (cadr result)
-               #:name "no text is written to standard output")))
+       (test "fix --stdin refuses a buffer that does not parse"
+         (let ((result (run-sift '("fix" "--stdin" "--dialect=scheme")
+                         #:stdin "(define (f x)\n  (a b\n")))
+           (assert-status #:expect 2 #:got result)
+           (assert-same-text #:expect "" #:got (cadr result)
+             #:name "no text is written to standard output")))
 
-         (test "lint --format=github writes workflow commands"
-           (let* ((result (run-sift '("lint" "--format=github"
-                                      "tests/fixtures/lint/dirty.scm")))
-                  (output (cadr result)))
-             (assert-status #:expect 1 #:got result)
-             (assert-contains #:expect output #:got "::warning file=")
-             (assert-contains #:expect output #:got "title=SIFT001 [trailing-whitespace]")))
+       (test "lint --format=github writes workflow commands"
+         (let* ((result (run-sift '("lint" "--format=github"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (assert-contains #:expect output #:got "::warning file=")
+           (assert-contains #:expect output #:got "title=SIFT001 [trailing-whitespace]")))
 
-         (test "lint --format=sarif writes a SARIF document"
-           (let* ((result (run-sift '("lint" "--format=sarif"
-                                      "tests/fixtures/lint/dirty.scm")))
-                  (output (cadr result)))
-             (assert-status #:expect 1 #:got result)
-             (assert-contains #:expect output #:got "\"version\":\"2.1.0\"")
-             (assert-contains #:expect output #:got "\"rules\":")
-             (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")
-             (assert-contains #:expect output #:got "\"artifactLocation\"")))
+       (test "lint --format=sarif writes a SARIF document"
+         (let* ((result (run-sift '("lint" "--format=sarif"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (assert-contains #:expect output #:got "\"version\":\"2.1.0\"")
+           (assert-contains #:expect output #:got "\"rules\":")
+           (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")
+           (assert-contains #:expect output #:got "\"artifactLocation\"")))
 
-         ;; SARIF is read by a service, not by a person, so a field it is
-         ;; missing is a field nobody sees: a rule with no help, an artifact
-         ;; every result names in full, a region that cannot say how long the
-         ;; finding is, a result that cannot be matched with last week's.
-         (test "lint --format=sarif describes the rules, the artifacts and the run"
-           (let* ((result (run-sift '("lint" "--format=sarif"
-                                      "tests/fixtures/lint/dirty.scm")))
-                  (output (cadr result)))
-             (assert-status #:expect 1 #:got result)
-             (for-each
-                (lambda (field)
-                  (assert-contains #:expect output #:got field
-                    #:name (format #f "the document carries ~a" field)))
-                '("\"fullDescription\":"
-                  "\"help\":{\"text\":"
-                  "\"helpUri\":"
-                  "\"shortDescription\":"
-                  "\"invocations\":[{\"executionSuccessful\":true}]"
-                  "\"artifacts\":[{\"location\":{\"uri\":\"tests/fixtures/lint/dirty.scm\"}"
-                  "\"roles\":[\"analysisTarget\"]"
-                  "\"index\":0"
-                  "\"columnKind\":\"unicodeCodePoints\""
-                  "\"partialFingerprints\":{\"siftFingerprint/v1\":"
-                  "\"charOffset\":"
-                  "\"charLength\":"
-                  "\"ruleIndex\":0"))
-             (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\""
-               #:name "the rule is named by its code")))
+       ;; SARIF is read by a service, not by a person, so a field it is
+       ;; missing is a field nobody sees: a rule with no help, an artifact
+       ;; every result names in full, a region that cannot say how long the
+       ;; finding is, a result that cannot be matched with last week's.
+       (test "lint --format=sarif describes the rules, the artifacts and the run"
+         (let* ((result (run-sift '("lint" "--format=sarif"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (for-each
+              (lambda (field)
+                (assert-contains #:expect output #:got field
+                  #:name (format #f "the document carries ~a" field)))
+              '("\"fullDescription\":"
+                "\"help\":{\"text\":"
+                "\"helpUri\":"
+                "\"shortDescription\":"
+                "\"invocations\":[{\"executionSuccessful\":true}]"
+                "\"artifacts\":[{\"location\":{\"uri\":\"tests/fixtures/lint/dirty.scm\"}"
+                "\"roles\":[\"analysisTarget\"]"
+                "\"index\":0"
+                "\"columnKind\":\"unicodeCodePoints\""
+                "\"partialFingerprints\":{\"siftFingerprint/v1\":"
+                "\"charOffset\":"
+                "\"charLength\":"
+                "\"ruleIndex\":0"))
+           (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\""
+             #:name "the rule is named by its code")))
 
-         (test "a document format writes one document for the whole run"
-           (let* ((result (run-sift '("ci" "--format=sarif"
-                                      "tests/fixtures/lint/dirty.scm"
-                                      "tests/fixtures/scheme/community/input/messy.scm")))
-                  (output (cadr result)))
-             (assert-status #:expect 1 #:got result)
-             ;; two files, one document: a second `$schema' would be a second
-             ;; document, which is what a code scanning service cannot read
-             (assert-equal #:expect 1 #:got (occurrences "\"$schema\"" output)
-               #:name "there is one document")
-             (assert-equal #:expect 2 #:got (occurrences "\"analysisTarget\"" output)
-               #:name "both files are artifacts")
-             ;; a formatting difference is a finding of its own, with a rule of
-             ;; its own, so that `ci --format=sarif' says everything `ci' says
-             (assert-contains #:expect output #:got "\"ruleId\":\"format\"")
-             (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")))
+       (test "a document format writes one document for the whole run"
+         (let* ((result (run-sift '("ci" "--format=sarif"
+                                    "tests/fixtures/lint/dirty.scm"
+                                    "tests/fixtures/scheme/community/input/messy.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           ;; two files, one document: a second `$schema' would be a second
+           ;; document, which is what a code scanning service cannot read
+           (assert-equal #:expect 1 #:got (occurrences "\"$schema\"" output)
+             #:name "there is one document")
+           (assert-equal #:expect 2 #:got (occurrences "\"analysisTarget\"" output)
+             #:name "both files are artifacts")
+           ;; a formatting difference is a finding of its own, with a rule of
+           ;; its own, so that `ci --format=sarif' says everything `ci' says
+           (assert-contains #:expect output #:got "\"ruleId\":\"format\"")
+           (assert-contains #:expect output #:got "\"ruleId\":\"SIFT001\"")))
 
-         (test "a document format answers a run of several files once"
-           (let* ((result (run-sift '("lint" "--format=json"
-                                      "tests/fixtures/lint/dirty.scm"
-                                      "tests/fixtures/lint/dirty.scm")))
-                  (output (cadr result)))
-             (assert-status #:expect 1 #:got result)
-             (assert-true (string-prefix? "[" output) #:name "it is one array")
-             (assert-equal #:expect 1 #:got (occurrences ",{\"file\"" output)
-               #:name "one array holds them all")))
+       (test "a document format answers a run of several files once"
+         (let* ((result (run-sift '("lint" "--format=json"
+                                    "tests/fixtures/lint/dirty.scm"
+                                    "tests/fixtures/lint/dirty.scm")))
+                (output (cadr result)))
+           (assert-status #:expect 1 #:got result)
+           (assert-true (string-prefix? "[" output) #:name "it is one array")
+           (assert-equal #:expect 1 #:got (occurrences ",{\"file\"" output)
+             #:name "one array holds them all")))
 
-         (test "doctor says what ran and what it decided"
-           (let ((result (run-sift '("doctor"))))
-             (assert-status #:expect 0 #:got result)
-             ;; the version is asserted by shape, so that bumping it is one edit
-             ;; in one place rather than an edit here too
-             (assert-contains #:expect (cadr result) #:got "sift "
-               #:name "doctor starts with the version")
-             (assert-contains #:expect (cadr result) #:got "rules")
-             (assert-contains #:expect (cadr result) #:got "sift.yaml")))
+       (test "doctor says what ran and what it decided"
+         (let ((result (run-sift '("doctor"))))
+           (assert-status #:expect 0 #:got result)
+           ;; the version is asserted by shape, so that bumping it is one edit
+           ;; in one place rather than an edit here too
+           (assert-contains #:expect (cadr result) #:got "sift "
+             #:name "doctor starts with the version")
+           (assert-contains #:expect (cadr result) #:got "rules")
+           (assert-contains #:expect (cadr result) #:got "sift.yaml")))
 
-         (test "ci passes on a clean file"
-           (let ((result (run-sift '("ci" "tests/fixtures/lint/clean.scm"))))
-             (assert-status #:expect 0 #:got result)))
+       ;; The launcher puts `bin/../src' on the load path, and doctor is
+       ;; the command you run so that you do not have to work out where
+       ;; the program came from.  Handing the arithmetic back to the
+       ;; reader is the one thing that line must not do.
+       (test "doctor names the library without a `..' in it"
+         (let* ((result (run-sift '("doctor")))
+                (line (find (lambda (candidate)
+                              (string-contains candidate "library"))
+                        (string-split (cadr result) #\newline))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect line #:got "/src"
+             #:name "the library line is a directory under the checkout")
+           (assert-not-contains #:expect line #:got "..")))
 
-         (test "ci fails when a file is not formatted"
-           (let ((result (run-sift '("ci" "tests/fixtures/scheme/community/input/messy.scm"))))
-             (assert-status #:expect 1 #:got result)
-             (assert-contains #:expect (cadr result) #:got "@@ ")))
+       (test "ci passes on a clean file"
+         (let ((result (run-sift '("ci" "tests/fixtures/lint/clean.scm"))))
+           (assert-status #:expect 0 #:got result)))
 
-         (test "ci fails when the linter has something to say"
-           (let ((result (run-sift '("ci" "tests/fixtures/lint/dirty.scm"))))
-             (assert-status #:expect 1 #:got result)
-             (assert-contains #:expect (cadr result) #:got "[trailing-whitespace]")))
+       (test "ci fails when a file is not formatted"
+         (let ((result (run-sift '("ci" "tests/fixtures/scheme/community/input/messy.scm"))))
+           (assert-status #:expect 1 #:got result)
+           (assert-contains #:expect (cadr result) #:got "@@ ")))
 
-         (test "ci does not write the file it is judging"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((path (string-append directory "/dirty.scm"))
-                      (before "(define (f x)\n  (+ x 1))   \n"))
-                  (spit path before)
-                  (let ((result (run-sift (list "ci" path))))
-                    (assert-status #:expect 1 #:got result)
-                    (assert-same-text #:expect before #:got (slurp path)))))))
+       (test "ci fails when the linter has something to say"
+         (let ((result (run-sift '("ci" "tests/fixtures/lint/dirty.scm"))))
+           (assert-status #:expect 1 #:got result)
+           (assert-contains #:expect (cadr result) #:got "[trailing-whitespace]")))
 
-         (test "ci refuses to fix"
-           (let ((result (run-sift '("ci" "--fix" "tests/fixtures/lint/clean.scm"))))
-             (assert-status #:expect 2 #:got result)
-             (assert-contains #:expect (caddr result) #:got "never fixes")))
+       (test "ci does not write the file it is judging"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((path (string-append directory "/dirty.scm"))
+                    (before "(define (f x)\n  (+ x 1))   \n"))
+                (spit path before)
+                (let ((result (run-sift (list "ci" path))))
+                  (assert-status #:expect 1 #:got result)
+                  (assert-same-text #:expect before #:got (slurp path)))))))
 
-         (test "ci --format=github turns formatting differences into annotations"
-           (let ((result (run-sift '("ci" "--format=github"
-                                     "tests/fixtures/scheme/community/input/messy.scm"))))
-             (assert-status #:expect 1 #:got result)
-             (assert-contains #:expect (cadr result) #:got "::error file=")))
+       (test "ci refuses to fix"
+         (let ((result (run-sift '("ci" "--fix" "tests/fixtures/lint/clean.scm"))))
+           (assert-status #:expect 2 #:got result)
+           (assert-contains #:expect (caddr result) #:got "never fixes")))
 
-         (test "install-hooks writes a pre-commit hook"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((git (string-append directory "/.git")))
-                  (mkdir git)
-                  (let ((result (run-sift '("install-hooks") #:directory directory)))
-                    (assert-status #:expect 0 #:got result)
-                    (let ((hook (string-append git "/hooks/pre-commit")))
-                      (assert-true (file-exists? hook)
-                        #:name "the hook was written")
-                      (assert-contains #:expect (slurp hook) #:got "sift")))))))
+       (test "ci --format=github turns formatting differences into annotations"
+         (let ((result (run-sift '("ci" "--format=github"
+                                   "tests/fixtures/scheme/community/input/messy.scm"))))
+           (assert-status #:expect 1 #:got result)
+           (assert-contains #:expect (cadr result) #:got "::error file=")))
 
-         (test "install-hooks leaves an existing hook alone"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((git (string-append directory "/.git")))
-                  (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
-                  (let ((result (run-sift '("install-hooks") #:directory directory)))
-                    (assert-status #:expect 2 #:got result)
-                    (assert-contains #:expect (caddr result) #:got "already exists"))))))
+       (test "install-hooks writes a pre-commit hook"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((git (string-append directory "/.git")))
+                (mkdir git)
+                (let ((result (run-sift '("install-hooks") #:directory directory)))
+                  (assert-status #:expect 0 #:got result)
+                  (let ((hook (string-append git "/hooks/pre-commit")))
+                    (assert-true (file-exists? hook)
+                      #:name "the hook was written")
+                    (assert-contains #:expect (slurp hook) #:got "sift")))))))
 
-         (test "install-hooks --force replaces one"
-           (with-temp-directory
-              (lambda (directory)
-                (let ((git (string-append directory "/.git")))
-                  (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
-                  (let ((result (run-sift '("install-hooks" "--force")
-                                  #:directory directory)))
-                    (assert-status #:expect 0 #:got result)
-                    (assert-contains #:expect
-                      (slurp (string-append git "/hooks/pre-commit"))
-                      #:got "sift"))))))
-
-         (test "install-hooks outside a repository is a usage error"
-           (with-temp-directory
-              (lambda (directory)
+       (test "install-hooks leaves an existing hook alone"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((git (string-append directory "/.git")))
+                (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
                 (let ((result (run-sift '("install-hooks") #:directory directory)))
                   (assert-status #:expect 2 #:got result)
-                  (assert-contains #:expect (caddr result) #:got "no git repository")))))
+                  (assert-contains #:expect (caddr result) #:got "already exists"))))))
 
-         (test "list-checkers prints a table"
-           (let ((result (run-sift '("list-checkers"))))
-             (assert-status #:expect 0 #:got result)
-             (assert-contains #:expect (cadr result) #:got "trailing-whitespace")
-             (assert-contains #:expect (cadr result) #:got "SEVERITY")))
-
-         (test "list-checkers --dialect filters to the dialect"
-           (let ((result (run-sift '("list-checkers" "--dialect=elisp"))))
-             (assert-status #:expect 0 #:got result)
-             (assert-contains #:expect (cadr result) #:got "docstring-missing")
-             (assert-not-contains #:expect (cadr result) #:got "internal-define")))
-
-         (test "explain documents a checker"
-           (let ((result (run-sift '("explain" "if-without-else"))))
-             (assert-status #:expect 0 #:got result)
-             (assert-contains #:expect (cadr result) #:got "DESCRIPTION")
-             (assert-contains #:expect (cadr result) #:got "DIALECTS")))
-
-         (test "explain answers 2 for a checker it does not know"
-           (let ((result (run-sift '("explain" "no-such-checker"))))
-             (assert-status #:expect 2 #:got result)
-             (assert-contains #:expect (caddr result) #:got "unknown checker")))
-
-         (test "config show prints the effective configuration"
-           (let ((result (run-sift '("config" "show"))))
-             (assert-status #:expect 0 #:got result)
-             (assert-contains #:expect (cadr result) #:got "line-length")
-             (assert-contains #:expect (cadr result) #:got "style")))
-
-         (test "config explain documents a key"
-           (let ((result (run-sift '("config" "explain" "line-length"))))
-             (assert-status #:expect 0 #:got result)
-             (assert-contains #:expect (cadr result) #:got "--line-length"))))
-
-       ;; The configuration a project can actually write in its own file.  These
-       ;; are the two settings the README documents in YAML, and a YAML reader can
-       ;; only give them if it reads a two-element list as a pair and an empty flow
-       ;; sequence as an empty list.  Both were unreadable: `indent-rules' was
-       ;; rejected as "not a list of pairs" however it was written, and `[]' became
-       ;; a list holding one empty string.
-       (suite "project configuration"
-         #:concurrent? #f
-
-         (test "indent-rules written as a YAML sequence indents the macro"
-           (with-temp-directory
-              (lambda (directory)
-                (spit (string-append directory "/sift.yaml")
-                  "indent-rules:\n  - [with-my-thing, 2]\n")
-                (spit (string-append directory "/macro.scm")
-                  "(with-my-thing\n(a)\n(b))\n")
-                (let ((result (run-sift '("format" "macro.scm") #:directory directory)))
+       (test "install-hooks --force replaces one"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((git (string-append directory "/.git")))
+                (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
+                (let ((result (run-sift '("install-hooks" "--force")
+                                #:directory directory)))
                   (assert-status #:expect 0 #:got result)
-                  (assert-same-text #:expect "(with-my-thing\n  (a)\n  (b))\n"
-                    #:got (cadr result))))))
+                  (assert-contains #:expect
+                    (slurp (string-append git "/hooks/pre-commit"))
+                    #:got "sift"))))))
 
-         (test "an empty flow sequence is an empty list of names"
-           (with-temp-directory
-              (lambda (directory)
-                (spit (string-append directory "/sift.yaml") "exclude-checkers: []\n")
-                (let ((result (run-sift '("config" "show") #:directory directory)))
-                  (assert-status #:expect 0 #:got result)
-                  (assert-contains #:expect (cadr result)
-                    #:got "exclude-checkers: []")))))))))
+       (test "install-hooks outside a repository is a usage error"
+         (with-temp-directory
+            (lambda (directory)
+              (let ((result (run-sift '("install-hooks") #:directory directory)))
+                (assert-status #:expect 2 #:got result)
+                (assert-contains #:expect (caddr result) #:got "no git repository")))))
+
+       (test "list-checkers prints a table"
+         (let ((result (run-sift '("list-checkers"))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect (cadr result) #:got "trailing-whitespace")
+           (assert-contains #:expect (cadr result) #:got "SEVERITY")))
+
+       (test "list-checkers --dialect filters to the dialect"
+         (let ((result (run-sift '("list-checkers" "--dialect=elisp"))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect (cadr result) #:got "docstring-missing")
+           (assert-not-contains #:expect (cadr result) #:got "internal-define")))
+
+       (test "explain documents a checker"
+         (let ((result (run-sift '("explain" "if-without-else"))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect (cadr result) #:got "DESCRIPTION")
+           (assert-contains #:expect (cadr result) #:got "DIALECTS")))
+
+       (test "explain answers 2 for a checker it does not know"
+         (let ((result (run-sift '("explain" "no-such-checker"))))
+           (assert-status #:expect 2 #:got result)
+           (assert-contains #:expect (caddr result) #:got "unknown checker")))
+
+       (test "config show prints the effective configuration"
+         (let ((result (run-sift '("config" "show"))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect (cadr result) #:got "line-length")
+           (assert-contains #:expect (cadr result) #:got "style")))
+
+       (test "config explain documents a key"
+         (let ((result (run-sift '("config" "explain" "line-length"))))
+           (assert-status #:expect 0 #:got result)
+           (assert-contains #:expect (cadr result) #:got "--line-length"))))
+
+     ;; The configuration a project can actually write in its own file.  These
+     ;; are the two settings the README documents in YAML, and a YAML reader can
+     ;; only give them if it reads a two-element list as a pair and an empty flow
+     ;; sequence as an empty list.  Both were unreadable: `indent-rules' was
+     ;; rejected as "not a list of pairs" however it was written, and `[]' became
+     ;; a list holding one empty string.
+     (suite "project configuration"
+       #:concurrent? #f
+
+       (test "indent-rules written as a YAML sequence indents the macro"
+         (with-temp-directory
+            (lambda (directory)
+              (spit (string-append directory "/sift.yaml")
+                "indent-rules:\n  - [with-my-thing, 2]\n")
+              (spit (string-append directory "/macro.scm")
+                "(with-my-thing\n(a)\n(b))\n")
+              (let ((result (run-sift '("format" "macro.scm") #:directory directory)))
+                (assert-status #:expect 0 #:got result)
+                (assert-same-text #:expect "(with-my-thing\n  (a)\n  (b))\n"
+                  #:got (cadr result))))))
+
+       (test "an empty flow sequence is an empty list of names"
+         (with-temp-directory
+            (lambda (directory)
+              (spit (string-append directory "/sift.yaml") "exclude-checkers: []\n")
+              (let ((result (run-sift '("config" "show") #:directory directory)))
+                (assert-status #:expect 0 #:got result)
+                (assert-contains #:expect (cadr result)
+                  #:got "exclude-checkers: []"))))))))
