@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- sift project avatar, drawn for sift and licensed MIT -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 512 512">
+  <title>sift</title>
+  <desc>A sieve: fragments go in loose and come out lined up, which is what a formatter does.</desc>
+  <defs>
+    <linearGradient id="sift-avatar-cool" x1="70" y1="50" x2="450" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#94e2d5" />
+      <stop offset="1" stop-color="#b4befe" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="150" fill="url(#sift-avatar-cool)" />
+  <rect x="4" y="4" width="504" height="504" rx="146"
+        fill="none" stroke="#1e1e2e" stroke-opacity="0.12" stroke-width="4" />
+  <g transform="translate(76 66) scale(3.6)">
+    <!-- what goes in: loose -->
+    <circle cx="28" cy="15" r="3.6" fill="#1e1e2e" />
+    <circle cx="50" cy="7" r="2.8" fill="#1e1e2e" />
+    <circle cx="72" cy="17" r="3.8" fill="#1e1e2e" />
+    <!-- the sieve -->
+    <path d="M18 28 H82 L58 58 V80 H42 V58 Z" fill="none"
+          stroke="#1e1e2e" stroke-width="6" stroke-linejoin="round" stroke-linecap="round" />
+    <!-- what comes out: lined up -->
+    <path d="M40 92 V102 M50 92 V102 M60 92 V102" fill="none"
+          stroke="#1e1e2e" stroke-width="6" stroke-linecap="round" />
+    <!-- a kept byte, the one thing that must not be lost -->
+    <path d="M89 8l2.2 5.8 5.8 2.2-5.8 2.2L89 24l-2.2-5.8L81 16l5.8-2.2z"
+          fill="#eff7ff" />
+  </g>
+</svg>
