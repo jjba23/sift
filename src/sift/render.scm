@@ -17,6 +17,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 string-fun)
   #:use-module (ice-9 match)
   #:use-module (sift records)
   #:export (color-enabled?
@@ -81,6 +82,11 @@ consumer wants; @code{null} writes nothing at all and exists so that a
 script can ask for the exit status alone."
   (case format
     [(json) (display (warnings->json warnings) port) (newline port)]
+    [(github)
+     (for-each (lambda (warning)
+                 (display (warning->github warning) port)
+                 (newline port))
+       warnings)]
     [(null) *unspecified*]
     [else
        (for-each (lambda (warning)
@@ -147,6 +153,37 @@ changed, and a hash table would not promise that."
                                        (lint-warning-severity warning))) ","
        "\"message\":" (json-escape (lint-warning-message warning))
        "}")))
+
+(define* (warning->github warning)
+  "Return one warning as a GitHub Actions workflow command.
+
+An annotation puts the finding on the line of the diff in a pull request,
+which is where a reviewer is already looking.  The rule code goes in the
+title so that the same handle as everywhere else is on screen."
+  (let* ((location (lint-warning-location warning))
+         (severity (lint-warning-severity warning))
+         (kind (case severity
+                 [(error) "error"]
+                 [(warning) "warning"]
+                 [else "notice"]))
+         (title (format #f "~a [~a]"
+                  (or (rule-code (lint-warning-checker warning)) "")
+                  (lint-warning-checker warning))))
+    (format #f "::~a file=~a,line=~a,col=~a,title=~a::~a"
+      kind
+      (or (source-location-file location) "<stdin>")
+      (source-location-line location)
+      (source-location-column location)
+      (github-escape title)
+      (github-escape (lint-warning-message warning)))))
+
+(define (github-escape text)
+  "Escape the characters a workflow command treats as syntax."
+  (string-replace-substring
+     (string-replace-substring
+        (string-replace-substring text "%" "%25")
+        "\r" "%0D")
+     "\n" "%0A"))
 
 (define (warnings->json warnings)
   "Return @var{warnings} as a JSON array; an empty run is `[]', not blank."

@@ -1,0 +1,154 @@
+;; sift --- the rule catalogue
+;;
+;; SPDX-License-Identifier: GPL-3.0-or-later
+
+;;; Commentary:
+;;
+;; Every rule sift ships, rendered as one Org document.  The document is
+;; generated from the checker records -- the same records `list-checkers'
+;; prints and the driver runs -- so it cannot describe a rule that does not
+;; exist, and a rule that is added cannot escape it: the test suite compares
+;; `doc/rules.org' with what this module produces and fails when they differ.
+;;
+;; The prose that explains *why* a rule exists is in doc/style.org, written
+;; by hand; what is here is the part that must not drift: the codes, the
+;; dialects, the severities, the examples and the fixes.
+
+(define-module (sift catalogue)
+  #:declarative? #t
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-13)
+  #:use-module (ice-9 format)
+  #:use-module (ice-9 string-fun)
+  #:use-module (ice-9 textual-ports)
+  #:use-module (sift records)
+  #:use-module (sift lint)
+  #:export (catalogue->org
+              catalogue-file
+              catalogue-check
+              rule-sections
+              backticks->org
+              table-cell))
+
+(define catalogue-file "doc/rules.org")
+
+;;; ===== Org markup =====
+
+(define (backticks->org text)
+  "Turn `like this' into ~like this~, which is what Org calls code.
+
+The descriptions are written with backticks because that is what a markdown
+reader and a Lisp reader both understand; Org wants tildes, and this is the
+one place where the two meet."
+  (let loop ((chars (string->list text)) (in-code #f) (out '()))
+    (cond
+      [(null? chars) (list->string (reverse out))]
+      [(char=? (car chars) #\`)
+       (loop (cdr chars) (not in-code) (cons (if in-code #\~ #\~) out))]
+      [else (loop (cdr chars) in-code (cons (car chars) out))])))
+
+(define (table-cell text)
+  "Escape @var{text} for an Org table cell.
+
+A vertical bar ends a cell, so a description that contains one -- `--brackets
+square|parens' is the example -- has to be written \\vert."
+  (backticks->org
+     (string-replace-substring text "|" "\\vert")))
+
+(define (dialects->org checker)
+  (let ((dialects (lint-checker-dialects checker)))
+    (if (eq? dialects 'all)
+      "all"
+      (string-join (map symbol->string dialects) ", "))))
+
+;;; ===== The document =====
+
+(define (summary-table checkers)
+  (string-append
+     "| Name | Code | Dialects | Severity | What it says |\n"
+     "|------+------+----------+----------+--------------|\n"
+     (string-join
+        (map (lambda (checker)
+               (format #f "| ~a | ~a | ~a | ~a | ~a |"
+                 (lint-checker-name checker)
+                 (lint-checker-code checker)
+                 (dialects->org checker)
+                 (lint-checker-severity checker)
+                 (table-cell (lint-checker-description checker))))
+          checkers)
+        "\n")
+     "\n"))
+
+(define (example-of checker key)
+  (let ((example (lint-checker-example checker)))
+    (and example (assq-ref example key))))
+
+(define (rule-section checker)
+  "Return one rule as an Org section."
+  (let ((name (lint-checker-name checker))
+        (rule-code (lint-checker-code checker))
+        (example (example-of checker 'input))
+        (fix (example-of checker 'fix)))
+    (string-append
+       (format #f "** ~a ~a\n:PROPERTIES:\n:CUSTOM_ID: ~a\n:END:\n\n"
+         rule-code name (symbol->string name))
+       (format #f "~a\n\n" (backticks->org (lint-checker-description checker)))
+       (format #f "- *Dialects:* ~a\n" (dialects->org checker))
+       (format #f "- *Severity:* ~a\n" (lint-checker-severity checker))
+       (if fix
+         (format #f "- *Fix:* ~a\n\n" (backticks->org fix))
+         "- *Fix:* none; the rule explains what to write instead\n\n")
+       (if example
+         (format #f "#+begin_src ~a\n~a\n#+end_src\n\n"
+           (source-language (lint-checker-dialects checker))
+           example)
+         "")
+       "#+begin_quote\n"
+       (string-append
+          "Run " (code (string-append "sift explain " (symbol->string name)))
+          " at the command line, or " (code "M-x sift-explain-at-point")
+          " in Emacs with the cursor on a finding.")
+       "\n#+end_quote\n\n")))
+
+(define (code text)
+  "Wrap @var{text} in Org's verbatim markers.
+
+A tilde inside a format string is a directive, so the markers of a sentence
+with several code fragments are built here rather than written inline."
+  (string-append "~" text "~"))
+
+(define (source-language dialects)
+  (cond
+    [(and (list? dialects) (equal? dialects '(elisp))) "elisp"]
+    [(and (list? dialects) (equal? dialects '(cl))) "commonlisp"]
+    [else "scheme"]))
+
+(define (rule-sections checkers)
+  (string-join (map rule-section checkers) "\n"))
+
+(define (catalogue->org)
+  "Return the whole rule catalogue as an Org document."
+  (let ((checkers (all-checkers)))
+    (string-append
+       "#+title: sift — the rule catalogue\n"
+       "#+author: generated by sift from the checker records\n"
+       "#+options: toc:2 num:nil\n"
+       "#+language: en\n\n"
+       "/Do not edit this file by hand./  It is written by ~maak docs~ from the\n"
+       "same records that ~sift list-checkers~ prints and that the linter runs,\n"
+       "and the test suite fails when it falls behind.  What each rule is\n"
+       "*for* -- the reasoning, and the style the rules belong to -- is in\n"
+       "[[file:style.org][style.org]].\n\n"
+       (format #f "There are ~a rules in sift ~a.\n\n" (length checkers) "0.2.0")
+       "* Summary\n\n"
+       (summary-table checkers)
+       "\n* The rules, one by one\n\n"
+       (rule-sections checkers))))
+
+;;; ===== Keeping the file honest =====
+
+(define* (catalogue-check #:key (path catalogue-file))
+  "Return @code{#t} when @var{path} is exactly what this module generates."
+  (and (file-exists? path)
+    (string=? (call-with-input-file path get-string-all)
+      (catalogue->org))))

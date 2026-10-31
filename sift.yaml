@@ -1,0 +1,12 @@
+# sift's own configuration.
+#
+# The project formats and lints itself, and this is the file that says how:
+# a finding at warning or error fails the build, an informational suggestion
+# does not.  That is the line most projects want -- "this is wrong" blocks a
+# merge, "consider this" does not -- and it is a project decision, so it
+# lives in the project rather than in a flag someone has to remember.
+severity: warning
+
+# Scheme clause lists are written with square brackets, which is the default
+# for the dialect; stating it here documents the intent.
+brackets: square

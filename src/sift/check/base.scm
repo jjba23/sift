@@ -29,6 +29,8 @@
               for-each-top-level
               fold-nodes
               node-source
+              case-datum?
+              case-form-heads
               list-headed-by?
               head-is-one-of?
               form-elements
@@ -108,9 +110,11 @@ The ancestors come nearest-first, which is the order a checker asks them in:
          (for-each (lambda (child) (walk child (cons node ancestors)))
            (node-elements node))]
         [(node-prefix? node)
+         ;; a prefix is a parent like any other: a checker asking whether a
+         ;; node is inside a quote has to see the quote mark it is inside of
          (let ((child (node-child node)))
            (when (and child (not (node-datum-comment? node)))
-             (walk child ancestors)))]
+             (walk child (cons node ancestors))))]
         [(node-conditional? node)
          (let ((feature (node-feature node))
                (guarded (node-guarded-form node)))
@@ -119,6 +123,27 @@ The ancestors come nearest-first, which is the order a checker asks them in:
   (for-each (lambda (node) (when (node-data? node) (walk node '()))) ast))
 
 ;;; ===== Reading a form =====
+
+;; Forms whose clauses start with a datum rather than with code.  In
+;; `(case x ((a b) ...))' the list `(a b)' is a list of *values* to match, not
+;; a call, so a rule about the shape of a form has no business looking inside
+;; it.
+(define case-form-heads
+  '(case ecase ccase typecase etypecase ctypecase))
+
+(define (case-datum? node ancestors)
+  "Return @code{#t} when @var{node} is the datum head of a `case` clause.
+
+The walk reaches `(cond)' in `(case x [(cond) ...])' as if it were a `cond`
+form; it is a datum, and no rule should treat it as code."
+  (and (pair? ancestors)
+    (pair? (cdr ancestors))
+    (let ((clause (car ancestors))
+          (form (cadr ancestors)))
+      (and (node-list? clause)
+        (node-list? form)
+        (memq (node-head-name form) case-form-heads)
+        (eq? (node-head clause) node)))))
 
 (define (node-source source node)
   "Return the source text @var{node} was read from."
@@ -218,8 +243,12 @@ is not a value here."
 (define (body-elements node skip)
   "Return the body of @var{node}: its elements after the first @var{skip}.
 
-A docstring is not a body form, so it is dropped when it comes first."
-  (let ((rest (drop (form-elements node) skip)))
+A docstring is not a body form, so it is dropped when it comes first.  A
+form shorter than @var{skip} has no body at all, and asking for one is not an
+error: `(defun f ())` defines a function with no body, which is a different
+problem from a crash."
+  (let* ((elements (form-elements node))
+         (rest (drop elements (min skip (length elements)))))
     (if (and (pair? rest) (string-atom? (car rest)))
       (cdr rest)
       rest)))

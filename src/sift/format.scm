@@ -248,7 +248,7 @@ written across several lines."
 ;;; ===== Rendering context =====
 
 (define-record-type <ctx>
-  (%make-ctx dialect style indent-width top? alignment marks brackets)
+  (%make-ctx dialect style indent-width top? alignment marks brackets rules)
   ctx?
   (dialect ctx-dialect)
   (style ctx-style)
@@ -256,17 +256,30 @@ written across several lines."
   (top? ctx-top?) ; #t while rendering top-level nodes
   (alignment ctx-alignment) ; alist of comment index -> column
   (marks ctx-marks) ; mutable box of measurement triples
-  (brackets ctx-brackets)) ; square, parens or preserve
+  (brackets ctx-brackets) ; square, parens or preserve
+  (rules ctx-rules)) ; the project's own (symbol . columns) rules
 
 (define* (make-ctx #:key (dialect 'scheme) (style 'community)
-           (indent-width 2) (alignment '()) (marks #f) (brackets #f))
+           (indent-width 2) (alignment '()) (marks #f) (brackets #f)
+           (rules '()))
   (%make-ctx dialect style indent-width #t alignment
     (or marks (cons '() '()))
-    (or brackets (default-brackets dialect))))
+    (or brackets (default-brackets dialect))
+    rules))
 
 (define (ctx-inside ctx)
   (%make-ctx (ctx-dialect ctx) (ctx-style ctx) (ctx-indent-width ctx)
-    #f (ctx-alignment ctx) (ctx-marks ctx) (ctx-brackets ctx)))
+    #f (ctx-alignment ctx) (ctx-marks ctx) (ctx-brackets ctx)
+    (ctx-rules ctx)))
+
+(define (ctx-rule ctx head-name)
+  "Return the project's own rule for @var{head-name}, or @code{#f}.
+
+A project's rule wins over the built-in table: a macro called `with-foo'
+means what the project says it means, and no formatter can know that from
+the name."
+  (let ((entry (assq head-name (ctx-rules ctx))))
+    (and entry (cdr entry))))
 
 (define (newline-cap ctx)
   "Return the largest number of newlines a gap may keep.
@@ -475,7 +488,8 @@ are structure, and the author keeps them."
        ;; structure -- lines its elements up under the first.
        (+ open-column open-width)]
       [else
-         (let ((rule (indent-rule (ctx-dialect ctx) head-name width)))
+         (let ((rule (or (ctx-rule ctx head-name)
+                       (indent-rule (ctx-dialect ctx) head-name width))))
            (cond
              [(eq? rule 'data) (+ open-column open-width)]
              [(eq? rule 'clauses)
@@ -491,12 +505,41 @@ are structure, and the author keeps them."
                 (+ open-column (ctx-indent-width ctx)))]
              [(integer? rule) (+ open-column rule)]
              [else
-                ;; The generic rule: arguments sit two columns in from the opener
-                ;; when the first one is on the operator's line, and two columns in
-                ;; from the operator when the author moved it down.
-                (if (first-argument-on-head-line? node)
-                  (+ open-column width)
-                  (+ open-column open-width width))]))])))
+                (cond
+                  ;; A call with keyword arguments lines them up under the
+                  ;; first argument, which is where the reader looks for the
+                  ;; next keyword: the keywords become a column of names and
+                  ;; values rather than a staircase.
+                  [(keyword-arguments? node)
+                   (alignment-column-for node open-column)]
+                  ;; The generic rule: arguments sit two columns in from the
+                  ;; opener when the first one is on the operator's line, and
+                  ;; two columns in from the operator when the author moved it
+                  ;; down.
+                  [(first-argument-on-head-line? node) (+ open-column width)]
+                  [else (+ open-column open-width width)])]))])))
+
+(define (keyword-arguments? node)
+  "Return @code{#t} when @var{node} is a call with keyword arguments.
+
+Only a call: a data list of keywords is a plist someone is building, and it
+is already aligned by the data rule."
+  (let ((elements (node-elements node)))
+    (and (node-head-name node)
+      (pair? elements)
+      (any (lambda (element)
+             (and (node-atom? element) (eq? (node-atom-type element) 'keyword)))
+        (cdr elements)))))
+
+(define (alignment-column-for node open-column)
+  "Return the column of the first argument of @var{node}.
+
+`(make-window title' puts `title' at the opener's column plus the opener,
+the operator and one space; that is where every keyword below it belongs."
+  (+ open-column
+    (string-length (node-open node))
+    (string-length (node-value (node-head node)))
+    1))
 
 (define (first-argument-on-head-line? node)
   "Return @code{#t} when the second element of @var{node} is on the head's line."
@@ -540,25 +583,28 @@ aligned one column past the longest line of code in it."
   (let* ((out (make-out))
          (top (%make-ctx (ctx-dialect ctx) (ctx-style ctx)
                 (ctx-indent-width ctx) #t (ctx-alignment ctx)
-                (ctx-marks ctx) (ctx-brackets ctx))))
+                (ctx-marks ctx) (ctx-brackets ctx) (ctx-rules ctx))))
     (render-sequence ast 0 out top)
     (values (out-text out) (reverse (cdr (ctx-marks top))))))
 
 (define* (format-ast ast #:key (dialect 'scheme) (style 'community)
-           (indent-width 2) (comment-align #f) (brackets #f))
+           (indent-width 2) (comment-align #f) (brackets #f)
+           (indent-rules '()))
   "Render @var{ast} as source text.
 
 The result is deterministic: nothing here depends on a hash table's order or
 on any state outside the arguments."
   (let* ((base (make-ctx #:dialect dialect #:style style
-                 #:indent-width indent-width #:brackets brackets)))
+                 #:indent-width indent-width #:brackets brackets
+                 #:rules indent-rules)))
     (if comment-align
       (call-with-values
         (lambda () (render-document ast base))
         (lambda (text marks)
           (let* ((table (compute-alignment marks))
                  (aligned (%make-ctx dialect style indent-width #t table
-                            (cons '() '()) (ctx-brackets base))))
+                            (cons '() '()) (ctx-brackets base)
+                            (ctx-rules base))))
             (call-with-values
               (lambda () (render-document ast aligned))
               (lambda (aligned-text ignored) aligned-text)))))
@@ -569,7 +615,7 @@ on any state outside the arguments."
 
 (define* (format-source source #:key (dialect 'scheme) (file #f)
            (style 'community) (indent #f) (comment-align #f)
-           (line-length #f) (force #f) (brackets #f))
+           (line-length #f) (force #f) (brackets #f) (indent-rules '()))
   "Format @var{source}, returning two values: the text and the parse errors.
 
 No file is read from or written to here, and no error is swallowed: the
@@ -580,21 +626,22 @@ caller decides whether an error is fatal (see @code{format/file})."
       (values (format-ast ast #:dialect dialect #:style style
                 #:indent-width (or indent (default-indent dialect))
                 #:comment-align comment-align
-                #:brackets brackets)
+                #:brackets brackets
+                #:indent-rules indent-rules)
         errors))))
 
 (define* (format-string source #:key (dialect 'scheme) (style 'community)
-           (indent 2) (comment-align #f) (brackets #f))
+           (indent 2) (comment-align #f) (brackets #f) (indent-rules '()))
   "Format @var{source} and return just the text."
   (call-with-values
     (lambda () (read-source #:source source #:dialect dialect))
     (lambda (ast errors)
       (format-ast ast #:dialect dialect #:style style
         #:indent-width indent #:comment-align comment-align
-        #:brackets brackets))))
+        #:brackets brackets #:indent-rules indent-rules))))
 
 (define* (format/file path #:key (dialect #f) (style 'community) (indent 2)
-           (comment-align #f) (force #f) (brackets #f))
+           (comment-align #f) (force #f) (brackets #f) (indent-rules '()))
   "Format the file at @var{path}, returning the text and the parse errors.
 
 The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
@@ -604,7 +651,7 @@ The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
                      'scheme)))
     (format-source source #:dialect dialect* #:file path #:style style
       #:indent indent #:comment-align comment-align
-      #:force force #:brackets brackets)))
+      #:force force #:brackets brackets #:indent-rules indent-rules)))
 
 (define* (format-check source #:key (dialect 'scheme) (style 'community)
            (indent 2) (comment-align #f) (brackets #f))

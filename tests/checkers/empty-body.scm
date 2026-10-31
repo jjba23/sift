@@ -42,6 +42,11 @@
       (assert-warnings #:source "(when x)\n" #:dialect 'elisp
         #:checker 'empty-body #:expect '((1 1))))
 
+    (test "a case datum is data, not a form"
+      ;; `(cond)` here is a list of values to match, not a `cond` form
+      (assert-warnings #:source "(case x\n  [(cond) 1]\n  [else 2])\n"
+        #:checker 'empty-body #:expect '()))
+
     (test "accepts a form with a body"
       (assert-warnings #:source "(cond (a b))\n" #:checker 'empty-body
         #:expect '()))))

@@ -50,8 +50,8 @@ form is written as one long expression instead of a few named steps."
     [else 2]))
 
 (define (wrap-in-let-warnings ast source dialect)
-  (let ((max-depth (or (option 'max-depth 4)))
-        (max-elements (or (option 'max-elements 12)))
+  (let ((max-depth (or (option 'max-depth 6)))
+        (max-elements (or (option 'max-elements 20)))
         (warnings '()))
     (define (report node message)
       (set! warnings

@@ -127,6 +127,27 @@
       (assert-same-text #:expect "#(1 2 3)"
         #:got (format-string "#(1  2  3)" #:brackets 'square)))
 
+    (test "keyword arguments line up under the first argument"
+      (assert-same-text
+         #:expect "(make-window title\n             :width 10\n             :height 20)"
+         #:got (format-string "(make-window title\n:width 10\n:height 20)")))
+
+    (test "a call without keywords keeps the ordinary rule"
+      (assert-same-text
+         #:expect "(make-window title\n  width\n  height)"
+         #:got (format-string "(make-window title\nwidth\nheight)")))
+
+    (test "a project's own indent rule wins over the table"
+      (assert-same-text
+         #:expect "(with-my-thing x\n    y)"
+         #:got (format-string "(with-my-thing x\ny)"
+                 #:indent-rules '((with-my-thing . 4)))))
+
+    (test "a project's own indent rule is idempotent"
+      (assert-idempotent
+         #:source "(with-my-thing x\ny)\n"
+         #:name "the project rule formats the same way twice"))
+
     (test "a file without a final newline keeps that shape"
       (assert-same-text #:expect "(a b)"
         #:got (format-string "(a  b)")))))

@@ -7,6 +7,8 @@ reports/
 *.scm.go
 *.elc
 
-# editor and REPL leftovers
+# editor and REPL leftovers; .dir-locals.el is *not* here, because this
+# project ships one: it points sift-mode at ./bin/sift
 .nrepl-port
-.dir-locals.el
+*~
+\#*#

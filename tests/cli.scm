@@ -234,6 +234,89 @@
         (assert-status #:expect 2 #:got result)
         (assert-contains #:expect (caddr result) #:got "cannot read")))
 
+    (test "lint --format=github writes workflow commands"
+      (let* ((result (run-sift '("lint" "--format=github"
+                                 "tests/fixtures/lint/dirty.scm")))
+             (output (cadr result)))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect output #:got "::warning file=")
+        (assert-contains #:expect output #:got "title=SIFT001 [trailing-whitespace]")))
+
+    (test "ci passes on a clean file"
+      (let ((result (run-sift '("ci" "tests/fixtures/lint/clean.scm"))))
+        (assert-status #:expect 0 #:got result)))
+
+    (test "ci fails when a file is not formatted"
+      (let ((result (run-sift '("ci" "tests/fixtures/scheme/community/input/messy.scm"))))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect (cadr result) #:got "@@ ")))
+
+    (test "ci fails when the linter has something to say"
+      (let ((result (run-sift '("ci" "tests/fixtures/lint/dirty.scm"))))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect (cadr result) #:got "[trailing-whitespace]")))
+
+    (test "ci does not write the file it is judging"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((path (string-append directory "/dirty.scm"))
+                 (before "(define (f x)\n  (+ x 1))   \n"))
+             (spit path before)
+             (let ((result (run-sift (list "ci" path))))
+               (assert-status #:expect 1 #:got result)
+               (assert-same-text #:expect before #:got (slurp path)))))))
+
+    (test "ci refuses to fix"
+      (let ((result (run-sift '("ci" "--fix" "tests/fixtures/lint/clean.scm"))))
+        (assert-status #:expect 2 #:got result)
+        (assert-contains #:expect (caddr result) #:got "never fixes")))
+
+    (test "ci --format=github turns formatting differences into annotations"
+      (let ((result (run-sift '("ci" "--format=github"
+                                "tests/fixtures/scheme/community/input/messy.scm"))))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect (cadr result) #:got "::error file=")))
+
+    (test "install-hooks writes a pre-commit hook"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((git (string-append directory "/.git")))
+             (mkdir git)
+             (let ((result (run-sift '("install-hooks") #:directory directory)))
+               (assert-status #:expect 0 #:got result)
+               (let ((hook (string-append git "/hooks/pre-commit")))
+                 (assert-true (file-exists? hook)
+                   #:name "the hook was written")
+                 (assert-contains #:expect (slurp hook) #:got "sift")))))))
+
+    (test "install-hooks leaves an existing hook alone"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((git (string-append directory "/.git")))
+             (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
+             (let ((result (run-sift '("install-hooks") #:directory directory)))
+               (assert-status #:expect 2 #:got result)
+               (assert-contains #:expect (caddr result) #:got "already exists"))))))
+
+    (test "install-hooks --force replaces one"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((git (string-append directory "/.git")))
+             (spit (string-append git "/hooks/pre-commit") "#!/bin/sh\ntrue\n")
+             (let ((result (run-sift '("install-hooks" "--force")
+                             #:directory directory)))
+               (assert-status #:expect 0 #:got result)
+               (assert-contains #:expect
+                 (slurp (string-append git "/hooks/pre-commit"))
+                 #:got "sift"))))))
+
+    (test "install-hooks outside a repository is a usage error"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((result (run-sift '("install-hooks") #:directory directory)))
+             (assert-status #:expect 2 #:got result)
+             (assert-contains #:expect (caddr result) #:got "no git repository")))))
+
     (test "list-checkers prints a table"
       (let ((result (run-sift '("list-checkers"))))
         (assert-status #:expect 0 #:got result)

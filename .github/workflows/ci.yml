@@ -1,12 +1,13 @@
 # sift --- continuous integration
 #
-# The job is the same steps a contributor runs: enter the environment the
-# manifest describes, run the Veritas suite, compile every module, and check
-# that sift's own sources and the fixture corpus are already formatted.
+# The job runs the same commands a contributor runs, in the same order, and
+# ends with the gate: `sift ci' over the library sources, annotated so that a
+# failure lands on the line of the pull request instead of in a log nobody
+# scrolls.
 #
 # Veritas is checked out beside the project because the suite is written
 # against its development version; the load path points at src/, at the
-# repository root (the tests are the (tests ...) modules) and at the Veritas
+# repository root (the tests are the (tests ...) modules) and at that
 # checkout.
 
 name: ci
@@ -16,12 +17,13 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  VERITAS_DIR: ${{ github.workspace }}/veritas
+  GUILE_LOAD_PATH: ${{ github.workspace }}/src:${{ github.workspace }}:${{ github.workspace }}/veritas/src
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      VERITAS_DIR: ${{ github.workspace }}/veritas
-      GUILE_LOAD_PATH: ${{ github.workspace }}/src:${{ github.workspace }}:${{ github.workspace }}/veritas/src
     steps:
       - uses: actions/checkout@v4
 
@@ -33,6 +35,8 @@ jobs:
         with:
           repository: jjba23/veritas
           path: veritas
+
+      # --- the library -------------------------------------------------
 
       - name: Run the Veritas suite
         run: |
@@ -47,11 +51,7 @@ jobs:
               find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
                 | xargs -0 -n 1 sh -c "guild compile -o \$(mktemp) \"\$1\"" sh'
 
-      - name: Check sift formats its own sources
-        run: |
-          guix shell -m manifest.scm -- \
-            sh -c 'find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
-                     | xargs -0 ./bin/sift check'
+      # --- the editor half ---------------------------------------------
 
       - name: Byte-compile the Emacs package
         run: |
@@ -63,6 +63,14 @@ jobs:
           guix shell -m manifest.scm -- \
             emacs -Q --batch -L emacs -l ert -l emacs/sift-test.el \
               -f ert-run-tests-batch-and-exit
+
+      # --- the gate ----------------------------------------------------
+
+      - name: Check that sift is formatted by sift
+        run: |
+          guix shell -m manifest.scm -- \
+            sh -c 'find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
+                     | xargs -0 ./bin/sift check'
 
       - name: Check the fixture corpus is formatted
         run: |
@@ -77,3 +85,8 @@ jobs:
                 esac
                 ./bin/sift check --dialect="$dialect" --style="$style" "$dir"/*
               done'
+
+      - name: sift ci
+        run: |
+          guix shell -m manifest.scm -- \
+            ./bin/sift ci --format=github src/

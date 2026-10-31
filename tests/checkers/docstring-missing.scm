@@ -39,6 +39,10 @@
         #:dialect 'elisp #:checker 'docstring-missing
         #:expect '()))
 
+    (test "a defun with no body is a finding, not a crash"
+      (assert-warnings #:source "(defun f ())\n" #:dialect 'elisp
+        #:checker 'docstring-missing #:expect '((1 1))))
+
     (test "accepts a bare defvar declaration"
       (assert-warnings #:source "(defvar x)\n" #:dialect 'elisp
         #:checker 'docstring-missing #:expect '()))))

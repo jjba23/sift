@@ -40,32 +40,60 @@ definition that will run in the wrong scope."
        (and first (node-list? first)))]
     [else #f]))
 
+(define (body-of owner)
+  "Return the body forms of a procedure @var{owner}.
+
+A docstring is not a body form, so it is dropped: a definition after the
+docstring is still at the head of the body, which is where Scheme allows it."
+  (cond
+    [(list-headed-by? owner 'lambda) (body-elements owner 1)]
+    [(list-headed-by? owner 'define) (body-elements owner 2)]
+    [else '()]))
+
+(define (definition-before? form)
+  "Return @code{#t} when @var{form} is itself a definition.
+
+A Scheme body may begin with any number of definitions, and that is not the
+problem this rule is about: the problem is a definition that comes after the
+first expression, where it silently gets the wrong scope."
+  (and (node-list? form) (list-headed-by? form 'define)))
+
 (define (internal-define-warnings ast source dialect)
   (let ((warnings '()))
     (walk-with-ancestors
        (lambda (node ancestors)
          (when (list-headed-by? node 'define)
-           ;; The nearest enclosing form decides: a `let' in between is the
+           ;; The nearest enclosing form decides: a `let` in between is the
            ;; nested scope the author meant, so the definition is fine.
-           (let ((owner (find (lambda (ancestor)
-                                (or (procedure-form? ancestor)
-                                  (head-is-one-of? ancestor
-                                    '(let let* letrec letrec*
-                                       parameterize))))
-                          ancestors)))
+           (let ((owner
+                    (find (lambda (ancestor)
+                            (or (procedure-form? ancestor)
+                              (head-is-one-of? ancestor
+                                '(let let* letrec letrec*
+                                   parameterize))))
+                      ancestors)))
              (when (and owner (procedure-form? owner))
-               (set! warnings
-                 (cons (make-lint-warning
-                          'internal-define 'warning
-                          "`define` inside a procedure body"
-                          (node-start node))
-                   warnings))))))
+               (let* ((body (body-of owner))
+                      (index (list-index (lambda (form) (eq? form node)) body))
+                      (before (and index (take body index))))
+                 ;; at the head of the body a definition is exactly what Scheme
+                 ;; allows; after an expression it is a `let` that was written
+                 ;; as a `define`
+                 (when (and index
+                         (> index 0)
+                         (any (lambda (form) (not (definition-before? form)))
+                           before))
+                   (set! warnings
+                     (cons (make-lint-warning 'internal-define 'warning
+                             "`define` inside a procedure body, after the first expression"
+                             (node-start node))
+                       warnings))))))))
        ast)
     (reverse warnings)))
 
 (define internal-define-checker
   (checker 'internal-define
-    "`define` inside a procedure body without an enclosing `let`"
+    "`define` inside a procedure body, after the first expression"
     '(scheme)
     internal-define-warnings
     #:severity 'warning
@@ -221,7 +249,7 @@ definition that will run in the wrong scope."
             (set! warnings
               (cons (make-lint-warning/range 'clause-brackets 'warning
                       (format #f "`~a` clause is written with ~a; this project writes it with ~a"
-                        (node-head-name (car (node-elements clause)))
+                        (or (node-head-name (node-head clause)) 'clause)
                         (if (equal? open "(") "parentheses" "square brackets")
                         (if (equal? open "(") "square brackets" "parentheses"))
                       (node-start clause)

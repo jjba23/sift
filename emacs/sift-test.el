@@ -193,6 +193,22 @@
             (should (string-match-p "DIALECTS" (buffer-string)))))
       (kill-buffer buffer))))
 
+(ert-deftest sift-test-ci-command ()
+  "`sift-ci' runs the same check a pipeline runs, from the repository root.
+
+The command is captured rather than run: the test is about the command and
+the directory, not about how long linting this repository takes."
+  (let ((captured nil) (directory nil))
+    (cl-letf (((symbol-function 'compilation-start)
+               (lambda (command &rest _)
+                 (setq captured command)
+                 (setq directory default-directory)
+                 nil)))
+      (sift-ci))
+    (should (string-match-p "sift" captured))
+    (should (string-match-p " ci" captured))
+    (should (file-directory-p directory))))
+
 (ert-deftest sift-test-rule-names ()
   "The rule names come from list-checkers, not from a list in this file."
   (let ((names (sift--rule-names)))

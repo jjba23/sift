@@ -26,6 +26,8 @@
   #:use-module (srfi srfi-13)
   #:use-module (srfi srfi-37)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 rdelim)
+  #:use-module (ice-9 ftw)
   #:use-module (ice-9 match)
   #:use-module (ice-9 textual-ports)
   #:use-module (sift records)
@@ -48,6 +50,8 @@
   sift lint [OPTIONS] [FILE...]
   sift check [OPTIONS] [FILE...]
   sift fix [OPTIONS] [FILE...]        # lint --fix
+  sift ci [OPTIONS] [FILE-OR-DIR...]  # format check + lint; exits 1 if either fails
+  sift install-hooks [--force]        # a pre-commit hook that runs `sift ci`
   sift list-checkers [--dialect DIALECT]
   sift explain CHECKER-NAME
   sift config show|explain|trust ...
@@ -245,7 +249,7 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
           (let ((value (assq-ref state 'format)))
             (and value
               (let ((output (string->symbol value)))
-                (unless (memq output '(human json null))
+                (unless (memq output '(human json null github))
                   (usage-error "unknown output format `~a'; supported formats are human, json and null"
                     value))
                 (cons 'format output))))
@@ -281,6 +285,47 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
                                  (checker-name-list item "--exclude-checker"))
                      (reverse value))))))))
      '()))
+
+(define lisp-file-extensions
+  '(".scm" ".ss" ".sld" ".sls" ".el" ".lisp" ".cl" ".asd" ".lsp" ".system"))
+
+(define (lisp-file? path)
+  (let ((dot (string-rindex path #\.)))
+    (and dot (member (substring path dot) lisp-file-extensions) #t)))
+
+(define (directory-files* directory)
+  "Return the Lisp files under @var{directory}, sorted.
+
+Hidden directories and the usual build droppings are skipped, so
+`sift ci .` in a project does what the person typing it meant."
+  (append-map
+     (lambda (name)
+       (cond
+         [(member name '("." ".." ".git" ".hg" ".svn" "vendor" "node_modules"
+                         ".cache" ".tox" "dist" "build"))
+          '()]
+         [else
+            (let ((path (string-append (string-trim-right directory #\/) "/" name)))
+              (cond
+                [(eq? (stat:type (stat path)) 'directory) (directory-files* path)]
+                [(lisp-file? name) (list path)]
+                [else '()]))]))
+     (sort (scandir directory (lambda (name)
+                                (not (member name '("." ".." ".git"))))) string<?)))
+
+(define (expand-operands files)
+  "Turn directory operands into the Lisp files they hold, in sorted order.
+
+A linter is pointed at a project, not at a list: `sift ci .` and
+`sift format --write src/` are what people type, so a directory is read as
+\"every Lisp file under here\"."
+  (append-map
+     (lambda (path)
+       (cond
+         [(not (file-exists? path)) (list path)]
+         [(eq? (stat:type (stat path)) 'directory) (directory-files* path)]
+         [else (list path)]))
+     files))
 
 (define (operands state)
   (reverse (filter-map (lambda (entry)
@@ -359,6 +404,15 @@ delimiter goes, and sift does not guess."
                 (or path "<stdin>"))
               2)))))))
 
+(define (make-directories path)
+  "Create @var{path} and every missing parent, like `mkdir -p'."
+  (unless (or (file-exists? path) (string=? path "/") (string-null? path))
+    (make-directories (dirname path))
+    (catch 'system-error
+      (lambda () (mkdir path))
+      (lambda (key . args)
+        (unless (file-exists? path) (apply throw key args))))))
+
 (define (write-string-to path text)
   (call-with-output-file path
     (lambda (port) (display text port))))
@@ -376,7 +430,8 @@ delimiter goes, and sift does not guess."
          (style (config-ref config 'style))
          (indent (config-ref config 'indent))
          (align (config-ref config 'comment-align))
-         (brackets (config-ref config 'brackets)))
+         (brackets (config-ref config 'brackets))
+         (rules (config-ref config 'indent-rules)))
     (emit-verbose config "formatting ~a (~a, ~a)"
       (or path "<stdin>") dialect style)
     (let ((denied (deny-on-parse-errors config path source dialect)))
@@ -386,7 +441,8 @@ delimiter goes, and sift does not guess."
           (lambda ()
             (format-source source #:dialect dialect #:file path
               #:style style #:indent indent
-              #:comment-align align #:brackets brackets))
+              #:comment-align align #:brackets brackets
+              #:indent-rules rules))
           (lambda (formatted errors)
             (cond
               [check?
@@ -400,6 +456,10 @@ delimiter goes, and sift does not guess."
                         (format #t "[{\"file\":~a,\"changed\":true}]~%"
                           (json-escape (or path "<stdin>")))]
                        [(null) *unspecified*]
+                       [(github)
+                        (format #t "::error file=~a,line=1,title=sift format::~a would be reformatted by `sift format --write`~%"
+                          (or path label "<stdin>")
+                          (or path label "<stdin>"))]
                        [else
                           (display (unified-diff source formatted
                                      #:path (or path "<stdin>")
@@ -427,7 +487,7 @@ delimiter goes, and sift does not guess."
 
 (define (command-format args)
   (let* ((state (parse-options args))
-         (files (operands state)))
+         (files (expand-operands (operands state))))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
@@ -513,7 +573,7 @@ only has to answer with the usage status."
 
 (define (command-check args)
   (let* ((state (parse-options args))
-         (files (operands state)))
+         (files (expand-operands (operands state))))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
@@ -636,7 +696,7 @@ finding work is a bug, not a queue."
 
 (define (command-lint args)
   (let* ((state (parse-options args))
-         (files (operands state)))
+         (files (expand-operands (operands state))))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
@@ -648,6 +708,90 @@ finding work is a bug, not a queue."
                (cons 'exclude-checkers
                  (config-ref config 'exclude-checkers))))
           (run-lint config files state))))))
+
+;;; ===== ci =====
+
+(define (command-ci args)
+  "Check the formatting and lint every file, and say whether the tree is clean.
+
+This is the one command a pipeline needs: it asks both questions, prints
+both answers in the chosen format and exits 1 if either of them found
+something.  It never writes and never fixes, because a CI job that edits
+the tree it is judging is a CI job nobody trusts."
+  (let* ((state (parse-options args))
+         (files (expand-operands (operands state))))
+    (when (assq 'help state)
+      (display usage-text)
+      (exit 0))
+    (when (assq 'fix state)
+      (usage-error "ci never fixes; run `sift fix' and commit the result"))
+    (when (assq 'write state)
+      (usage-error "ci never writes; run `sift format --write' and commit the result"))
+    (let ((overrides (build-overrides state)))
+      (with-config overrides state
+        (lambda (config)
+          (let* ((stdin? (and (assq 'stdin state) #t))
+                 (check-status (run-check config files #:stdin? stdin?))
+                 (lint-status (run-lint config files state)))
+            (cond
+              [(or (= check-status 2) (= lint-status 2)) 2]
+              [(or (= check-status 1) (= lint-status 1)) 1]
+              [else
+                 (when (and (not (config-ref config 'quiet))
+                         (eq? (config-ref config 'format) 'human))
+                   (format (current-error-port) "sift: formatting and lint are clean~%"))
+                 0])))))))
+
+;;; ===== install-hooks =====
+
+(define (parent-directory directory)
+  "Return the parent of @var{directory}, or @code{#f} at the root."
+  (let ((parent (dirname directory)))
+    (if (string=? parent directory) #f parent)))
+
+(define* (find-git-hooks-directory #:optional (directory (getcwd)))
+  "Return the hooks directory of the repository containing @var{directory}.
+
+A worktree has a `.git' *file* holding `gitdir: <path>', so both shapes are
+followed; nothing is assumed about where the repository lives."
+  (let loop ((directory directory))
+    (if (not directory)
+      #f
+      (let ((dot-git (string-append directory "/.git")))
+        (cond
+          [(file-exists? dot-git)
+           (if (eq? (stat:type (stat dot-git)) 'directory)
+             (string-append dot-git "/hooks")
+             (let ((line (call-with-input-file dot-git read-line)))
+               (and (string-prefix? "gitdir:" line)
+                 (string-append (string-trim (substring line 7))
+                   "/hooks"))))]
+          [else (loop (parent-directory directory))])))))
+
+(define hook-script
+  (string-append
+     "#!/bin/sh\n"
+     "# installed by `sift install-hooks'; remove this file to stop it\n"
+     "# running, or set SIFT to the program you want it to run.\n"
+     "sift=${SIFT:-sift}\n"
+     "exec \"$sift\" ci\n"))
+
+(define (command-install-hooks args)
+  "Install a pre-commit hook that runs `sift ci'."
+  (let* ((state (parse-options args))
+         (hooks (find-git-hooks-directory)))
+    (unless hooks
+      (usage-error "no git repository here; run this inside one"))
+    (let ((path (string-append hooks "/pre-commit")))
+      (when (and (file-exists? path) (not (assq 'force state)))
+        (usage-error "~a already exists; move it away, or pass --force to replace it"
+          path))
+      (unless (file-exists? hooks) (make-directories hooks))
+      (call-with-output-file path
+        (lambda (port) (display hook-script port)))
+      (chmod path #o755)
+      (format #t "installed ~a~%" path)
+      0)))
 
 ;;; ===== list-checkers, explain, version =====
 
@@ -743,6 +887,8 @@ finding work is a bug, not a queue."
        [(explain) (command-explain rest)]
        [(config) (command-config rest)]
        [(fix) (command-lint (cons "--fix" rest))]
+       [(ci) (command-ci rest)]
+       [(install-hooks) (command-install-hooks rest)]
        [(version --version -V) (command-version rest)]
        [(help --help -h) (display usage-text) 0]
        [else (usage-error "unknown command `~a'" command)]))))

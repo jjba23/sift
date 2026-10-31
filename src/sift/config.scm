@@ -140,12 +140,12 @@ one entry per key and `config-ref' always answers with the winning layer."
        (description . "Bracket style for clause lists: square (the Scheme default), parens, or preserve."))
     (max-depth
        (type . integer)
-       (default . 4)
+       (default . 6)
        (flag . #f)
        (description . "How deeply a body form may nest before wrap-in-let suggests binding part of it. Config-only."))
     (max-elements
        (type . integer)
-       (default . 12)
+       (default . 20)
        (flag . #f)
        (description . "How many elements a body form may have before wrap-in-let suggests binding part of it. Config-only."))
     (max-positional

@@ -19,6 +19,7 @@
             self-check
             emacs-test
             emacs-check
+            docs
             repl
             fmt
             clean
@@ -117,6 +118,13 @@ real executable over every module in the tree."
       (dsl:shell-quote
         "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
     #:verbose? #t))
+
+(define (docs)
+  "Regenerate doc/rules.org from the checker records.
+
+The catalogue is not written by hand: a rule that exists is in the document,
+and the test suite fails when the two disagree."
+  (run-guile "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))"))
 
 (define (emacs-test)
   "Run the Emacs package's ERT suite.

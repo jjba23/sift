@@ -21,8 +21,9 @@
 ;;
 ;;   M-x sift-mode
 ;;     A minor mode with a keymap (`C-c s f' to format, `C-c s l' to lint,
-;;     `C-c s x' to fix, `C-c s e' to explain the rule at point) and an
-;;     optional `sift-format-on-save-mode'.
+;;     `C-c s x' to fix, `C-c s e' to explain the rule at point, `C-c s p'
+;;     to run the whole-project check a pipeline runs) and an optional
+;;     `sift-format-on-save-mode'.
 ;;
 ;;   M-x sift-flymake-mode
 ;;     A Flymake backend.  It runs `sift lint --format=json --stdin' and
@@ -426,6 +427,18 @@ no file to report them in."
         (special-mode)))
     (display-buffer buffer)))
 
+(defun sift-ci ()
+  "Run `sift ci' over the project in a compilation buffer.
+
+The same check a pipeline runs: formatting and lint for every file under
+the repository root.  `next-error' walks the findings, and the exit status
+is the one a CI job would see."
+  (interactive)
+  (let ((default-directory (or (locate-dominating-file default-directory ".git")
+                               default-directory)))
+    (compilation-start (concat (shell-quote-argument sift-executable) " ci")
+                       nil (lambda (_mode) "*sift-ci*"))))
+
 (defun sift--rule-names ()
   "Return every rule name sift knows about."
   (let ((result (sift--run (list "list-checkers"))))
@@ -580,6 +593,7 @@ it."
     (define-key map (kbd "C-c s x") #'sift-fix-buffer)
     (define-key map (kbd "C-c s a") #'sift-fix-at-point)
     (define-key map (kbd "C-c s e") #'sift-explain-at-point)
+    (define-key map (kbd "C-c s p") #'sift-ci)
     (define-key map (kbd "C-c s d") #'sift-flymake-mode)
     map)
   "Keymap for `sift-mode'.")

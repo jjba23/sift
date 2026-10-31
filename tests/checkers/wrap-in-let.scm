@@ -32,11 +32,11 @@
 
     (test "reports a body form that nests too deeply"
       (assert-warnings #:source deep-source #:checker 'wrap-in-let
-        #:expect '((2 3))))
+        #:options '((max-depth . 4)) #:expect '((2 3))))
 
     (test "reports a body form with too many elements"
       (assert-warnings #:source wide-source #:checker 'wrap-in-let
-        #:expect '((2 3))))
+        #:options '((max-elements . 12)) #:expect '((2 3))))
 
     (test "accepts a body form that is already split up"
       (assert-warnings #:source "(define (f x)\n  (let ((y (cdr x)))\n    (list (car y))))\n"
@@ -52,5 +52,6 @@
 
     (test "there is no automatic fix"
       (assert-equal #:expect #f
-        #:got (lint-warning-fix (car (warnings-of deep-source
-                                       #:checker 'wrap-in-let)))))))
+        #:got (lint-warning-fix
+                 (car (warnings-of deep-source #:checker 'wrap-in-let
+                        #:options '((max-depth . 4)))))))))

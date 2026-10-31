@@ -22,13 +22,20 @@
 (define (spec)
   (suite "checker: internal-define"
 
-    (test "reports a define inside a procedure body"
-      (assert-warnings #:source "(define (f)\n  (define y 1)\n  y)\n"
-        #:checker 'internal-define #:expect '((2 3))))
+    (test "reports a define that comes after the first expression"
+      (assert-warnings #:source "(define (f)\n  (display 1)\n  (define y 1)\n  y)\n"
+        #:checker 'internal-define #:expect '((3 3))))
 
-    (test "reports a define inside a lambda"
-      (assert-warnings #:source "(lambda ()\n  (define y 1)\n  y)\n"
-        #:checker 'internal-define #:expect '((2 3))))
+    (test "reports a define inside a lambda, after an expression"
+      (assert-warnings #:source "(lambda ()\n  (display 1)\n  (define y 1)\n  y)\n"
+        #:checker 'internal-define #:expect '((3 3))))
+
+    (test "accepts definitions at the head of a body"
+      ;; Scheme allows any number of definitions there, and a docstring may
+      ;; come first: this is the shape of a module-level procedure
+      (assert-warnings
+         #:source "(define (f)\n  \"Do it.\"\n  (define y 1)\n  (define z 2)\n  (+ y z))\n"
+         #:checker 'internal-define #:expect '()))
 
     (test "accepts a definition under a let"
       (assert-warnings #:source "(define (f)\n  (let ((y 1)) y))\n"

@@ -324,7 +324,9 @@ cannot move when the list is re-sorted."
     (negated-if . "SIFT033")
     (docstring-arguments . "SIFT034")
     (docstring-texinfo . "SIFT035")
-    (clause-brackets . "SIFT036")))
+    (clause-brackets . "SIFT036")
+    (duplicate-binding . "SIFT037")
+    (docstring-before-interactive . "SIFT038")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."
@@ -416,17 +418,25 @@ without writing a lambda around every accessor."
 
 ;; --- kind predicates ---
 
-(define (node-atom? node) (eq? (node-kind node) 'atom))
-(define (node-list? node) (eq? (node-kind node) 'list))
+;;; Every predicate answers #f for something that is not a node at all.  A
+;;; checker asking `(node-list? (car arguments))` on a form with no arguments
+;;; gets #f rather than a struct error, because a linter that raises on the
+;;; file it was pointed at is useless.
+
+(define (node-kind? thing kind)
+  (and (node? thing) (eq? (node-kind thing) kind)))
+
+(define (node-atom? node) (node-kind? node 'atom))
+(define (node-list? node) (node-kind? node 'list))
 (define (node-string? node)
-  (and (eq? (node-kind node) 'atom) (eq? (node-atom-type node) 'string)))
-(define (node-comment? node) (eq? (node-kind node) 'comment))
-(define (node-block-comment? node) (eq? (node-kind node) 'block-comment))
-(define (node-whitespace? node) (eq? (node-kind node) 'whitespace))
-(define (node-prefix? node) (eq? (node-kind node) 'prefix))
-(define (node-conditional? node) (eq? (node-kind node) 'conditional))
-(define (node-shebang? node) (eq? (node-kind node) 'shebang))
-(define (node-opaque? node) (eq? (node-kind node) 'opaque))
+  (and (node-atom? node) (eq? (node-atom-type node) 'string)))
+(define (node-comment? node) (node-kind? node 'comment))
+(define (node-block-comment? node) (node-kind? node 'block-comment))
+(define (node-whitespace? node) (node-kind? node 'whitespace))
+(define (node-prefix? node) (node-kind? node 'prefix))
+(define (node-conditional? node) (node-kind? node 'conditional))
+(define (node-shebang? node) (node-kind? node 'shebang))
+(define (node-opaque? node) (node-kind? node 'opaque))
 (define (node-vector? node)
   "Return @code{#t} for a vector: \"#(\" in Scheme and Common Lisp, \"[\" in Emacs Lisp."
   (and (node-list? node)

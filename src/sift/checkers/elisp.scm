@@ -29,7 +29,8 @@
               checkdoc-style-verb-checker
               provide-missing-checker
               declare-indent-checker
-              docstring-arguments-checker))
+              docstring-arguments-checker
+              docstring-before-interactive-checker))
 
 ;;; ===== helpers =====
 
@@ -339,6 +340,45 @@
     #:example '((input . "(defun f (x)\n    (declare (indent 1))\n  x)")
                 (fix . "indent the `declare` two columns from the `defun`"))))
 
+;;; ===== docstring-before-interactive =====
+
+(define (docstring-before-interactive-warnings ast source dialect)
+  (let ((warnings '()))
+    (define (displaced-docstring body)
+      "Return a string literal among the first body forms, or @code{#f}."
+      (let loop ((rest body) (n 0))
+        (cond
+          [(or (null? rest) (>= n 3)) #f]
+          [(string-atom? (car rest)) (car rest)]
+          [else (loop (cdr rest) (+ n 1))])))
+    (for-each-node
+       (lambda (node)
+         (let ((head (and (node-list? node) (node-head-name node))))
+           (when (and head (memq head '(defun defmacro defsubst cl-defun
+                                         cl-defmacro)))
+             ;; Emacs reads a docstring from the first form of the body only, so
+             ;; a string after `interactive` or `declare` documents nothing
+             (when (not (docstring-node node))
+               (let ((string (displaced-docstring (body-elements node 3))))
+                 (when string
+                   (set! warnings
+                     (cons (make-lint-warning 'docstring-before-interactive
+                             'warning
+                             "this string is in the body, where Emacs does not read it as a docstring; it belongs first"
+                             (node-start string))
+                       warnings))))))))
+       ast)
+    (reverse warnings)))
+
+(define docstring-before-interactive-checker
+  (checker 'docstring-before-interactive
+    "A docstring that is not the first form in the body, so Emacs never reads it"
+    '(elisp)
+    docstring-before-interactive-warnings
+    #:severity 'warning
+    #:example '((input . "(defun f ()\n  (interactive)\n  \"Say hi.\"\n  (message \"hi\"))")
+                (fix . "no automatic fix; move the docstring above `interactive`"))))
+
 ;;; ===== docstring-arguments =====
 
 (define (parameter-names node)
@@ -432,4 +472,5 @@ does, and what a reader does."
     checkdoc-style-verb-checker
     provide-missing-checker
     declare-indent-checker
-    docstring-arguments-checker))
+    docstring-arguments-checker
+    docstring-before-interactive-checker))

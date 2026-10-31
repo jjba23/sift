@@ -144,6 +144,35 @@ turning every list into a bracket would be noise.  A project that prefers
 parentheses sets `brackets: parens`, or runs `--brackets=parens`; a project
 that wants to keep whatever is written sets `brackets: preserve`.
 
+** Keyword arguments line up
+
+A call that passes keyword arguments lines them up under its first argument:
+
+#+begin_src scheme
+(make-window title
+             :width 10
+             :height 20)
+#+end_src
+
+*Why?*  The keywords become a column of names and values instead of a
+staircase, and the reader can compare two calls by looking down the same
+column.  It is what Emacs does for a call it knows, and what a reader does for
+a call they do not.
+
+** A project's macros are the project's business
+
+When a macro is not in sift's table, sift indents it by the generic rule; when
+a project knows better, it says so in its configuration:
+
+#+begin_src yaml
+indent-rules:
+  - [with-my-thing, 2]
+  - [deftransaction, 1]
+#+end_src
+
+A project rule wins over the built-in table, so a local convention can be
+expressed without patching the tool.
+
 ** No reflowing
 :PROPERTIES:
 :CUSTOM_ID: no-reflow
@@ -309,8 +338,14 @@ be at read time.
 :END:
 
 Every rule has a name (what you type) and a code (what an editor shows and
-what a bug report quotes).  The code is stable: it is never reused, and a
-new rule takes the next number.
+what a bug report quotes).  The code is stable: it is never reused, and a new
+rule takes the next number.
+
+The complete, generated list — every rule with its code, dialects, severity,
+example and fix — is in [[file:rules.org][rules.org]], written by ~maak docs~ from the rule
+records themselves, so it cannot name a rule that does not exist and the test
+suite fails when it falls behind.  What follows is the reasoning: the rules
+grouped by dialect, with the case for each one.
 
 ** Cross-dialect rules
 
@@ -325,6 +360,9 @@ new rule takes the next number.
 | SIFT007 | reader-prefix-break     | warning  | a newline separates a prefix from its datum                |
 | SIFT010 | trailing-blank-lines    | info     | more than two blank lines at end of file                   |
 | SIFT033 | negated-if              | warning  | `if`/`when` with a negated test is an `unless`             |
+| SIFT037 | duplicate-binding       | warning  | the same name bound twice in one binding list              |
+| SIFT008 | empty-form              | warning  | `()` where a value is expected                             |
+| SIFT009 | duplicate-keyword       | warning  | a keyword argument given twice in one call                  |
 | SIFT031 | wrap-in-let             | info     | a body form is too deep or too long to read at once        |
 | SIFT032 | keyword-arguments       | info     | a call has too many positional arguments                   |
 
@@ -390,6 +428,7 @@ manual, which is what a parameter is.
 | SIFT023 | provide-missing                   | warning  | the file defines a package but never `provide`s it       |
 | SIFT024 | declare-indent                    | info     | `declare` is not indented two columns from the `defun`   |
 | SIFT034 | docstring-arguments               | info     | a docstring does not mention one of its arguments        |
+| SIFT038 | docstring-before-interactive      | warning  | the docstring is not the first form, so Emacs never reads it |
 
 These are the Emacs Lisp Reference Manual's own requirements, taken one at
 a time so a project can adopt them one at a time.  *SIFT020* is the one with
@@ -418,6 +457,27 @@ world's `loop` forms is a rule that gets switched off.  Set
 
 *SIFT030*: `identity` in value position is a no-op, and `(funcall #'foo x)`
 is `(foo x)`.
+
+** Three rules about shape
+
+*SIFT008* (`empty-form`) exists because `()` reads as "the empty list" and
+evaluates as an error in Scheme: it is data that needs a quote, and the place
+it happens is almost always a forgotten `'()`.  The rule is careful not to
+fire on a *parameter* list, a binding list or quoted data — where `()` is
+exactly right — and it says nothing at all in Emacs Lisp and Common Lisp,
+where `()` is `nil`.
+
+*SIFT037* (`duplicate-binding`) catches `(let ((x 1) (x 2)) ...)`.  In `let*`
+it is legal and still almost always a mistake: the first binding is dead, and
+a reader cannot see that without comparing names.
+
+*SIFT009* (`duplicate-keyword`) catches `(make-window :width 10 :width 20)`:
+one of the two values is being discarded, and nothing in the code says which.
+
+*SIFT038* (`docstring-before-interactive`) is the Emacs Lisp rule that is
+easiest to get wrong by accident: Emacs reads a docstring from the *first*
+form of the body, so a string after `(interactive)` documents nothing and
+`C-h f` shows nothing, while the file looks documented.
 
 * What sift will not do
 :PROPERTIES:

@@ -1,0 +1,28 @@
+# sift --- editor configuration
+#
+# EditorConfig is understood by Emacs (editorconfig-mode), VS Code, Vim,
+# Neovim, IntelliJ and others, which makes it the cheapest way to say the
+# things sift cannot: the encoding, the line endings and the final newline.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.{scm,ss,sld,sls,el,lisp,cl,asd,sc}]
+indent_size = 2
+max_line_length = 100
+
+[*.el]
+# the Emacs manual's own limit for a docstring's first line
+max_line_length = 80
+
+[*.{yaml,yml}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

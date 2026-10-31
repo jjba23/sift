@@ -20,7 +20,10 @@
               redundant-progn-checker
               when-without-body-checker
               unless-without-body-checker
-              negated-if-checker))
+              negated-if-checker
+              empty-form-checker
+              duplicate-keyword-checker
+              duplicate-binding-checker))
 
 ;;; ===== empty-body =====
 
@@ -38,13 +41,15 @@
         (cons (make-lint-warning 'empty-body 'warning message
                 (node-start node))
           warnings)))
-    (for-each-node
-       (lambda (node)
-         (let ((head (and (node-list? node) (node-head-name node))))
+    (walk-with-ancestors
+       (lambda (node ancestors)
+         (let ((head (and (not (case-datum? node ancestors))
+                       (node-list? node)
+                       (node-head-name node))))
            (case head
              [(cond)
               (for-each (lambda (clause)
-                          (when (null? (cdr (form-elements clause)))
+                          (when (< (length (form-elements clause)) 2)
                             (warn clause "`cond` clause has no body")))
                 (cond-clauses node))
               (when (null? (cond-clauses node))
@@ -132,9 +137,10 @@
 (define (without-body-warnings checker-name head-name)
   (lambda (ast source dialect)
     (let ((warnings '()))
-      (for-each-node
-         (lambda (node)
-           (when (and (list-headed-by? node head-name)
+      (walk-with-ancestors
+         (lambda (node ancestors)
+           (when (and (not (case-datum? node ancestors))
+                   (list-headed-by? node head-name)
                    (< (length (form-elements node)) 3))
              (set! warnings
                (cons (make-lint-warning checker-name 'warning
@@ -214,6 +220,159 @@
     #:example '((input . "(if (not (ready?)) (wait) (go))")
                 (fix . "(unless (ready?) (wait) (go))"))))
 
+;;; ===== empty-form =====
+
+(define (quoted-context? ancestors)
+  "Return @code{#t} when the innermost quoted form is still in effect.
+
+Walking up from a node, the first ancestor that is a quote, a quasiquote or
+a `quote` form decides: inside it the node is data, and `()` is the empty
+list rather than a call with no value."
+  (let loop ((rest ancestors))
+    (cond
+      [(null? rest) #f]
+      [(and (node-prefix? (car rest))
+         (member (node-token (car rest)) '("'" "`")))
+       #t]
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest)) '(quote quasiquote)))
+       #t]
+      [(and (node-prefix? (car rest))
+         (member (node-token (car rest)) '("," ",@")))
+       ;; an unquote ends the data: what is inside is evaluated again
+       (loop (cdr rest))]
+      [else (loop (cdr rest))])))
+
+;; Forms whose first argument is a parameter list, where `()` is the empty
+;; one: the rule is about `()` in *value* position, and an empty formal list
+;; is not a value, it is how a procedure that takes no argument says so.
+(define parameter-list-heads
+  '(lambda lambda* define define* define-public let let* letrec letrec*
+     let-values let*-values case-lambda do guard parameterize
+     with-exception-handler))
+
+(define (empty-form-warnings ast source dialect)
+  (let ((warnings '()))
+    (walk-with-ancestors
+       (lambda (node ancestors)
+         (when (and (node-list? node)
+                 (null? (node-elements node))
+                 (not (quoted-context? ancestors))
+                 (pair? ancestors))
+           (let ((parent (car ancestors)))
+             ;; `()` is suspicious as an argument to a call, and nowhere else:
+             ;; a parameter list, a binding list and quoted data all use it
+             ;; legitimately.
+             (when (and (node-list? parent)
+                     (node-head-name parent)
+                     (not (memq (node-head-name parent) parameter-list-heads)))
+               (set! warnings
+                 (cons (make-lint-warning 'empty-form 'warning
+                         "`()` is not a value here; Scheme's empty list needs quoting"
+                         (node-start node))
+                   warnings))))))
+       ast)
+    (reverse warnings)))
+
+(define empty-form-checker
+  (checker 'empty-form
+    "`()` used where a value is expected"
+    '(scheme)
+    empty-form-warnings
+    #:severity 'warning
+    #:example '((input . "(define (f) (list ()))")
+                (fix . "no automatic fix; write `'()` or the value the form should return"))))
+
+;;; ===== duplicate-keyword =====
+
+(define (keyword-name-of node)
+  (and (node-atom? node)
+    (eq? (node-atom-type node) 'keyword)
+    (node-value node)))
+
+(define (duplicate-keyword-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-node
+       (lambda (node)
+         (when (node-list? node)
+           (let ((seen '()))
+             (for-each
+                (lambda (element)
+                  (let ((name (keyword-name-of element)))
+                    (when name
+                      (if (member name seen)
+                        (set! warnings
+                          (cons (make-lint-warning 'duplicate-keyword 'warning
+                                  (format #f "`~a` is given twice in this call; the second one wins"
+                                    name)
+                                  (node-start element))
+                            warnings))
+                        (set! seen (cons name seen))))))
+                (node-elements node)))))
+       ast)
+    (reverse warnings)))
+
+(define duplicate-keyword-checker
+  (checker 'duplicate-keyword
+    "A keyword argument given more than once in the same call"
+    'all
+    duplicate-keyword-warnings
+    #:severity 'warning
+    #:example '((input . "(make-window :width 10 :width 20)")
+                (fix . "no automatic fix; deciding which value was meant is the author's"))))
+
+;;; ===== duplicate-binding =====
+
+(define binding-form-heads
+  '(let let* letrec letrec* flet labels macrolet symbol-macrolet
+     let-values let*-values))
+
+(define (binding-name binding)
+  "Return the name a binding binds, or @code{#f}."
+  (cond
+    [(node-atom? binding)
+     (and (eq? (node-atom-type binding) 'symbol) (node-value binding))]
+    [(and (node-list? binding) (pair? (node-elements binding)))
+     (let ((head (car (node-elements binding))))
+       (and (node-atom? head) (node-value head)))]
+    [else #f]))
+
+(define (duplicate-binding-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-node
+       (lambda (node)
+         (when (and (node-list? node)
+                 (memq (node-head-name node) binding-form-heads))
+           (let* ((arguments (form-arguments node))
+                  (bindings (and (pair? arguments) (car arguments))))
+             (when (node-list? bindings)
+               (let ((seen '()))
+                 (for-each
+                    (lambda (binding)
+                      (let ((name (binding-name binding)))
+                        (when name
+                          (if (member name seen)
+                            (let ((message
+                                     (format #f "`~a` is bound twice in one `~a`"
+                                       name (node-head-name node))))
+                              (set! warnings
+                                (cons (make-lint-warning 'duplicate-binding
+                                        'warning message (node-start binding))
+                                  warnings)))
+                            (set! seen (cons name seen))))))
+                    (node-elements bindings)))))))
+       ast)
+    (reverse warnings)))
+
+(define duplicate-binding-checker
+  (checker 'duplicate-binding
+    "The same name bound twice in one binding list"
+    'all
+    duplicate-binding-warnings
+    #:severity 'warning
+    #:example '((input . "(let ((x 1) (x 2)) x)")
+                (fix . "no automatic fix; one of the two bindings is a mistake"))))
+
 ;;; ===== The list =====
 
 (define bodies-checkers
@@ -221,4 +380,7 @@
     redundant-progn-checker
     when-without-body-checker
     unless-without-body-checker
-    negated-if-checker))
+    negated-if-checker
+    empty-form-checker
+    duplicate-keyword-checker
+    duplicate-binding-checker))

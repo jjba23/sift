@@ -1,0 +1,33 @@
+# sift --- hooks for the pre-commit framework (https://pre-commit.com)
+#
+#   - repo: https://codeberg.org/jjba23/sift
+#     rev: v0.2.0
+#     hooks: [{id: sift-format}, {id: sift-lint}]
+#
+# `language: system` means the hook runs whatever `sift` is on the PATH, so
+# a project pins the version it already has installed instead of building a
+# second copy inside pre-commit's environment.
+
+- id: sift-format
+  name: sift format
+  description: Format Scheme, Emacs Lisp and Common Lisp in place.
+  entry: sift format --write
+  language: system
+  files: \.(scm|ss|sld|sls|el|lisp|cl|asd)$
+  require_serial: true
+
+- id: sift-check
+  name: sift format check
+  description: Fail when a Scheme, Emacs Lisp or Common Lisp file is not formatted.
+  entry: sift check
+  language: system
+  files: \.(scm|ss|sld|sls|el|lisp|cl|asd)$
+  require_serial: true
+
+- id: sift-lint
+  name: sift lint
+  description: Lint Scheme, Emacs Lisp and Common Lisp.
+  entry: sift lint --severity=warning
+  language: system
+  files: \.(scm|ss|sld|sls|el|lisp|cl|asd)$
+  require_serial: true
