@@ -115,8 +115,14 @@ you edit a Lisp in a mode this package does not know: the project's own
   :group 'sift)
 
 (defcustom sift-lint-severity "info"
-  "Minimum severity the linter reports."
-  :type '(choice (const "error") (const "warning") (const "info"))
+  "Minimum severity the linter reports, or nil to let sift decide.
+
+A value here is passed on every run and therefore overrides the severity the
+project sets in its own `sift.yaml'; nil passes nothing, and the project is
+the one that decides.  \"info\" is everything sift has, which is what a
+buffer wants while it is being written."
+  :type '(choice (const :tag "The project's own setting" nil)
+           (const "error") (const "warning") (const "info"))
   :group 'sift)
 
 (defcustom sift-extra-arguments nil
@@ -169,6 +175,16 @@ from the text is exactly what its `--dialect' option exists to avoid."
      (when sift-format-style (list (concat "--style=" sift-format-style)))
      (when sift-comment-align (list "--comment-align"))
      sift-extra-arguments))
+
+(defun sift--severity-options ()
+  "Return the severity argument, or nothing when the project decides.
+
+`sift-lint-severity' is passed as `--severity' rather than written into each
+command, so that the one setting means the same thing everywhere and nil
+means the same thing everywhere too: sift is told nothing and reads the
+threshold the project set for itself."
+  (when sift-lint-severity
+    (list (concat "--severity=" sift-lint-severity))))
 
 (defun sift--process-environment ()
   "Return the environment sift runs in."
@@ -423,8 +439,8 @@ no file to report them in."
   (let* ((dialect (sift--dialect))
          (command (string-join
                      (append (list (shell-quote-argument sift-executable)
-                               "lint"
-                               (concat "--severity=" sift-lint-severity))
+                               "lint")
+                       (sift--severity-options)
                        (sift--options)
                        (when dialect (list (concat "--dialect=" dialect)))
                        (list (shell-quote-argument (buffer-file-name))))
@@ -570,10 +586,11 @@ it."
       (funcall report-fn :panic
                (format "sift: no dialect for %s; set `sift-dialect'" major-mode))
       (sift--run-async
-         (list "lint" "--stdin" "--format=json"
-           (concat "--severity=" sift-lint-severity)
-           (concat "--dialect=" dialect)
-           (concat "--label=" label))
+         (append (list "lint" "--stdin" "--format=json")
+           (sift--severity-options)
+           (list
+             (concat "--dialect=" dialect)
+             (concat "--label=" label)))
          source
          (lambda (result)
            (let ((failure (sift--failure result)))

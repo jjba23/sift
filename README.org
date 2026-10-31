@@ -7,20 +7,24 @@
 #+email: jjbigorra@gmail.com
 #+options: toc:2 num:nil
 #+language: en
+#+description: A dialect-aware formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp. Formats and lints without ever losing a comment, a blank line or an apostrophe.
+#+keywords: scheme emacs-lisp common-lisp formatter linter lsp guile emacs
 
 [[file:assets/sift.svg]]
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg?branch=trunk]]
-[[https://img.shields.io/badge/license-MIT-2f6f4f.svg]]
-[[https://img.shields.io/badge/Guile-3.0-1e5b3a.svg]]
-[[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]]
-[[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]]
+*The Lisp formatter, linter and language server that never loses a byte.*
+
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.1.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-50-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
 an apostrophe.  It knows the difference between Scheme, Emacs Lisp and Common
-Lisp, down to which character literal syntax a file uses and whether ~#| ... |#~
-begins a comment.
+Lisp, down to which character literal syntax a file uses and whether
+~#| ... |#~ begins a comment.
+
+Install it with ~guix install sift~ (or ~nix run~), or
+[[#quick-start][clone the repository]] and run ~./bin/sift version~: Guile 3.0 is
+all it needs, and ~sift doctor~ will tell you what it found.
 
 That sounds like a small promise.  It is not: most formatters are built on the
 host's ~read~, which throws comments away and keeps no positions.  sift has its
@@ -34,6 +38,44 @@ editor that speaks LSP — one integration instead of four.
 sift is written in Guile Scheme, ships as one executable plus one Emacs
 package, and is licensed MIT.  It is for people who have decided that Lisp is
 worth formatting properly, and who would like the formatter to agree.
+
+* See it work
+:PROPERTIES:
+:CUSTOM_ID: demo
+:END:
+
+[[file:assets/sift-demo.gif]]
+
+#+begin_quote
+*Check, format, lint — three questions, one reader.*  ~sift check~ prints the
+patch it would make and exits 1; ~sift format~ prints the formatted file;
+~sift lint~ names the rule that fired, its severity and its position.  These
+are the same answers your editor and your pipeline get.  Every line in that
+recording is real output, on files small enough to read in the picture.
+#+end_quote
+
+* Who it is for
+:PROPERTIES:
+:CUSTOM_ID: audience
+:END:
+
+- *Guile and Guix hackers* whose ~cond~ clauses are written with square
+  brackets, and who want a formatter that agrees with the code base next door
+  instead of re-deciding it.
+- *Emacs package authors* who want the docstring, ~lexical-binding~,
+  ~interactive~ and ~provide~ rules in Flymake *and* in CI, from one tool
+  instead of three.
+- *Common Lisp projects* that would like package prefixes, ~LOOP~ keyword
+  style and dangling parentheses respected rather than normalised away.
+- *Maintainers of polyglot Lisp repositories* who would rather have one
+  executable, one configuration file and one CI step than three of each.
+- *Editor and tool authors* who need the findings as data: ~--format=json~,
+  ~--format=sarif~, GitHub annotations, or ~sift lsp~.
+
+#+begin_quote
+If you have ever skipped reformatting a Lisp file because the formatter would
+eat a comment, this is for you.
+#+end_quote
 
 * Why you might want it
 :PROPERTIES:
@@ -117,15 +159,30 @@ $ sift check square.scm; echo $?
 A file with something to say:
 
 #+begin_src shell
-$ sift lint messy.scm
-messy.scm:2:4: warning: [if-without-else] `if` has no else branch; `when` says it once
-messy.scm:5:3: info: [wrap-in-let] this body form nests 7 deep; bind part of it
+$ cat small.scm
+(define (go)
+  (if (ready?)
+      (proceed)))
+
+$ sift lint small.scm
+small.scm:2:4: warning: [if-without-else] `if` has no else branch; `when` says it once
 1 file checked, 1 warning, 0 errors
 #+end_src
 
 Each line is ~file:line:column: severity: [rule] sentence~, which is what a
-compilation buffer, a CI log and ~grep~ all understand.  To read what a rule
-means, ask it:
+compilation buffer, a CI log and ~grep~ all understand.  Suggestions count
+too — a deeply nested body is reported rather than rewritten:
+
+#+begin_src shell
+$ sift lint messy.scm
+messy.scm:5:3: info: [wrap-in-let] this body form nests 10 deep; bind part of it
+messy.scm:6:5: info: [wrap-in-let] this body form nests 9 deep; bind part of it
+messy.scm:7:7: info: [wrap-in-let] this body form nests 8 deep; bind part of it
+messy.scm:8:9: info: [wrap-in-let] this body form nests 7 deep; bind part of it
+1 file checked, 0 warnings, 0 errors
+#+end_src
+
+To read what a rule means, ask it:
 
 #+begin_src shell
 $ sift explain if-without-else
@@ -137,7 +194,18 @@ if-without-else
 
 DESCRIPTION
 `if` with no else branch, where `when` expresses the intent
-...
+
+DIALECTS
+scheme
+
+SEVERITY
+warning
+
+FAILING EXAMPLE
+(if (ready?) (go))
+
+EXPECTED FIX
+(when (ready?) (go))
 #+end_src
 
 And when you have stopped believing your own setup, ask sift what it thinks it
@@ -169,6 +237,22 @@ Try `sift ci .' to check a tree, or `sift explain RULE' to read a rule.
 sift needs Guile 3.0 or newer and nothing else at run time.  Emacs is optional
 and only for the editor half.
 
+** Requirements
+:PROPERTIES:
+:CUSTOM_ID: requirements
+:END:
+
+| What                                             | Needed for                                | Version |
+|--------------------------------------------------+-------------------------------------------+---------|
+| Guile                                            | the whole tool, at run time               | 3.0+    |
+| Emacs                                            | the Emacs package in ~emacs/sift.el~      | 28.1+   |
+| Guix or Nix                                      | installing the way your distribution does | any     |
+| Vim and Node                                     | running the Vim and VS Code tests only    | any     |
+| [[https://codeberg.org/jjba23/veritas][Veritas]] | running the test suite only               | dev     |
+
+There is no C dependency, no build step, and no package manager required: the
+program is Scheme source, loaded by the Guile you already have.
+
 ** From a checkout
 :PROPERTIES:
 :CUSTOM_ID: install-checkout
@@ -180,9 +264,10 @@ cd sift
 ./bin/sift version
 #+end_src
 
-~bin/sift~ is a two-line launcher: it puts ~src/~ on Guile's load path and
-hands the arguments to ~(sift cli)~.  If you would rather not have the shell
-wrapper, the program is this:
+~bin/sift~ is a small POSIX shell launcher: it resolves its own symlink chain,
+puts the sibling ~src/~ on Guile's load path (or ~$SIFT_LOAD_PATH~, if you set
+it), and hands the arguments to ~(sift cli)~.  If you would rather not have
+the shell wrapper, the program is this:
 
 #+begin_src scheme
 #!/usr/bin/env guile
@@ -195,6 +280,11 @@ run with ~GUILE_LOAD_PATH~ pointing at ~src/~.  To install it into a prefix,
 ~maak install~ copies the library to ~$(prefix)/share/guile/site/3.0~ and the
 launcher to ~$(prefix)/bin~; ~PREFIX=/usr/local~ is the default and
 ~maak uninstall~ undoes it.
+
+On the first run Guile compiles the library and prints a few
+~;;; note: ...~ lines to standard error while it does.  That is Guile's
+auto-compilation talking, not sift: it stops once the cache is warm, and
+~GUILE_AUTO_COMPILE=0~ silences it.
 
 ** With Guix
 :PROPERTIES:
@@ -252,8 +342,12 @@ nix run git+https://github.com/jjba23/nix-jointhefreeworld#sift -- version
 (require 'sift)
 #+end_src
 
+The file carries the headers a package needs, so ~M-x package-install-file~ on
+~emacs/sift.el~ works as well, if you would rather have it in
+~package-user-dir~.
+
 What you turn on after that is up to you — [[#emacs][the Emacs chapter]] has the two
-paths, with and without Eglot.
+paths, with and without Eglot, and the settings you can change.
 
 ** Verifying what you have
 :PROPERTIES:
@@ -286,6 +380,9 @@ sift doctor
 sift version
 #+end_src
 
+~sift --help~ prints a synopsis of the same commands, so you can always ask
+the program what it can do.
+
 With no files and no ~--stdin~, ~format~, ~lint~ and ~check~ read standard
 input, the way a filter should.  With ~--stdin~, at most one file may be
 named, and it is used only as the label in diagnostics — which is how an
@@ -301,32 +398,32 @@ I keep this table complete because a tool you cannot look up is a tool you
 stop using.  Every option can also be set in a configuration file; the
 command line wins.
 
-| Option                                   | Where                  | What it does                                                     |
-|------------------------------------------+------------------------+------------------------------------------------------------------|
-| ~--dialect~                               | all                    | Scheme, elisp or cl; overrides detection                          |
-| ~--stdin~                                  | format, lint, check, ci | Read one source from standard input                              |
-| ~--stdout~                                 | format                 | Write the result to standard output (the default without ~--write~) |
-| ~--write~, ~-w~                            | format                 | Rewrite the files in place                                       |
-| ~--check~, ~-c~                            | format                 | Ask the check question instead: write nothing, exit 1 on a difference |
-| ~--diff~                                   | format                 | Print the change as a unified diff, exit 1 when there is one     |
-| ~--fix~                                    | lint                   | Apply the fixes the rules have                                   |
-| ~--checker NAME[,NAME...]~                 | lint                   | Run only these rules                                             |
-| ~--exclude-checker NAME~                   | lint                   | Skip these rules (repeatable)                                    |
-| ~--severity~                              | lint, lsp              | error, warning or info; the smallest one to report (default ~info~) |
-| ~--format~                                | lint, check, ci        | human, json, null, github or sarif (default ~human~)              |
-| ~--style~                                 | format                 | community (trailing closers) or dangling (own line)               |
-| ~--brackets~                              | format                 | square, parens or preserve, for clause lists                      |
-| ~--line-length N~                          | format, lint           | Soft line limit (100, or 80 for Emacs Lisp)                      |
-| ~--indent N~                               | format                 | Indentation width (default 2)                                    |
-| ~--comment-align~                          | format                 | Line up contiguous inline comments                               |
-| ~--no-color~                               | all                    | No ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)      |
-| ~--quiet~, ~-q~                            | lint, ci               | Drop the summary line                                            |
-| ~--verbose~, ~-v~                          | all                    | Say what is being processed                                      |
-| ~--force~                                  | format, lint, ci, install-hooks | Format or fix a file that has parse errors; replace an existing hook |
-| ~--label NAME~                             | format, lint, check    | Name the stdin source in diagnostics                             |
-| ~--config FILE~                            | all                    | Read this configuration file instead of discovering one          |
-| ~--trust-config~                           | all                    | Allow this project's Scheme configuration to be evaluated        |
-| ~--~                                       | all                    | Stop option parsing; everything after it is a file               |
+| Option                     | Where                           | What it does                                                          |
+|----------------------------+---------------------------------+-----------------------------------------------------------------------|
+| ~--dialect~                | all                             | Scheme, elisp or cl; overrides detection                              |
+| ~--stdin~                  | format, lint, check, ci         | Read one source from standard input                                   |
+| ~--stdout~                 | format                          | Write the result to standard output (the default without ~--write~)   |
+| ~--write~, ~-w~            | format                          | Rewrite the files in place                                            |
+| ~--check~, ~-c~            | format                          | Ask the check question instead: write nothing, exit 1 on a difference |
+| ~--diff~                   | format                          | Print the change as a unified diff, exit 1 when there is one          |
+| ~--fix~                    | lint                            | Apply the fixes the rules have                                        |
+| ~--checker NAME[,NAME...]~ | lint                            | Run only these rules                                                  |
+| ~--exclude-checker NAME~   | lint                            | Skip these rules (repeatable)                                         |
+| ~--severity~               | lint, lsp                       | error, warning or info; the smallest one to report (default ~info~)   |
+| ~--format~                 | lint, check, ci                 | human, json, null, github or sarif (default ~human~)                  |
+| ~--style~                  | format                          | community (trailing closers) or dangling (own line)                   |
+| ~--brackets~               | format                          | square, parens or preserve, for clause lists                          |
+| ~--line-length N~          | format, lint                    | Soft line limit (100, or 80 for Emacs Lisp)                           |
+| ~--indent N~               | format                          | Indentation width (default 2)                                         |
+| ~--comment-align~          | format                          | Line up contiguous inline comments                                    |
+| ~--no-color~               | all                             | No ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)         |
+| ~--quiet~, ~-q~            | lint, ci                        | Drop the summary line                                                 |
+| ~--verbose~, ~-v~          | all                             | Say what is being processed                                           |
+| ~--force~                  | format, lint, ci, install-hooks | Format or fix a file that has parse errors; replace an existing hook  |
+| ~--label NAME~             | format, lint, check             | Name the stdin source in diagnostics                                  |
+| ~--config FILE~            | all                             | Read this configuration file instead of discovering one               |
+| ~--trust-config~           | all                             | Allow this project's Scheme configuration to be evaluated             |
+| ~--~                       | all                             | Stop option parsing; everything after it is a file                    |
 
 Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
 ~--dialect elisp~, and both ~--dialect elisp~ and ~--dialect=elisp~ work.
@@ -336,11 +433,11 @@ Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
 :CUSTOM_ID: exit-codes
 :END:
 
-| Code | When                                                                    |
-|------+-------------------------------------------------------------------------|
-| 0    | everything is clean at the severity you asked for                       |
+| Code | When                                                                     |
+|------+--------------------------------------------------------------------------|
+| 0    | everything is clean at the severity you asked for                        |
 | 1    | findings at or above that severity, or a file that ~format~ would change |
-| 2    | a usage error, an unreadable file, or a file that cannot be parsed      |
+| 2    | a usage error, an unreadable file, or a file that cannot be parsed       |
 
 A usage error is an unknown dialect, an unknown rule in ~--checker~, a
 malformed value, ~--write~ together with ~--stdout~, or ~ci~ together with
@@ -497,13 +594,25 @@ is in [[file:doc/style.org][doc/style.org]].
 
 The short version:
 
-| Where it applies | What it is about                                                |
-|------------------+-----------------------------------------------------------------|
+| Where it applies | What it is about                                                                                                                                                  |
+|------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | all three        | whitespace, line length, delimiters, empty bodies, ~progn~, prefixes, blank lines at EOF, the ~if~ / ~when~ / ~unless~ family, big expressions, keyword arguments |
-| Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification |
-| Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation |
-| Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~ |
-| SXML documents   | the attribute list comes first and there is one of it, and a child is a child |
+| Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification   |
+| Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation         |
+| Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~                                                                 |
+| SXML documents   | the attribute list comes first and there is one of it, and a child is a child                                                                                     |
+
+When you want the catalogue as data rather than prose, the program prints it:
+
+#+begin_src shell
+$ sift list-checkers --dialect=elisp
+NAME                            CODE      DIALECTS          SEVERITY   DESCRIPTION
+beta-reduction                  SIFT046   scheme,elisp,cl   info       A lambda applied in place, where a `let` would say the same thing once
+checkdoc-style-verb             SIFT022   elisp             info       Docstring first sentence uses the third person instead of the imperative
+declare-indent                  SIFT024   elisp             info       `declare` not indented two columns from the enclosing `defun`
+docstring-arguments             SIFT034   elisp             info       An Emacs Lisp docstring that does not mention one of its arguments
+...
+#+end_src
 
 ** Fixes
 :PROPERTIES:
@@ -575,17 +684,17 @@ There are two ways in, and they answer different questions.
 (sift-flymake-setup)  ; and the Flymake backend in the same three
 #+end_src
 
-| Key       | Command                 | What it does                                     |
-|-----------+-------------------------+--------------------------------------------------|
-| ~C-c s f~   | ~sift-format-buffer~      | Format the buffer, as one undoable change        |
-| ~C-c s r~   | ~sift-format-region~      | Format the region                                |
-| ~C-c s c~   | ~sift-check-buffer~       | Say whether the buffer is formatted              |
-| ~C-c s l~   | ~sift-lint~               | Lint into a compilation buffer; ~next-error~ works |
-| ~C-c s x~   | ~sift-fix-buffer~         | Apply every fix, without saving                  |
-| ~C-c s a~   | ~sift-fix-at-point~       | Apply the fixes of the rule at point only        |
-| ~C-c s e~   | ~sift-explain-at-point~   | Open the documentation of the rule on this line  |
-| ~C-c s p~   | ~sift-ci~                 | Run the whole-project check a pipeline runs      |
-| ~C-c s d~   | ~sift-flymake-mode~       | Toggle the backend                               |
+| Key       | Command                 | What it does                                       |
+|-----------+-------------------------+----------------------------------------------------|
+| ~C-c s f~ | ~sift-format-buffer~    | Format the buffer, as one undoable change          |
+| ~C-c s r~ | ~sift-format-region~    | Format the region                                  |
+| ~C-c s c~ | ~sift-check-buffer~     | Say whether the buffer is formatted                |
+| ~C-c s l~ | ~sift-lint~             | Lint into a compilation buffer; ~next-error~ works |
+| ~C-c s x~ | ~sift-fix-buffer~       | Apply every fix, without saving                    |
+| ~C-c s a~ | ~sift-fix-at-point~     | Apply the fixes of the rule at point only          |
+| ~C-c s e~ | ~sift-explain-at-point~ | Open the documentation of the rule on this line    |
+| ~C-c s p~ | ~sift-ci~               | Run the whole-project check a pipeline runs        |
+| ~C-c s d~ | ~sift-flymake-mode~     | Toggle the backend                                 |
 
 The Flymake backend sends the buffer to ~sift lint --stdin --format=json~ and
 turns each finding into a diagnostic whose text starts with the rule's code
@@ -612,17 +721,56 @@ Lisp buffers, starts ~sift lsp~ for them, and turns on ~sift-mode~ for its
 keymap and its format-on-save hook.  It also keeps the Flymake backend out of
 Eglot buffers: two backends would report every finding twice.
 
-| In an Eglot buffer                  | What it does                                        |
-|-------------------------------------+-----------------------------------------------------|
-| ~M-x eglot-code-actions~, ~C-c s A~    | offer the fixes that apply here                     |
-| ~M-x eglot-format~                   | format the buffer through the server                 |
-| ~C-d~ on a finding                   | Eglot's own key: the rule's description, and its page |
-| ~C-c s f~                             | format with the command instead, if you prefer       |
+| In an Eglot buffer                  | What it does                                          |
+|-------------------------------------+-------------------------------------------------------|
+| ~M-x eglot-code-actions~, ~C-c s A~ | offer the fixes that apply here                       |
+| ~M-x eglot-format~                  | format the buffer through the server                  |
+| ~C-d~ on a finding                  | Eglot's own key: the rule's description, and its page |
+| ~C-c s f~                           | format with the command instead, if you prefer        |
 
 The server is ~sift lsp~, and by default that is whatever ~sift-executable~
 names; ~sift-eglot-command~ is there for a server that lives somewhere else.
 If the program is missing, ~sift-eglot-contact~ says so in one sentence rather
 than starting a process that fails.
+
+** Settings
+:PROPERTIES:
+:CUSTOM_ID: emacs-settings
+:END:
+
+Every knob lives in the ~sift~ customization group, so ~M-x customize-group
+RET sift~ lists them all in one buffer:
+
+| Variable               | Default              | What it does                                                                        |
+|------------------------+----------------------+-------------------------------------------------------------------------------------|
+| ~sift-executable~      | ~"sift"~             | The program to run, on ~PATH~ or an absolute path                                   |
+| ~sift-dialect~         | ~nil~                | Dialect to pass explicitly; ~nil~ guesses from the major mode                       |
+| ~sift-format-style~    | ~nil~                | ~"community"~ or ~"dangling"~; ~nil~ lets sift decide                               |
+| ~sift-comment-align~   | ~nil~                | Ask the formatter to line up inline comments                                        |
+| ~sift-format-on-save~  | ~nil~                | Format the buffer before saving it, while ~sift-mode~ is on                         |
+| ~sift-lint-severity~   | ~"info"~             | The smallest severity Flymake reports; ~nil~ leaves it to the project's ~sift.yaml~ |
+| ~sift-extra-arguments~ | ~nil~                | A list of arguments added to every invocation                                       |
+| ~sift-eglot-modes~     | the three Lisp modes | The major modes Eglot starts a server for                                           |
+| ~sift-eglot-command~   | ~nil~                | The argv that starts the server, instead of ~sift lsp~                              |
+
+A configuration that pins the interesting ones:
+
+#+begin_src elisp
+(use-package sift
+  :load-path "/path/to/sift/emacs"
+  :custom
+  (sift-format-style "community")
+  (sift-format-on-save t)
+  (sift-lint-severity "warning")
+  :config
+  (sift-setup)
+  (sift-flymake-setup))
+#+end_src
+
+Two warnings worth having in the file rather than in an issue: turning on
+~sift-format-on-save~ only affects buffers where ~sift-mode~ is enabled, and a
+buffer with no dialect (say a ~.rkt~ file in ~scheme-mode~) says so instead of
+guessing.
 
 ** A note about Emacs Lisp indentation
 :PROPERTIES:
@@ -648,14 +796,14 @@ Anything that speaks LSP can have the server; anything that reads a compiler's
 output can have the program.  [[file:doc/editors.org][doc/editors.org]] has the details and the
 recipes, and the ready-made ones live in the repository:
 
-| Editor      | What to use                                                     |
-|-------------+-----------------------------------------------------------------|
-| Neovim      | ~editors/vim/neovim.lua~ — a ~vim.lsp.start~ setup, no plugin      |
-| Vim         | ~editors/vim/~ — ~:SiftLint~, ~:SiftFormat~, ~:SiftFix~, ~:SiftExplain~, and ~:compiler sift~ for ~:make~ |
-| VS Code     | ~editors/vscode/~ — an extension with no build step and no dependencies |
-| Emacs       | ~emacs/sift.el~ — Flymake, or Eglot for code actions               |
-| Helix       | formatting on save through ~sift format --stdin~, and the linter in the pipeline |
-| anything else | ~--format=json~, ~--format=github~, or ~sift lsp~                |
+| Editor        | What to use                                                                                               |
+|---------------+-----------------------------------------------------------------------------------------------------------|
+| Neovim        | ~editors/vim/neovim.lua~ — a ~vim.lsp.start~ setup, no plugin                                             |
+| Vim           | ~editors/vim/~ — ~:SiftLint~, ~:SiftFormat~, ~:SiftFix~, ~:SiftExplain~, and ~:compiler sift~ for ~:make~ |
+| VS Code       | ~editors/vscode/~ — an extension with no build step and no dependencies                                   |
+| Emacs         | ~emacs/sift.el~ — Flymake, or Eglot for code actions                                                      |
+| Helix         | formatting on save through ~sift format --stdin~, and the linter in the pipeline                          |
+| anything else | ~--format=json~, ~--format=github~, or ~sift lsp~                                                         |
 
 The human format is ~file:line:column: severity: [rule] message~, which Vim's
 ~:make~, Emacs's ~compilation-mode~ and most CI log viewers already understand.
@@ -821,7 +969,8 @@ line-length
 
 The complete list of keys, with their defaults and the flags that override
 them, is what ~sift config show~ prints; every key is documented by
-~sift config explain KEY~.
+~sift config explain KEY~.  The Emacs package has its own settings, listed in
+[[#emacs-settings][the Emacs chapter]].
 
 * Testing
 :PROPERTIES:
@@ -889,7 +1038,7 @@ src/sift/
   cli.scm           args-fold, dispatch, exit codes
 emacs/              the Emacs package and its ERT suite
 editors/            the Neovim, Vim and VS Code integrations, with their tests
-assets/             the logo
+assets/             the logo and the demo recording
 doc/                style.org (the reasoning), rules.org (generated), editors.org
 #+end_example
 
@@ -1007,7 +1156,22 @@ would like to be better at, and every one of these is a real contribution:
   a test in that editor's own tool.  Another editor is a directory more.
 - *A word in the documentation.*  The README, [[file:doc/style.org][the style document]] and the
   rule descriptions are written by hand and read by people deciding whether
-  to trust the tool.
+  to trust the tool.  If a sentence here made you hesitate, it is worth a
+  patch.
+
+** A first patch, in order
+:PROPERTIES:
+:CUSTOM_ID: first-patch
+:END:
+
+1. Read [[file:doc/style.org][doc/style.org]] — it is the argument the rules implement, and a rule
+   that disagrees with it is the interesting kind of bug report.
+2. Run the suite once before you change anything, so that a failure later is
+   yours to explain: ~maak test~ (and ~maak emacs-test~ if you touched the
+   package).
+3. Add the rule or the fix with its test file under ~tests/checkers/~, then
+   ~maak self-check~, ~maak check~ and ~maak fixture-check~.
+4. Send it as a pull request, or as a patch — see below.
 
 The rules of the house are the project's own style, and the project formats
 itself:
@@ -1040,6 +1204,10 @@ Patches are welcome as a pull request on
 [[https://github.com/jjba23/sift][GitHub]] or as a patch sent with ~git format-patch~ and ~git send-email~, which
 is how the author usually works.  Be kind: the code review is about the code.
 
+Questions are welcome as issues too, and they are not a lesser contribution.
+If this README did not answer yours, the README is the thing that needs the
+patch, and saying so is the most useful bug report of all.
+
 * Further reading
 :PROPERTIES:
 :CUSTOM_ID: further-reading
@@ -1053,6 +1221,7 @@ is how the author usually works.  Be kind: the code review is about the code.
   and the two CI shapes.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the
   program.
+- ~sift list-checkers~ — the catalogue as a table, filtered by dialect.
 - [[file:emacs/sift.el][emacs/sift.el]] — the package, with its commentary at the top.
 
 * License

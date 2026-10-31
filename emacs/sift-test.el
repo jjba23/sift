@@ -269,6 +269,19 @@ the directory, not about how long linting this repository takes."
     (should (equal "warning" (match-string 4)))
     (should (equal "empty-body" (match-string 5)))))
 
+;;; ===== Severity =====
+
+(ert-deftest sift-test-severity-is-said-only-when-it-is-set ()
+  "A severity floor is passed on, and nil leaves the project to decide.
+
+The project's own `sift.yaml' is where a threshold belongs, so a nil
+`sift-lint-severity' has to mean that sift is told nothing at all rather
+than being told a default of the editor's."
+  (let ((sift-lint-severity "warning"))
+    (should (equal '("--severity=warning") (sift--severity-options))))
+  (let ((sift-lint-severity nil))
+    (should-not (sift--severity-options))))
+
 ;;; ===== Eglot =====
 
 (ert-deftest sift-test-eglot-contact-runs-the-server ()
