@@ -1,0 +1,68 @@
+# sift --- continuous integration
+#
+# The job is the same steps a contributor runs: enter the environment the
+# manifest describes, run the Veritas suite, compile every module, and check
+# that sift's own sources and the fixture corpus are already formatted.
+#
+# Veritas is checked out beside the project because the suite is written
+# against its development version; the load path points at src/, at the
+# repository root (the tests are the (tests ...) modules) and at the Veritas
+# checkout.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      VERITAS_DIR: ${{ github.workspace }}/veritas
+      GUILE_LOAD_PATH: ${{ github.workspace }}/src:${{ github.workspace }}:${{ github.workspace }}/veritas/src
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Guix
+        uses: PromyLOPh/guix-install-action@v1
+
+      - name: Check out veritas
+        uses: actions/checkout@v4
+        with:
+          repository: jjba23/veritas
+          path: veritas
+
+      - name: Run the Veritas suite
+        run: |
+          guix shell -m manifest.scm -- \
+            guile -L ./src -L . -L "$VERITAS_DIR/src" \
+              -c '(begin (use-modules (tests run)) (exit (run-all!)))'
+
+      - name: Compile every module
+        run: |
+          guix shell -m manifest.scm -- \
+            sh -c 'set -eu
+              find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
+                | xargs -0 -n 1 sh -c "guild compile -o \$(mktemp) \"\$1\"" sh'
+
+      - name: Check sift formats its own sources
+        run: |
+          guix shell -m manifest.scm -- \
+            sh -c 'find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
+                     | xargs -0 ./bin/sift check'
+
+      - name: Check the fixture corpus is formatted
+        run: |
+          guix shell -m manifest.scm -- \
+            sh -c 'set -eu
+              for dir in tests/fixtures/*/*/expected; do
+                style=$(basename "$(dirname "$dir")")
+                case $(basename "$(dirname "$(dirname "$dir")")") in
+                  elisp) dialect=elisp ;;
+                  cl) dialect=cl ;;
+                  *) dialect=scheme ;;
+                esac
+                ./bin/sift check --dialect="$dialect" --style="$style" "$dir"/*
+              done'

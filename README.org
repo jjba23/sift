@@ -1,0 +1,762 @@
+#+title: sift
+#+subtitle: a dialect-aware formatter and linter for Scheme, Emacs Lisp and Common Lisp
+#+author: Josep Bigorra
+#+options: toc:2 num:nil
+#+language: en
+
+*SHIFT THE SPACES, KEEP THE CODE* -- sift adjusts how a Lisp file is written
+down, never what it says.
+
+sift formats and lints Scheme, Emacs Lisp and Common Lisp.  It reads a file
+into a tree in which every comment, every blank line and every reader macro is
+a node of its own, which is what lets it promise three things that a formatter
+built on the host's `read` cannot:
+
+1. *nothing is lost.*  Formatting a file that is already correct is a
+   byte-for-byte no-op, and formatting any file twice gives the same result as
+   formatting it once.
+2. *nothing is guessed.*  A missing delimiter is reported where the form was
+   opened; sift never inserts one, and never formats a file it could not read
+   unless you say `--force`.
+3. *nothing is written without being asked.*  `format` and `lint` are filters
+   by default; `--write` and `--fix` are the only ways to touch a file.
+
+It knows the three dialects apart: a `let` is indented one way in all of them,
+a `defun` is not, `#| ... |#` is a comment in Scheme and Common Lisp and an
+error in Emacs Lisp, and `?a`, `#\a` and `#\a` are three different character
+literals.
+
+* Contents
+:PROPERTIES:
+:CUSTOM_ID: contents
+:END:
+
+- [[#design-principles][Design principles]]
+- [[#installation][Installation]]
+- [[#quick-start][Quick start]]
+- [[#command-line-reference][Command line reference]]
+- [[#exit-codes][Exit codes]]
+- [[#dialect-detection][Dialect detection]]
+- [[#the-formatter][The formatter]]
+- [[#the-linter][The linter]]
+- [[#suppression-comments][Suppression comments]]
+- [[#configuration][Configuration]]
+- [[#testing-with-veritas][Testing with Veritas]]
+- [[#architecture][Architecture]]
+- [[#design-decisions][Design decisions]]
+- [[#license][License]]
+
+* Design principles
+:PROPERTIES:
+:CUSTOM_ID: design-principles
+:END:
+
+1. *Reader correctness is non-negotiable.*  A formatter that cannot round-trip
+   a file byte for byte when no formatting rule applies is not acceptable.
+   sift's reader keeps comments, blank lines and reader-macro prefixes as
+   first-class nodes with locations, and `(sift reader)' never calls `read`.
+2. *Fuzzy formatting over pretty-printing.*  sift adjusts indentation,
+   spacing and delimiter placement, and preserves the author's line breaks
+   wherever they are structurally meaningful.  It does not reflow forms.
+3. *Lint checks are independently testable and documented.*  Every checker is
+   a record with a name, a description, a dialect set, a severity, an example
+   and at least one passing and one failing test per dialect it applies to.
+   ~sift list-checkers~ and ~sift explain~ read the same records the driver
+   runs, so the documentation cannot drift.
+4. *Exit codes and stream behaviour are pipeline-safe.*  0 is clean, 1 is
+   findings or differences, 2 is a usage error.  The same codes whether a
+   person typed the command or a Makefile did.
+5. *No silent mutation.*  ~format~ and ~lint~ without ~--write~ never write to
+   disk; ~--stdin~ and ~--stdout~ never assume a terminal.
+6. *Tests are written in Veritas.*  Every unit, checker, formatter and CLI
+   test uses [[https://codeberg.org/jjba23/veritas][Veritas]]; no other test
+   framework is used.
+
+* Installation
+:PROPERTIES:
+:CUSTOM_ID: installation
+:END:
+
+sift needs *GNU Guile 3.0 or newer* and nothing else at run time.
+
+** From a checkout
+
+#+begin_src shell
+git clone https://codeberg.org/jjba23/sift.git
+cd sift
+./bin/sift version
+./bin/sift format --stdin --stdout < foo.scm > foo.formatted.scm
+#+end_src
+
+~bin/sift~ is a two-line launcher: it puts ~src/~ on Guile's load path and
+hands the arguments to ~(sift cli)~.  If you would rather not use the shell
+wrapper, the whole program is:
+
+#+begin_src scheme
+#!/usr/bin/env guile
+!#
+(use-modules (sift cli))
+(exit (sift-main (cdr (program-arguments))))
+#+end_src
+
+run with ~GUILE_LOAD_PATH=~ pointing at ~src/~.
+
+** With Guix
+
+#+begin_src shell
+guix shell -m manifest.scm -- sift format src/
+guix shell -f guix.scm -- sift lint src/        # the packaged definition
+#+end_src
+
+** Compiling
+
+sift is a library plus a thin executable.  Byte-compiling the tree is what
+~maak check~ does, and it is also what an installation does:
+
+#+begin_src shell
+export GUILE_LOAD_PATH="$PWD/src:$GUILE_LOAD_PATH"
+guild compile -o /tmp/sift.go src/sift/cli.scm
+#+end_src
+
+** maak targets
+
+| Task                    | What it does                                                     |
+|-------------------------+------------------------------------------------------------------|
+| ~maak test~             | Runs the whole Veritas suite, with the load path already set     |
+| ~maak check~            | Compiles every module, so a syntax error fails the build         |
+| ~maak fixture-check~    | Asserts the fixture corpus is already formatted                  |
+| ~maak self-check~       | Asserts sift's own sources are formatted by sift                 |
+| ~maak install~          | Installs the library and the launcher under ~$(PREFIX)~ (default ~/usr/local~) |
+| ~maak uninstall~        | Removes what ~install~ installed                                 |
+| ~maak fmt~              | Formats sift's own sources with sift                             |
+| ~maak repl~             | A REPL with the library and the tests on the load path           |
+| ~maak clean~            | Removes ~reports/~                                                 |
+
+* Quick start
+:PROPERTIES:
+:CUSTOM_ID: quick-start
+:END:
+
+#+begin_src shell
+$ cat foo.scm
+(define (square x)
+(* x x))
+
+$ sift format foo.scm
+(define (square x)
+  (* x x))
+
+$ sift check foo.scm
+--- foo.scm
++++ foo.scm
+@@ -1,2 +1,2 @@
+ (define (square x)
+-  (* x x))
++  (* x x))
+$ echo $?
+1
+
+$ sift format --write foo.scm && sift check foo.scm && echo clean
+clean
+
+$ sift lint foo.scm
+$ sift lint --checker trailing-whitespace --format=json foo.scm
+[]
+#+end_src
+
+* Command line reference
+:PROPERTIES:
+:CUSTOM_ID: command-line-reference
+:END:
+
+#+begin_src text
+sift format   [OPTIONS] [FILE...]
+sift lint     [OPTIONS] [FILE...]
+sift check    [OPTIONS] [FILE...]   # format check only; exit 1 if any file would change
+sift list-checkers [--dialect DIALECT]
+sift explain CHECKER-NAME
+sift config show|explain|trust ...
+sift version
+#+end_src
+
+When no files are given and ~--stdin~ is not used, ~format~, ~lint~ and
+~check~ read standard input, the way every Unix filter does.  With ~--stdin~,
+at most one file may be named, and it is used only as the label in
+diagnostics.
+
+** Options
+
+| Option                        | Applies to        | Behaviour                                                              |
+|-------------------------------+-------------------+------------------------------------------------------------------------|
+| ~--dialect scheme\|elisp\|cl~  | all               | Override auto-detection                                                |
+| ~--stdin~                     | format/lint/check | Read one source from stdin                                             |
+| ~--stdout~                    | format            | Write the formatted source to stdout (the default without ~--write~)    |
+| ~--write~, ~-w~               | format            | Rewrite the files in place                                             |
+| ~--check~, ~-c~               | format            | Alias for ~sift check~: write nothing, exit 1 on differences            |
+| ~--fix~                       | lint              | Apply the fixes of the checkers that have one                          |
+| ~--checker NAME[,NAME...]~    | lint              | Run only the named checkers                                            |
+| ~--exclude-checker NAME~      | lint              | Skip the named checkers (repeatable)                                   |
+| ~--severity error\|warning\|info~ | lint          | Minimum severity to report (default ~info~)                             |
+| ~--format human\|json\|null~   | lint/check        | Output format (default ~human~; ~null~ prints nothing, keeps the status) |
+| ~--style community\|dangling~ | format            | Named formatting style (default ~community~)                            |
+| ~--line-length N~             | format/lint       | Override the soft line limit (100, or 80 for Emacs Lisp)               |
+| ~--indent N~                  | format            | Indentation width (default 2)                                          |
+| ~--comment-align~             | format            | Vertically align contiguous inline comments                            |
+| ~--no-color~                  | all               | Disable ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)      |
+| ~--quiet~, ~-q~               | lint              | Suppress the summary line                                              |
+| ~--verbose~, ~-v~             | all               | Print per-file processing details                                      |
+| ~--force~                     | format            | Format a file that has parse errors, leaving the broken part verbatim  |
+| ~--config FILE~               | all               | Read this configuration file instead of discovering one                |
+| ~--trust-config~              | all               | Allow the Scheme configuration file of this project to be evaluated    |
+| ~--~                          | all               | Stop option parsing; everything after it is a file                     |
+
+Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
+~--dialect elisp~.
+
+Option parsing is done with SRFI-37 ~args-fold~.  Because the reference
+implementation Guile ships reads a long option's argument only when it follows
+an ~=~, sift normalises ~--name value~ into ~--name=value~ first -- one small
+function that also owns the abbreviation table, so the two cannot drift.
+
+** Examples
+
+#+begin_src shell
+# a filter: nothing is written unless you redirect it
+sift format --stdin --stdout < foo.scm > foo.formatted.scm
+
+# a check for a Git hook or a CI job
+sift check src/ || { echo "run sift format --write src/"; exit 1; }
+
+# lint a project, as JSON, from a live Emacs Lisp file
+sift lint --format=json --dialect elisp lisp/*.el
+
+# fix what can be fixed, then report what is left
+sift lint --fix src/
+#+end_src
+
+* Exit codes
+:PROPERTIES:
+:CUSTOM_ID: exit-codes
+:END:
+
+| Code | Meaning                                                                           |
+|------+-----------------------------------------------------------------------------------|
+| 0    | Clean: no findings at or above the requested severity; formatting is already right |
+| 1    | Lint findings present, or ~check~ (or ~format --check~) would change a file         |
+| 2    | Usage error, unreadable file, or an unrecoverable parse error                     |
+
+A usage error includes an unknown dialect, an unknown checker name in
+~--checker~ or ~--exclude-checker~, a malformed option value, and ~--write~
+combined with ~--stdout~.
+
+A file with an unbalanced delimiter is *recoverable*: the reader keeps what it
+could read, `lint` reports the problem as a finding (status 1), and `format`
+refuses to write (status 2) unless ~--force~ is given, in which case the
+balanced prefix is formatted and the malformed suffix is copied verbatim.
+
+* Dialect detection
+:PROPERTIES:
+:CUSTOM_ID: dialect-detection
+:END:
+
+The order is fixed and documented, and a file that matches none of it is an
+error that names the three dialects rather than a guess:
+
+1. ~--dialect~, or the ~dialect~ configuration key.
+2. The file extension: ~.scm~, ~.ss~, ~.sld~, ~.sls~ are Scheme; ~.el~ is
+   Emacs Lisp; ~.lisp~, ~.cl~, ~.asd~ are Common Lisp.
+3. The shebang line: ~guile~ is Scheme, ~sbcl~, ~clisp~, ~ecl~ and ~ccl~ are
+   Common Lisp, ~emacs~ is Emacs Lisp.
+4. A marker in the first 200 lines: ~(in-package ...)~ or ~(defpackage ...)~
+   is Common Lisp, ~(define-module ...)~ or ~(use-modules ...)~ is Scheme, and
+   a ~lexical-binding: t~ header is Emacs Lisp.
+5. Otherwise, standard input with no marker needs ~--dialect~.
+
+* The formatter
+:PROPERTIES:
+:CUSTOM_ID: the-formatter
+:END:
+
+** What formatting does
+
+The pipeline is: normalise line endings to LF; normalise intra-form spacing
+(one space between adjacent forms, none after an opener or before a closer);
+place closing delimiters; compute indentation; align comments if asked;
+preserve blank lines (a run of three or more inside a form becomes two, and a
+run between top-level forms becomes one); clamp reader prefixes to their
+datum; and leave line length to the linter, which warns rather than reflowing.
+
+Nothing else changes.  Strings are never reflowed and escapes are never
+re-spelled; a `#;` datum comment, a `#.` form and a `#<...>` object are copied
+verbatim, because sift was told not to enter them.
+
+** Two styles
+
+~community~ is the default: closing delimiters trail the last element.
+
+#+begin_src scheme
+(define (classify n)
+  (cond ((< n 0) 'negative)
+        ((= n 0) 'zero)
+        (else 'positive)))
+#+end_src
+
+~dangling~ is opt-in: in a multiline form each closer gets a line of its own,
+aligned with the opener that it closes.  It is not the default because it is
+not idiomatic in Emacs Lisp and not accepted by every Scheme or Common Lisp
+community.
+
+#+begin_src scheme
+(define (classify n)
+  (cond ((< n 0) 'negative)
+        ((= n 0) 'zero)
+        (else 'positive)
+        )
+  )
+#+end_src
+
+The two are the same tree; only the closer's placement differs.
+
+** Indentation
+
+The rule has three parts, in this order:
+
+1. A form whose first element is a symbol is looked up in the dialect's table
+   (see ~scheme-indent-rules~, ~elisp-indent-rules~ and ~cl-indent-rules~ in
+   ~src/sift/format.scm~).  Every entry indents the body two columns in from
+   the opening parenthesis; the table exists so that a form whose operator
+   stands alone on its line is not indented from the operator instead.
+2. A form whose first element is *not* a symbol is a data list -- a binding
+   list, a ~cond~ clause, a vector -- and its elements line up under the
+   first.
+3. Anything else follows the generic rule: arguments sit two columns in from
+   the opening parenthesis when the first one is on the operator's line, and
+   two columns in from the operator when it is not.
+
+A short excerpt of the tables:
+
+| Dialect      | Form                                            | Rule                                  |
+|--------------+-------------------------------------------------+---------------------------------------|
+| Scheme       | ~lambda~, ~define~, ~let~, ~let*~, ~letrec~       | body two columns in                   |
+| Scheme       | ~cond~, ~case~, ~when~, ~unless~, ~do~            | body two columns in; clauses are data |
+| Scheme       | ~parameterize~, ~with-exception-handler~, ~guard~ | body two columns in                   |
+| Emacs Lisp   | ~defun~, ~defmacro~, ~defsubst~, ~cl-defun~       | name and arglist on the head line     |
+| Emacs Lisp   | ~defvar~, ~defcustom~, ~defface~                  | name on the head line, value two in   |
+| Emacs Lisp   | ~condition-case~, ~dolist~, ~with-current-buffer~ | body two columns in                   |
+| Emacs Lisp   | ~declare~, ~interactive~                          | two columns in                        |
+| Common Lisp  | ~defun~, ~defmacro~, ~defmethod~, ~defgeneric~    | name and lambda list on the head line |
+| Common Lisp  | ~defclass~, ~defpackage~, ~defstruct~             | body two columns in                   |
+| Common Lisp  | ~handler-case~, ~restart-case~, ~unwind-protect~  | body two columns in                   |
+| Common Lisp  | ~loop~                                            | keywords two columns in               |
+
+The full tables are in ~src/sift/format.scm~, and ~sift explain~ is not the
+place to read them: they are data, and the test suite asserts what they do.
+
+** Determinism and idempotence
+
+Formatting depends only on the tree, the dialect, the style and the options.
+Nothing is read from a hash table in iteration order, and no option defaults
+to something environmental.  The test suite formats every fixture and then
+formats the result again, and asserts that the second pass changed nothing;
+the same pass runs over the expected files of the corpus.
+
+* The linter
+:PROPERTIES:
+:CUSTOM_ID: the-linter
+:END:
+
+A checker is a record:
+
+#+begin_src scheme
+(define-record-type <lint-checker>
+  (make-lint-checker name description dialects proc severity example)
+  lint-checker?
+  (name        lint-checker-name)        ; symbol
+  (description lint-checker-description) ; one sentence
+  (dialects    lint-checker-dialects)    ; '(scheme elisp cl), a subset, or 'all
+  (proc        lint-checker-proc)        ; (lambda (ast source dialect) warnings)
+  (severity    lint-checker-severity)    ; default severity of its findings
+  (example     lint-checker-example))    ; #f, or an alist for `explain`
+#+end_src
+
+The driver reads the file once, runs every applicable checker, folds in what
+the reader found, applies the suppression comments, filters by ~--severity~,
+and sorts by file, line, column and checker name.  A checker never mutates
+the tree.
+
+** Checkers
+
+The table below is the output of ~sift list-checkers~, pasted here by a
+maintainer and checked by the test suite: the list, the dialects and the
+severity all come from the checker records themselves.
+
+#+begin_example
+NAME                            DIALECTS        SEVERITY   DESCRIPTION
+checkdoc-style-verb             elisp           info       Docstring first sentence uses the third person instead of the imperative
+dangling-paren                  cl              warning    Closing parenthesis on its own line
+declare-indent                  elisp           info       `declare` not indented two columns from the enclosing `defun`
+defun-no-docstring              cl              info       `defun`, `defmacro` or `defgeneric` without a docstring
+docstring-first-line            elisp           warning    The first line of a docstring is not a capitalised sentence ending in a period
+docstring-indent                elisp           warning    Docstring continuation lines are indented instead of starting at column zero
+docstring-missing               elisp           warning    `defun`, `defmacro`, `defsubst`, `defvar` or `defcustom` without a docstring
+double-colon                    cl              warning    Use of `package::internal-symbol` in production code
+empty-body                      all             warning    A `cond`, `let` or `lambda` form with no body
+if-without-else                 scheme          warning    `if` with no else branch, where `when` expresses the intent
+interactive-without-docstring   elisp           warning    An `interactive` command without a docstring
+internal-define                 scheme          warning    `define` inside a procedure body without an enclosing `let`
+letrec-single-binding           scheme          info       `letrec` with a single binding that does not need recursive scope
+lexical-binding-missing         elisp           warning    The file header lacks `-*- lexical-binding: t; -*-`
+line-length                     all             warning    Line exceeds the configured soft limit
+loop-keyword-style              cl              info       Symbolic LOOP keywords where the project style asks for literal `:keywords`
+package-prefix                  cl              warning    Exported symbols referenced without a package prefix
+provide-missing                 elisp           warning    The file defines a package but has no final `(provide 'feature)`
+quasiquote-unquote-constant     scheme          info       `(quasiquote (unquote constant))` can be simplified
+reader-prefix-break             all             warning    A newline between a reader prefix and its datum
+redundant-identity              cl              info       `(identity x)` or `(funcall #'foo ...)` where the value suffices
+redundant-progn                 all             warning    `progn` used as the sole body of a form that already has an implicit `progn`
+tabs                            all             warning    Tab characters used for indentation
+trailing-blank-lines            all             info       More than two consecutive blank lines at end of file
+trailing-whitespace             all             warning    Lines ending with spaces or tabs
+unless-without-body             scheme,cl       warning    `unless` form with no body
+unmatched-parens                all             error      Unbalanced or unmatched parentheses or brackets
+when-without-body               scheme,cl       warning    `when` form with no body
+#+end_example
+
+~sift explain NAME~ prints one checker's description, dialects, severity, a
+failing example and the fix it expects (or says that there is none).
+
+** Fixes
+
+A fix is a procedure ~(lambda (source start end) replacement)~ attached to a
+warning, together with the character range it replaces.  ~--fix~ applies them
+from the highest offset down, so that one fix cannot move the text a later one
+was measured against, and then re-lints once to report what is left.  There is
+no fix loop: a fixer that keeps finding work is a bug, not a queue.
+
+A fix is only applied if it is non-~#f~ and if, after applying all of them,
+the file still reads as cleanly as it did before.  If a fix introduces a parse
+error the file did not have, every fix of the run is discarded and the original
+warnings are reported unfixed.
+
+* Suppression comments
+:PROPERTIES:
+:CUSTOM_ID: suppression-comments
+:END:
+
+#+begin_src scheme
+;; sift:disable-next-line checker-name
+;; sift:disable checker-name
+;; sift:enable checker-name
+#+end_src
+
+The reader treats them as ordinary comments; the linter reads them from the
+comment stream and filters its findings.  Several checker names may be given,
+separated by commas or spaces, and a directive with no name applies to every
+checker.
+
+- ~disable-next-line~ silences the finding on the next source line.
+- ~disable~ silences findings from where it is written to the end of the
+  top-level form it sits in, or to the end of the file when it sits between
+  forms.
+- ~enable~ ends the matching ~disable~.
+
+Suppression is deliberately line-oriented and form-scoped.  There is no range
+syntax, because a range comment outlives the code it was written for.
+
+* Configuration
+:PROPERTIES:
+:CUSTOM_ID: configuration
+:END:
+
+** Principles
+
+1. *CLI > config > defaults.*  A command-line flag always wins over a
+   configuration file, and a file always wins over a built-in default.  Keys
+   with no flag are documented as config-only and can still be set in either
+   format.
+2. *Two formats, one schema.*  YAML is data and is the format to check in;
+   Scheme is code and is the format for a project that wants to register an
+   indent rule or read an environment variable.  Both load into the same
+   ~<config>~ record.
+3. *Hierarchical discovery.*  A project file beats the user file, which beats
+   the system file, which beats the defaults.  Discovery stops at the
+   repository boundary, so a file in your home directory cannot silently apply
+   to an unrelated project.
+4. *Validate early, fail clearly.*  A malformed configuration exits 2 with
+   ~file:line:column: message~.  Unknown keys are errors, not warnings.
+5. *Scheme config is code.*  YAML can never run anything.  Scheme is
+   evaluated, so it is only loaded when it is trusted (see the trust model
+   below).
+6. *Config is inspectable.*  ~sift config show --verbose~ prints the effective
+   configuration with a per-key provenance annotation, and ~sift config
+   explain KEY~ documents every key.  You never have to guess which layer won.
+
+** Discovery
+
+In order of increasing precedence:
+
+| Layer    | Where it is looked for                                                     |
+|----------+----------------------------------------------------------------------------|
+| system   | ~/etc/sift/config.yaml~, ~config.yml~ or ~config.scm~                        |
+| user     | ~$XDG_CONFIG_HOME/sift/~ (or ~~/.config/sift/~)                              |
+| project  | the nearest ~sift.yaml~, ~sift.yml~, ~.sift.yaml~, ~sift.scm~ or ~.sift.scm~ walking up from the current directory, stopping *after* the repository root |
+| command  | the flags of this run                                                      |
+
+~--config FILE~ replaces discovery entirely: a caller who names a file means
+that file.
+
+** The trust model
+
+A YAML configuration is always safe to load: it is read, validated and can run
+nothing.
+
+A Scheme configuration is evaluated, so sift will only load one when it has
+been trusted:
+
+1. it was named with ~--config~, or
+2. ~SIFT_TRUST_CONFIG=1~ is set for this run, or
+3. its directory is listed in ~~/.config/sift/trusted-projects~, which
+   ~sift config trust sift.scm~ writes.
+
+Anything else exits 2 and says how to trust the file.  A repository that is
+cloned and opened should not be able to run code merely because sift was
+pointed at it.
+
+** Two schemas, one example
+
+#+begin_src yaml
+# sift.yaml -- data only, safe to check in
+dialect: elisp
+style: community
+line-length: 90
+indent: 2
+comment-align: false
+severity: warning
+format: human
+checkers:
+  - trailing-whitespace
+  - docstring-missing
+exclude-checkers: [line-length]
+loop-keywords: literal
+#+end_src
+
+#+begin_src scheme
+;; sift.scm -- code, evaluated only when trusted
+`((dialect . scheme)
+  (line-length . 100)
+  (checkers . (trailing-whitespace))
+  ;; an indent rule for this project's own macro
+  (indent-rules . ((with-my-thing . 2))))
+#+end_src
+
+** Keys
+
+| Key                | Type                      | Default     | Flag               |
+|--------------------+---------------------------+-------------+--------------------|
+| ~dialect~           | ~scheme~, ~elisp~, ~cl~       | ~#f~         | ~--dialect~         |
+| ~style~             | ~community~, ~dangling~      | ~community~  | ~--style~           |
+| ~line-length~       | positive integer, or off   | ~#f~ (100/80) | ~--line-length~    |
+| ~indent~            | positive integer           | ~2~          | ~--indent~          |
+| ~indent-rules~      | list of ~(symbol . n)~       | ~()~         | config-only        |
+| ~comment-align~     | boolean                    | ~false~      | ~--comment-align~   |
+| ~checkers~          | list of names, or off      | ~#f~         | ~--checker~         |
+| ~exclude-checkers~  | list of names              | ~[]~         | ~--exclude-checker~ |
+| ~severity~          | ~error~, ~warning~, ~info~    | ~info~       | ~--severity~        |
+| ~format~            | ~human~, ~json~, ~null~       | ~human~      | ~--format~          |
+| ~color~             | ~auto~, ~always~, ~never~     | ~auto~       | ~--no-color~        |
+| ~quiet~             | boolean                    | ~false~      | ~--quiet~           |
+| ~verbose~           | boolean                    | ~false~      | ~--verbose~         |
+| ~force~             | boolean                    | ~false~      | ~--force~           |
+| ~loop-keywords~     | ~either~, ~literal~, ~symbolic~ | ~either~     | config-only        |
+
+** Inspecting the result
+
+#+begin_src shell
+$ sift config show --verbose
+dialect: elisp   # /home/joe/project/sift.yaml
+style: community   # default
+line-length: 90   # /home/joe/project/sift.yaml
+indent: 4   # command line (--indent)
+...
+
+$ sift config explain line-length
+line-length
+  Soft line limit for the line-length checker; #f means 100, or 80 for Emacs Lisp.
+  type:    integer
+  default: #f
+  flag:    --line-length
+#+end_src
+
+* Testing with Veritas
+:PROPERTIES:
+:CUSTOM_ID: testing-with-veritas
+:END:
+
+*Veritas is the only test framework this project uses.*  There is no
+~srfi-64~, no ~(testing)~ from Guix and no ad-hoc assert macro anywhere in the
+tree.
+
+** Where it comes from
+
+Veritas is expected at ~~/Hacking/veritas~, or wherever ~VERITAS_DIR~ points;
+if ~vendor/veritas~ exists (a submodule), that wins over the home directory.
+~maak test~ puts ~$VERITAS_DIR/src~ on Guile's load path itself, so no
+environment variable has to be exported by hand:
+
+#+begin_src shell
+maak test              # the whole suite
+VERITAS_DIR=/path/to/veritas maak test
+guix shell -m manifest.scm -- guile -L ./src -L . -L "$VERITAS_DIR/src" \
+    -c '(begin (use-modules (tests run)) (exit (run-all!)))'
+#+end_src
+
+~manifest.scm~ carries Guile, fibers and JSON, which Veritas needs; ~guix.scm~
+additionally defines ~guile-veritas~ for anyone who would rather use the
+packaged release.  See [[https://codeberg.org/jjba23/veritas][the Veritas README]]
+for the framework itself.
+
+** Layout
+
+#+begin_example
+tests/
+  run.scm            ; loads every suite and runs one report
+  helpers.scm        ; fixture loading, golden comparison, temp dirs, subprocesses
+  reader-scheme.scm  ; reader unit tests, one file per dialect
+  reader-elisp.scm
+  reader-cl.scm
+  format-scheme.scm  ; golden + idempotence tests, one file per dialect
+  format-elisp.scm
+  format-cl.scm
+  cli.scm            ; exit codes, options, --stdin/--stdout, JSON, config
+  checkers/          ; one suite per checker, 28 of them
+  fixtures/
+    scheme/community/{input,expected}
+    scheme/dangling/{input,expected}
+    elisp/community/{input,expected}
+    cl/community/{input,expected}
+    lint/            ; small files the CLI suite runs the real executable on
+#+end_example
+
+Each file defines ~(spec)~, a procedure returning the Veritas tasks it wants
+run; ~tests/run.scm~ loads them all in sorted order and hands the whole list to
+one ~veritas-run~, so ~maak test~ prints one report for the project.  Suites
+do not depend on execution order, and every test that touches the file system
+does so inside a fresh temporary directory created by
+~with-temp-directory~.
+
+** What is asserted
+
+- *Reader tests*, per dialect: atoms, lists, vectors, bytevectors, dotted
+  pairs, every reader prefix including nested ones, block comments (nested),
+  datum comments (~#;#;a b~, ~#;(a #;b c)~), shebangs, every string escape,
+  CRLF, UTF-8 columns, unnamed and unmatched delimiters, feature conditionals,
+  ~#.~ forms, ~#<...>~ objects, and byte-for-byte round trips.
+- *Formatter tests*: three passes over the corpus -- input formats to
+  expected, expected is a fixed point, and a file of trivia round-trips -- plus
+  the indentation rules, comment alignment, blank-line collapse and prefix
+  clamping.
+- *Checker tests*: one file per checker, with a passing case, a failing case
+  at a known line and column, a case per applicable dialect, and -- when the
+  checker has a fix -- the fixed text and a re-lint that must find nothing.
+- *CLI tests*: the real executable as a subprocess, asserting status 0, 1 and
+  2, ~--stdin~/~--stdout~ pipelines, the JSON shape, checker filtering,
+  ~--write~ in a temporary directory, ~--fix~, ~list-checkers~, ~explain~ and
+  ~config show~.
+
+* Architecture
+:PROPERTIES:
+:CUSTOM_ID: architecture
+:END:
+
+#+begin_example
+src/sift/
+  records.scm      <source-location>, <lint-warning>, <lint-checker>, and the
+                   uniform AST node every other module shares
+  reader.scm       the hand-written, dialect-aware, location-preserving reader
+  format.scm       the formatter pipeline, the indentation tables, the renderer
+  check/base.scm   walking a tree, reading a form, line arithmetic, checker records
+  checkers/
+    whitespace.scm trailing-whitespace, tabs, line-length, trailing-blank-lines
+    parens.scm     unmatched-parens, dangling-paren, reader-prefix-break
+    bodies.scm     empty-body, redundant-progn, when/unless-without-body
+    scheme.scm     internal-define, if-without-else, letrec-single-binding,
+                   quasiquote-unquote-constant
+    elisp.scm      docstring-missing, docstring-first-line, docstring-indent,
+                   lexical-binding-missing, interactive-without-docstring,
+                   checkdoc-style-verb, provide-missing, declare-indent
+    cl.scm         package-prefix, double-colon, defun-no-docstring,
+                   loop-keyword-style, redundant-identity
+  lint.scm         the driver: run, filter, suppress, sort, fix, re-lint
+  render.scm       human, JSON, null, list-checkers, explain, unified diff
+  config.scm       <config>, discovery, merging, provenance, trust
+  yaml.scm         the data-only YAML subset the configuration needs
+  cli.scm          args-fold, dispatch, exit codes
+#+end_example
+
+The dependencies point one way: ~records~ is a vocabulary, ~reader~ and
+~format~ depend on it, the checkers depend on ~records~ and ~check/base~,
+~lint~ assembles the checkers, ~render~ formats their findings, and ~cli~
+wires everything to the command line.  Nothing in ~format~ or ~checkers~
+knows about ports or exit codes.
+
+* Design decisions
+:PROPERTIES:
+:CUSTOM_ID: design-decisions
+:END:
+
+** Why a hand-written reader
+
+`(read)` throws comments away, keeps no locations, and has no way to represent
+a block comment, a datum comment or a reader prefix as a node.  Every promise
+sift makes -- round trip, idempotence, a fix that replaces exactly one range,
+a comment that stays on its line -- needs those nodes.  The reader is the
+foundation the rest stands on, and it is deliberately permissive: a file with
+one broken form still gets a tree, because a linter that refuses to say
+anything about a file it could not fully parse is useless exactly when it is
+needed.
+
+** Why fuzzy formatting rather than pretty-printing
+
+A pretty-printer re-decides where the line breaks go.  That is fine for a
+language with one community and one style; Lisp has neither, and a formatter
+that reflows gets switched off after the first diff it causes.  sift changes
+only what is unambiguous -- indentation, spacing, delimiter placement -- and
+leaves the shape the author chose.
+
+** Why no auto-fix without `--fix`
+
+A fix rewrites code.  A linter that fixes by default cannot be used to *check*
+anything, and a run in the wrong directory can change files nobody meant to
+touch.  `lint` reports; `lint --fix` fixes; the two are one word apart and a
+thousand decisions apart.
+
+** Why `check` is a separate subcommand
+
+`format` prints, `--write` writes, and `check` answers one question with the
+exit status alone.  That is the command a Git hook and a CI job need, and
+giving it a name of its own keeps `format` safe to pipe:
+~format --stdout~ is not "check", because a pipeline that redirected the
+output would have made the change already.
+
+** Why a custom YAML reader
+
+The configuration needs block mappings, block sequences, scalars, inline
+lists, comments and positions.  A full YAML implementation is a dependency
+with more surface than sift itself; a data-only subset that refuses what it
+does not understand -- with a line and a column -- is smaller than the bug
+reports a general one would bring.  Anything it does not support is an error,
+never a silent misreading.
+
+** Why Scheme configuration is trusted explicitly
+
+Everything else in sift is data.  A configuration file that is evaluated turns
+"open this repository" into "run this code", which is a decision a user should
+make once, deliberately, per project.
+
+* License
+:PROPERTIES:
+:CUSTOM_ID: license
+:END:
+
+sift is free software, released under the GNU General Public License,
+version 3 or later.  See ~LICENSE~.

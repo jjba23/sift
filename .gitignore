@@ -1,0 +1,11 @@
+# build artefacts
+reports/
+*.go
+*.log
+
+# byte-compiled copies Guile leaves next to the sources when asked to
+*.scm.go
+
+# editor and REPL leftovers
+.nrepl-port
+.dir-locals.el

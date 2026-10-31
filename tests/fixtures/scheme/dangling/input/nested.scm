@@ -1,0 +1,5 @@
+(define (f x)
+(let ((a 1)
+(b 2))
+(when (> a b)
+(display "yes"))))

@@ -1,0 +1,29 @@
+#!/bin/sh
+# sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
+# Common Lisp.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The launcher is a shell script rather than a `#!guile' script because a
+# shebang cannot portably add a load path, and sift's sources live in src/
+# next to this file.  An installed copy replaces the relative path with the
+# directory its modules were installed into (see `maak install`).
+
+set -eu
+
+self=$0
+# resolve a symlink chain without readlink -f, which is not portable
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+here=$(CDPATH= cd -- "$(dirname "$self")" && pwd)
+
+if [ -n "${SIFT_LOAD_PATH:-}" ]; then
+    exec guile -L "$SIFT_LOAD_PATH" -c '(begin (use-modules (sift cli)) (exit (sift-main (cdr (command-line)))))' "$@"
+fi
+
+exec guile -L "$here/../src" -c '(begin (use-modules (sift cli)) (exit (sift-main (cdr (command-line)))))' "$@"
