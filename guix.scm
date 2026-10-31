@@ -53,7 +53,7 @@ specific language for test suites.")
 (define-public sift
   (package
     (name "sift")
-    (version "0.1.0")
+    (version "0.2.0")
     (source
      (local-file %source-dir
                  #:recursive? #t

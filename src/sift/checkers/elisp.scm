@@ -28,7 +28,8 @@
               interactive-without-docstring-checker
               checkdoc-style-verb-checker
               provide-missing-checker
-              declare-indent-checker))
+              declare-indent-checker
+              docstring-arguments-checker))
 
 ;;; ===== helpers =====
 
@@ -325,9 +326,9 @@
 (define (previous-element node element)
   "Return the element of @var{node} before @var{element}, or @code{#f}."
   (let loop ((rest (node-elements node)) (previous #f))
-    (cond ((null? rest) #f)
-      ((eq? (car rest) element) previous)
-      (else (loop (cdr rest) (car rest))))))
+    (cond [(null? rest) #f]
+          [(eq? (car rest) element) previous]
+          [else (loop (cdr rest) (car rest))])))
 
 (define declare-indent-checker
   (checker 'declare-indent
@@ -337,6 +338,88 @@
     #:severity 'info
     #:example '((input . "(defun f (x)\n    (declare (indent 1))\n  x)")
                 (fix . "indent the `declare` two columns from the `defun`"))))
+
+;;; ===== docstring-arguments =====
+
+(define (parameter-names node)
+  "Return the parameter names in the argument list of @var{node}.
+
+Only plain names count: a parameter written as @code{(name default)} for an
+optional argument contributes @code{name}, and a marker such as
+@code{&optional} contributes nothing."
+  ;; the first argument of a `defun` is the name; the second is the list of
+  ;; parameters
+  (let* ((arguments (form-arguments node))
+         (formals (and (pair? arguments) (pair? (cdr arguments))
+                    (cadr arguments))))
+    (if (not (node-list? formals))
+      '()
+      (append-map
+         (lambda (element)
+           (cond
+             [(node-atom? element)
+              (let ((value (node-value element)))
+                (if (or (member value '("&optional" "&rest" "&key" "&aux"
+                                        "&allow-other-keys" "&body"))
+                      (not value))
+                  '()
+                  (list value)))]
+             [(node-list? element)
+              (let ((head (node-head element)))
+                (if (and head (node-atom? head)
+                      (eq? (node-atom-type head) 'symbol))
+                  (list (node-value head))
+                  '()))]
+             [else '()]))
+         (node-elements formals)))))
+
+(define (docstring-words text)
+  "Return the words of a docstring, lower-cased.
+
+Matching a parameter name as a substring would accept \"Add two numbers.\"
+as mentioning the argument `a`; matching it as a word is what checkdoc
+does, and what a reader does."
+  (map string-downcase
+    (remove string-null?
+      (string-split text
+        (char-set-complement
+           (char-set #\a #\b #\c #\d #\e #\f #\g #\h #\i #\j #\k #\l
+             #\m #\n #\o #\p #\q #\r #\s #\t #\u #\v #\w #\x #\y #\z
+             #\A #\B #\C #\D #\E #\F #\G #\H #\I #\J #\K #\L #\M
+             #\N #\O #\P #\Q #\R #\S #\T #\U #\V #\W #\X #\Y #\Z
+             #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\- #\_))))))
+
+(define (docstring-arguments-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-node
+       (lambda (node)
+         (let ((head (and (node-list? node) (node-head-name node))))
+           (when (and head (memq head '(defun defmacro defsubst cl-defun
+                                         cl-defmacro cl-defsubst)))
+             (let ((doc (docstring-node node)))
+               (when doc
+                 (let ((words (docstring-words (node-value doc))))
+                   (for-each
+                      (lambda (parameter)
+                        (unless (member (string-downcase parameter) words)
+                          (set! warnings
+                            (cons (make-lint-warning 'docstring-arguments 'info
+                                    (format #f "the docstring does not mention the argument `~a`; Emacs shows it in `C-h f`"
+                                      parameter)
+                                    (node-start doc))
+                              warnings))))
+                      (parameter-names node))))))))
+       ast)
+    (reverse warnings)))
+
+(define docstring-arguments-checker
+  (checker 'docstring-arguments
+    "An Emacs Lisp docstring that does not mention one of its arguments"
+    '(elisp)
+    docstring-arguments-warnings
+    #:severity 'info
+    #:example '((input . "(defun add (a b)\n  \"Add two numbers.\"\n  (+ a b))")
+                (fix . "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))"))))
 
 ;;; ===== The list =====
 
@@ -348,4 +431,5 @@
     interactive-without-docstring-checker
     checkdoc-style-verb-checker
     provide-missing-checker
-    declare-indent-checker))
+    declare-indent-checker
+    docstring-arguments-checker))

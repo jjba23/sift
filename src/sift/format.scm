@@ -47,6 +47,10 @@
               styles
               valid-style?
               string->style
+              brackets-styles
+              valid-brackets?
+              string->brackets
+              default-brackets
               indent-rule
               indent-rules
               default-line-length
@@ -76,6 +80,24 @@ Scheme and Common Lisp get 100."
 (define* (line-length-for dialect #:optional (override #f))
   (or override (default-line-length dialect)))
 
+(define* (default-brackets dialect)
+  "Return the bracket style @var{dialect} wants when none is given.
+
+Guile's own sources write a `cond' clause as `[(= x 1) ...]', and so does the
+Guix code base; a Scheme file therefore gets square brackets for its clause
+lists unless the caller says otherwise.  Emacs Lisp and Common Lisp have no
+such convention, so they keep whatever the author wrote."
+  (if (eq? dialect 'scheme) 'square 'preserve))
+
+(define brackets-styles '(square parens preserve))
+
+(define (valid-brackets? style)
+  (and (symbol? style) (memq style brackets-styles) #t))
+
+(define (string->brackets string)
+  (let ((style (string->symbol (string-downcase string))))
+    (and (memq style brackets-styles) style)))
+
 (define* (default-indent dialect)
   "Return the indentation width sift uses by default: two, for every dialect."
   2)
@@ -100,7 +122,7 @@ Scheme and Common Lisp get 100."
     (let . 2) (let* . 2) (letrec . 2) (letrec* . 2) (let-values . 2)
     (let*-values . 2) (let-syntax . 2) (letrec-syntax . 2)
     (let-optionals . 2) (let-keywords . 2)
-    (cond . 2) (case . 2) (cond-expand . 2)
+    (cond . clauses) (case . 2) (cond-expand . 2)
     (when . 2) (unless . 2) (if . 2) (and . 2) (or . 2)
     (begin . 2) (do . 2) (delay . 2) (delay-force . 2) (force . 2)
     (parameterize . 2) (with-exception-handler . 2) (guard . 2)
@@ -130,7 +152,7 @@ Scheme and Common Lisp get 100."
     (define-globalized-minor-mode . 2) (defun* . 2) (defadvice . 2)
     (advice-add . 2)
     (let . 2) (let* . 2) (letrec . 2) (if . 2) (if-let . 2) (when-let . 2)
-    (cond . 2) (case . 2) (pcase . 2) (pcase-let . 2) (pcase-let* . 2)
+    (cond . clauses) (case . 2) (pcase . clauses) (pcase-let . 2) (pcase-let* . 2)
     (when . 2) (unless . 2) (while . 2) (progn . 2) (prog1 . 2) (prog2 . 2)
     (condition-case . 2) (condition-case-unless-debug . 2) (ignore-errors . 2)
     (unwind-protect . 2) (catch . 2) (throw . 2) (signal . 2)
@@ -158,7 +180,7 @@ Scheme and Common Lisp get 100."
     (with-output-to-string . 2) (with-input-from-string . 2)
     (with-package-iterator . 2) (with-standard-io-syntax . 2)
     (loop . 2) (do . 2) (do* . 2) (dolist . 2) (dotimes . 2)
-    (cond . 2) (case . 2) (ecase . 2) (ccase . 2) (typecase . 2)
+    (cond . clauses) (case . 2) (ecase . 2) (ccase . 2) (typecase . 2)
     (etypecase . 2) (ctypecase . 2) (progn . 2) (prog1 . 2) (prog2 . 2)
     (prog . 2) (prog* . 2) (block . 2) (return-from . 2) (tagbody . 2)
     (catch . 2) (throw . 2) (unwind-protect . 2) (handler-case . 2)
@@ -173,10 +195,10 @@ Scheme and Common Lisp get 100."
 (define (indent-rules dialect)
   "Return the indentation table for @var{dialect}."
   (case dialect
-    ((scheme) scheme-indent-rules)
-    ((elisp) elisp-indent-rules)
-    ((cl) cl-indent-rules)
-    (else scheme-indent-rules)))
+    [(scheme) scheme-indent-rules]
+    [(elisp) elisp-indent-rules]
+    [(cl) cl-indent-rules]
+    [else scheme-indent-rules]))
 
 (define* (indent-rule dialect operator #:optional (indent-width 2))
   "Return the indentation rule for @var{operator} in @var{dialect}.
@@ -226,23 +248,25 @@ written across several lines."
 ;;; ===== Rendering context =====
 
 (define-record-type <ctx>
-  (%make-ctx dialect style indent-width top? alignment marks)
+  (%make-ctx dialect style indent-width top? alignment marks brackets)
   ctx?
   (dialect ctx-dialect)
   (style ctx-style)
   (indent-width ctx-indent-width)
   (top? ctx-top?) ; #t while rendering top-level nodes
   (alignment ctx-alignment) ; alist of comment index -> column
-  (marks ctx-marks)) ; mutable box of measurement triples
+  (marks ctx-marks) ; mutable box of measurement triples
+  (brackets ctx-brackets)) ; square, parens or preserve
 
 (define* (make-ctx #:key (dialect 'scheme) (style 'community)
-           (indent-width 2) (alignment '()) (marks #f))
+           (indent-width 2) (alignment '()) (marks #f) (brackets #f))
   (%make-ctx dialect style indent-width #t alignment
-    (or marks (cons '() '()))))
+    (or marks (cons '() '()))
+    (or brackets (default-brackets dialect))))
 
 (define (ctx-inside ctx)
   (%make-ctx (ctx-dialect ctx) (ctx-style ctx) (ctx-indent-width ctx)
-    #f (ctx-alignment ctx) (ctx-marks ctx)))
+    #f (ctx-alignment ctx) (ctx-marks ctx) (ctx-brackets ctx)))
 
 (define (newline-cap ctx)
   "Return the largest number of newlines a gap may keep.
@@ -262,7 +286,7 @@ the clearest comment there is."
 
 ;;; ===== The sequence renderer =====
 
-(define (render-sequence nodes indent out ctx)
+(define* (render-sequence nodes indent out ctx #:optional (clause-style #f))
   "Render @var{nodes} at one nesting level.
 
 Whitespace between nodes is not copied: it becomes one space when the nodes
@@ -278,12 +302,12 @@ A comment is never moved to another line than the one it was on."
        last)
       ((node . tail)
        (cond
-         ((node-whitespace? node)
-          (loop tail (+ pending (node-newlines node)) seen last))
+         [(node-whitespace? node)
+          (loop tail (+ pending (node-newlines node)) seen last)]
 
-         ((node-comment? node)
+         [(node-comment? node)
           (cond
-            ((node-inline? node)
+            [(node-inline? node)
              (when (> pending 0)
                (emit-newlines! out (min pending (newline-cap ctx)))
                (emit-spaces! out indent))
@@ -297,45 +321,45 @@ A comment is never moved to another line than the one it was on."
                  (out-line out)
                  (out-column out)))
              (emit! out (node-value node))
-             (loop tail 0 #t node))
-            (else
+             (loop tail 0 #t node)]
+            [else
                (cond
-                 ((> pending 0)
+                 [(> pending 0)
                   (emit-newlines! out (min (max pending 1) (newline-cap ctx)))
-                  (emit-spaces! out indent))
-                 (seen
+                  (emit-spaces! out indent)]
+                 [seen
                     ;; A standalone comment has to start a line of its own.
                     (emit-newlines! out 1)
-                    (emit-spaces! out indent)))
+                    (emit-spaces! out indent)])
                (emit! out (node-value node))
-               (loop tail 0 #t node))))
+               (loop tail 0 #t node)])]
 
-         ((node-stray-delimiter? node)
+         [(node-stray-delimiter? node)
           ;; An unmatched closer is preserved next to whatever preceded it,
           ;; because it is an error the author has to see, not a form.
           (emit! out (node-value node))
-          (loop tail 0 #t node))
+          (loop tail 0 #t node)]
 
-         (else
+         [else
             (cond
-              ((> pending 0)
+              [(> pending 0)
                (emit-newlines! out (min pending (newline-cap ctx)))
-               (emit-spaces! out indent))
-              (seen (emit-spaces! out 1)))
-            (render-node node out ctx)
-            (loop tail 0 #t node)))))))
+               (emit-spaces! out indent)]
+              [seen (emit-spaces! out 1)])
+            (render-node node out ctx clause-style)
+            (loop tail 0 #t node)])))))
 
-(define (render-node node out ctx)
+(define* (render-node node out ctx #:optional (clause-style #f))
   (cond
-    ((node-verbatim? node)
+    [(node-verbatim? node)
      ;; A datum comment, a "#<...>" object or a "#." form is copied exactly as
      ;; it was written: formatting inside something the reader was told not to
      ;; enter would be a guess, and sift does not guess.
-     (emit! out (or (node-raw node) (node-value node))))
-    ((node-list? node) (render-list node out ctx))
-    ((node-prefix? node) (render-prefix node out ctx))
-    ((node-conditional? node) (render-conditional node out ctx))
-    (else (emit! out (node-value node)))))
+     (emit! out (or (node-raw node) (node-value node)))]
+    [(node-list? node) (render-list node out ctx clause-style)]
+    [(node-prefix? node) (render-prefix node out ctx)]
+    [(node-conditional? node) (render-conditional node out ctx)]
+    [else (emit! out (node-value node))]))
 
 (define (render-prefix node out ctx)
   (emit! out (node-token node))
@@ -354,31 +378,72 @@ A comment is never moved to another line than the one it was on."
       (emit! out " ")
       (render-node guarded out ctx))))
 
-(define (render-list node out ctx)
+(define* (render-list node out ctx #:optional (clause-style #f))
   (let* ((open-column (out-column out))
          (open-line (out-line out))
-         (open (node-open node))
-         (close (node-close node))
+         (delimiters (delimiters-for node clause-style ctx))
+         (open (car delimiters))
+         (close (cdr delimiters))
          (children (node-children node)))
     (emit! out open)
     (let ((indent (list-indent node open-column ctx)))
-      (render-sequence children indent out (ctx-inside ctx)))
+      (render-sequence children indent out (ctx-inside ctx)
+        (clause-brackets-for node ctx)))
     (when close
       (emit-close node open-column open-line close out ctx))))
 
+(define (delimiters-for node clause-style ctx)
+  "Return the @code{(open . close)} pair @var{node} is written with.
+
+A clause list of `cond' or `case' is written with the bracket style the
+dialect asks for -- square in Scheme -- and every other list keeps the
+delimiters it was read with, because `#(' and `{' are not round brackets by
+another name."
+  (let ((open (node-open node))
+        (close (node-close node))
+        (style (or clause-style
+                 (and (eq? (node-kind node) 'list) #f))))
+    (if (and clause-style (round-or-square? open close))
+      (case clause-style
+        [(square) (cons "[" "]")]
+        [(parens) (cons "(" ")")]
+        [else (cons open close)])
+      (cons open close))))
+
+(define (round-or-square? open close)
+  (or (and (equal? open "(") (equal? close ")"))
+    (and (equal? open "[") (equal? close "]"))
+    ;; a list the reader could not close keeps its opener and gets no
+    ;; closer, and must not be rewritten
+    (and (equal? open "(") (not close))
+    (and (equal? open "[") (not close))))
+
+(define (clause-brackets-for node ctx)
+  "Return the bracket style the children of @var{node} are written with.
+
+Only the forms whose children *are* clauses take one: a `cond' clause is a
+test and a body, and a `case' clause is a datum list and a body, so the
+bracket tells the reader where one ends.  In every other list the parentheses
+are structure, and the author keeps them."
+  (let ((style (ctx-brackets ctx))
+        (head (node-head-name node)))
+    (and (memq style '(square parens))
+      (memq head '(cond case))
+      style)))
+
 (define (emit-close node open-column open-line close out ctx)
   (cond
-    ((and (eq? (ctx-style ctx) 'dangling)
+    [(and (eq? (ctx-style ctx) 'dangling)
        (> (out-line out) open-line))
      ;; The closing delimiter goes on a line of its own, aligned with the
      ;; opener -- immediately after the last element, never after a blank
      ;; line.
      (emit! out "\n")
      (emit-spaces! out open-column)
-     (emit! out close))
-    ((eq? (ctx-style ctx) 'dangling)
-     (emit! out close))
-    (else
+     (emit! out close)]
+    [(eq? (ctx-style ctx) 'dangling)
+     (emit! out close)]
+    [else
        ;; Community style: the closer trails the last element.  When the last
        ;; thing written was a comment, the closer cannot share its line, so it
        ;; goes on the next one at the form's indentation.
@@ -386,13 +451,13 @@ A comment is never moved to another line than the one it was on."
          (when (and last (node-comment? last))
            (emit! out "\n")
            (emit-spaces! out (list-indent node open-column ctx))))
-       (emit! out close))))
+       (emit! out close)]))
 
 (define (last-written-child children)
   (let loop ((rest (reverse children)))
-    (cond ((null? rest) #f)
-      ((node-whitespace? (car rest)) (loop (cdr rest)))
-      (else (car rest)))))
+    (cond [(null? rest) #f]
+          [(node-whitespace? (car rest)) (loop (cdr rest))]
+          [else (car rest)])))
 
 ;;; ===== Indentation =====
 
@@ -404,36 +469,47 @@ A comment is never moved to another line than the one it was on."
          (head-name (node-head-name node))
          (width (ctx-indent-width ctx)))
     (cond
-      ((null? elements) (+ open-column open-width))
-      ((not head-name)
+      [(null? elements) (+ open-column open-width)]
+      [(not head-name)
        ;; A data list -- a binding list, a `cond' clause, a vector, a quoted
        ;; structure -- lines its elements up under the first.
-       (+ open-column open-width))
-      (else
+       (+ open-column open-width)]
+      [else
          (let ((rule (indent-rule (ctx-dialect ctx) head-name width)))
            (cond
-             ((eq? rule 'data) (+ open-column open-width))
-             ((integer? rule) (+ open-column rule))
-             (else
+             [(eq? rule 'data) (+ open-column open-width)]
+             [(eq? rule 'clauses)
+              ;; A clause list belongs to its form the way a data list belongs
+              ;; to its opener: when the first clause is on the head line the
+              ;; rest line up under it, which is how `cond' and `case' are read
+              ;; in every Lisp.  With no clause on the head line the rule is
+              ;; the ordinary two columns.
+              (if (first-argument-on-head-line? node)
+                (+ open-column open-width
+                  (string-length (node-value (node-head node)))
+                  1)
+                (+ open-column (ctx-indent-width ctx)))]
+             [(integer? rule) (+ open-column rule)]
+             [else
                 ;; The generic rule: arguments sit two columns in from the opener
                 ;; when the first one is on the operator's line, and two columns in
                 ;; from the operator when the author moved it down.
                 (if (first-argument-on-head-line? node)
                   (+ open-column width)
-                  (+ open-column open-width width)))))))))
+                  (+ open-column open-width width))]))])))
 
 (define (first-argument-on-head-line? node)
   "Return @code{#t} when the second element of @var{node} is on the head's line."
   (let loop ((rest (node-children node)) (seen-head? #f))
     (cond
-      ((null? rest) #t)
-      ((node-whitespace? (car rest))
+      [(null? rest) #t]
+      [(node-whitespace? (car rest))
        (if (and seen-head? (> (node-newlines (car rest)) 0))
          #f
-         (loop (cdr rest) seen-head?)))
-      ((node-comment? (car rest)) (loop (cdr rest) seen-head?))
-      (seen-head? #t)
-      (else (loop (cdr rest) #t)))))
+         (loop (cdr rest) seen-head?))]
+      [(node-comment? (car rest)) (loop (cdr rest) seen-head?)]
+      [seen-head? #t]
+      [else (loop (cdr rest) #t)])))
 
 ;;; ===== Comment alignment =====
 
@@ -451,11 +527,11 @@ aligned one column past the longest line of code in it."
           (map (lambda (mark) (cons (car mark) target)) group)))))
   (let loop ((rest marks) (group '()) (out '()))
     (cond
-      ((null? rest) (flush group out))
-      ((and (pair? group)
+      [(null? rest) (flush group out)]
+      [(and (pair? group)
          (= (list-ref (car rest) 1) (+ 1 (list-ref (car group) 1))))
-       (loop (cdr rest) (cons (car rest) group) out))
-      (else (loop (cdr rest) (list (car rest)) (flush group out))))))
+       (loop (cdr rest) (cons (car rest) group) out)]
+      [else (loop (cdr rest) (list (car rest)) (flush group out))])))
 
 ;;; ===== Whole-document rendering =====
 
@@ -464,25 +540,25 @@ aligned one column past the longest line of code in it."
   (let* ((out (make-out))
          (top (%make-ctx (ctx-dialect ctx) (ctx-style ctx)
                 (ctx-indent-width ctx) #t (ctx-alignment ctx)
-                (ctx-marks ctx))))
+                (ctx-marks ctx) (ctx-brackets ctx))))
     (render-sequence ast 0 out top)
     (values (out-text out) (reverse (cdr (ctx-marks top))))))
 
 (define* (format-ast ast #:key (dialect 'scheme) (style 'community)
-           (indent-width 2) (comment-align #f))
+           (indent-width 2) (comment-align #f) (brackets #f))
   "Render @var{ast} as source text.
 
 The result is deterministic: nothing here depends on a hash table's order or
 on any state outside the arguments."
   (let* ((base (make-ctx #:dialect dialect #:style style
-                 #:indent-width indent-width)))
+                 #:indent-width indent-width #:brackets brackets)))
     (if comment-align
       (call-with-values
         (lambda () (render-document ast base))
         (lambda (text marks)
           (let* ((table (compute-alignment marks))
                  (aligned (%make-ctx dialect style indent-width #t table
-                            (cons '() '()))))
+                            (cons '() '()) (ctx-brackets base))))
             (call-with-values
               (lambda () (render-document ast aligned))
               (lambda (aligned-text ignored) aligned-text)))))
@@ -493,7 +569,7 @@ on any state outside the arguments."
 
 (define* (format-source source #:key (dialect 'scheme) (file #f)
            (style 'community) (indent #f) (comment-align #f)
-           (line-length #f) (force #f))
+           (line-length #f) (force #f) (brackets #f))
   "Format @var{source}, returning two values: the text and the parse errors.
 
 No file is read from or written to here, and no error is swallowed: the
@@ -503,20 +579,22 @@ caller decides whether an error is fatal (see @code{format/file})."
     (lambda (ast errors)
       (values (format-ast ast #:dialect dialect #:style style
                 #:indent-width (or indent (default-indent dialect))
-                #:comment-align comment-align)
+                #:comment-align comment-align
+                #:brackets brackets)
         errors))))
 
 (define* (format-string source #:key (dialect 'scheme) (style 'community)
-           (indent 2) (comment-align #f))
+           (indent 2) (comment-align #f) (brackets #f))
   "Format @var{source} and return just the text."
   (call-with-values
     (lambda () (read-source #:source source #:dialect dialect))
     (lambda (ast errors)
       (format-ast ast #:dialect dialect #:style style
-        #:indent-width indent #:comment-align comment-align))))
+        #:indent-width indent #:comment-align comment-align
+        #:brackets brackets))))
 
 (define* (format/file path #:key (dialect #f) (style 'community) (indent 2)
-           (comment-align #f) (force #f))
+           (comment-align #f) (force #f) (brackets #f))
   "Format the file at @var{path}, returning the text and the parse errors.
 
 The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
@@ -526,10 +604,10 @@ The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
                      'scheme)))
     (format-source source #:dialect dialect* #:file path #:style style
       #:indent indent #:comment-align comment-align
-      #:force force)))
+      #:force force #:brackets brackets)))
 
 (define* (format-check source #:key (dialect 'scheme) (style 'community)
-           (indent 2) (comment-align #f))
+           (indent 2) (comment-align #f) (brackets #f))
   "Return @code{#t} when formatting @var{source} would change it.
 
 This is what `sift check' asks: not \"is the file ugly?\" but \"would running

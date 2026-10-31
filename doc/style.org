@@ -1,0 +1,494 @@
+#+title: sift — the style it enforces, and why
+#+author: Josep Bigorra
+#+options: toc:2 num:nil
+#+language: en
+
+/FORMAT THE FORM, NOT THE PROGRAM/ — every choice below changes how a Lisp
+file is *read*, never what it *does*.
+
+* Why a style at all
+:PROPERTIES:
+:CUSTOM_ID: why
+:END:
+
+A Lisp is written for two readers: the compiler, and a person scanning a
+buffer for the shape of the program.  The second reader is the one a style
+serves.  Lisp's advantage over other languages is that its structure is
+visible — parentheses, and nothing else — and a formatter that respects
+that structure makes the shape obvious at a glance.
+
+sift enforces a style because a project with two styles has none.  But it
+enforces it in the narrowest way it can: it moves whitespace and delimiter
+characters, and it suggests what a human should do next.  It never rewrites
+an expression's meaning, never reflows a form, and never fixes anything
+without being asked.
+
+The three principles behind every rule:
+
+1. *The tree is the truth.*  Indentation follows the nesting, not the
+   author's earlier indentation.  That is why formatting is idempotent.
+2. *Nothing is lost.*  A comment, a blank line and a `'` are content, not
+   noise; the formatter carries them through.
+3. *Say what you mean, once.*  `when` instead of `(if x y)`, `unless`
+   instead of `(if (not x) y)`, `let` instead of a paragraph-long
+   expression, `:key` instead of the sixth positional argument.
+
+* The ten choices
+:PROPERTIES:
+:CUSTOM_ID: choices
+:END:
+
+** Two columns
+:PROPERTIES:
+:CUSTOM_ID: two-columns
+:END:
+
+Every body indents two columns from the opening parenthesis:
+
+#+begin_src scheme
+(define (square x)
+  (* x x))
+
+(let ((a 1)
+      (b 2))
+  (+ a b))
+#+end_src
+
+*Why two?*  A Lisp line starts with a form and its operator; two columns is
+the smallest step that is visibly a step, and it leaves the most room for
+the form itself.  It is what Emacs Lisp's own manual shows, what the Scheme
+standard's examples show, and what every Lisp I have read for thirty years
+does.  Four columns make a nested form run off the right edge; one column
+is not a step at all.
+
+The one exception is a *data list* — a binding list, a vector, a quoted
+structure — whose elements line up under the first element:
+
+#+begin_src scheme
+(let ((short 1)
+      (a-much-longer-name 2))
+  ...)
+#+end_src
+
+*Why?*  Those elements are not a body; they are a column of things, and a
+column is easier to scan when it is aligned.
+
+** One blank line between top-level forms
+:PROPERTIES:
+:CUSTOM_ID: blank-lines
+:END:
+
+Forms at top level are separated by at most one blank line, and runs of
+three or more inside a form are collapsed to two.  sift never *inserts* a
+blank line where there was none: the author's grouping survives.
+
+*Why?*  A blank line is a paragraph break.  In Lisp, a top-level form is a
+paragraph, and two forms that belong together are separated by one.  Three
+blank lines mean the same as one, at four times the cost.
+
+** Closing delimiters trail — by default
+:PROPERTIES:
+:CUSTOM_ID: community
+:END:
+
+#+begin_src scheme
+(define (f x)
+  (if (null? x)
+      '()
+      (cons (car x)
+            (f (cdr x)))))
+#+end_src
+
+The alternative, `--style=dangling`, puts each closer on its own line,
+aligned with its opener:
+
+#+begin_src scheme
+(define (f x)
+  (if (null? x)
+      '()
+      (cons (car x)
+            (f (cdr x))
+      )
+  )
+)
+#+end_src
+
+*Why is trailing the default?*  Because it is what every Lisp community
+does, and because a closer that trails is a closer you can *see* closing
+something.  A line holding only `)` is a line that carries no information
+except "one form ended somewhere above" — which the indentation already
+told you.  Emacs Lisp code never dangles; Common Lisp style guides say not
+to; Scheme code does not.  Dangling is available because a project that has
+already chosen it should not have to fight the formatter, but it is opt-in.
+
+** Square brackets for `cond` clauses, in Scheme
+:PROPERTIES:
+:CUSTOM_ID: brackets
+:END:
+
+#+begin_src scheme
+(cond [(< n 0) 'negative]
+      [(= n 0) 'zero]
+      [else 'positive])
+#+end_src
+
+*Why?*  A `cond` clause is not a call: it is a pair of *test* and *body*,
+and the bracket says where the pair ends without asking the reader to
+count parentheses.  Guile's own sources and the Guix code base write it
+this way, and since Scheme reads `[` and `(` interchangeably, the change is
+purely visual — which is the only kind of change a formatter may make.
+
+sift applies it to the clause lists of `cond` (and `case`, when the project
+asks for it), and nowhere else: a binding list is already aligned, and
+turning every list into a bracket would be noise.  A project that prefers
+parentheses sets `brackets: parens`, or runs `--brackets=parens`; a project
+that wants to keep whatever is written sets `brackets: preserve`.
+
+** No reflowing
+:PROPERTIES:
+:CUSTOM_ID: no-reflow
+:END:
+
+sift never moves a line break that the author put somewhere structurally
+meaningful, and it never joins two lines that the author split.  It fixes
+indentation and spacing on the lines that exist.
+
+*Why?*  Line breaks in Lisp are where the author decided a form was getting
+long.  A pretty-printer that re-decides them produces diffs that are not
+about the change being made, and a formatter whose diffs nobody reads is a
+formatter nobody runs.  It also means the formatter is safe on a file being
+edited: it cannot move a line out from under a cursor.
+
+** Reader prefixes are glued to their datum
+:PROPERTIES:
+:CUSTOM_ID: prefixes
+:END:
+
+`'foo`, `` `(a ,b) ``, `#'bar`, `#+sbcl ...` and `#.(...)` are one unit.
+The formatter closes any gap between a prefix and its datum, and
+`reader-prefix-break` (SIFT007) reports a file that has one.
+
+*Why?*  A prefix is not a form; it is part of the next form's name.  A line
+break between them reads as a break at the wrong level, and in Common Lisp
+a whitespace-sensitive feature expression makes it a real hazard.
+
+** Comments stay on their line
+:PROPERTIES:
+:CUSTOM_ID: comments
+:END:
+
+An inline comment stays on the line it was written on, one space after the
+code — or aligned across a run of contiguous lines when `--comment-align`
+is on:
+
+#+begin_src scheme
+(let ((a 1)    ; the first
+      (b 22))  ; and the second
+  (+ a b))
+#+end_src
+
+A standalone comment keeps its own line and takes the indentation of the
+form it is in.
+
+*Why?*  A comment's position is its meaning: `; the default is 0` on the
+line of a binding is about that binding.  Moving it is editing the program's
+documentation, which no formatter should do silently.
+
+** Docstrings are documentation, not decoration
+:PROPERTIES:
+:CUSTOM_ID: docstrings
+:END:
+
+The first line is a capitalised sentence ending in a period and short
+enough to fit in `apropos` (74 columns in Emacs Lisp).  The first sentence
+is in the imperative — "Return the value", not "Returns the value".
+Continuation lines start at column zero of the string.  In Emacs Lisp the
+arguments are named in the docstring; in Guile they are written with
+`@var{}` so the manual typesets them as metavariables.
+
+#+begin_src elisp
+(defun add (a b)
+  "Add A and B.
+
+Return the sum, which is a number."
+  (+ a b))
+#+end_src
+
+#+begin_src scheme
+(define (add a b)
+  "Add @var{a} and @var{b}.
+
+Return the sum, which is a number."
+  (+ a b))
+#+end_src
+
+*Why?*  A docstring is the only documentation most functions will ever
+have, and the tools that show it — `C-h f`, `apropos`, `(help add)`, the
+Guile manual — render it in a particular way.  A third-person opening reads
+as a description of the function rather than an instruction to the reader;
+an argument that is never mentioned is an argument the reader has to infer.
+
+** `when` and `unless` say it once
+:PROPERTIES:
+:CUSTOM_ID: when-unless
+:END:
+
+#+begin_src scheme
+(if (ready?) (go))              ; => (when (ready?) (go))
+(if (not (ready?)) (wait))      ; => (unless (ready?) (wait))
+(when (not (ready?)) (wait))    ; => (unless (ready?) (wait))
+#+end_src
+
+*Why?*  An `if` with one branch is a `when`.  An `if` whose test is negated
+asks the reader to perform a negation while reading, and reading code
+should not require arithmetic.  Both rewrites are purely syntactic: the
+same test is evaluated and the same forms run.  The checks are SIFT012
+(`if-without-else`), SIFT033 (`negated-if`), SIFT013 and SIFT014.
+
+** A long expression is a `let` waiting to happen
+:PROPERTIES:
+:CUSTOM_ID: let
+:END:
+
+#+begin_src scheme
+;; SIFT031 suggests binding the repeated part
+(define (f x)
+  (list (car (cdr (assq 'a (cdr x))))
+        (car (cdr (assq 'b (cdr x))))))
+
+(define (f x)
+  (let ((rest (cdr x)))
+    (list (car (cdr (assq 'a rest)))
+          (car (cdr (assq 'b rest))))))
+#+end_src
+
+*Why?*  `let` is how Lisp names an intermediate result, and a name is how a
+reader stops re-deriving it.  Deep nesting (more than four levels) or a very
+long body form (more than twelve elements) is the signal that the
+expression wants a step.  `let*` is the right form when a later binding
+refers to an earlier one; `let` when the bindings are independent — and a
+binding that does not refer to itself belongs in a `let`, which is what
+SIFT015 says about a `letrec` with one binding.
+
+The check has no fix: choosing the name and the split is the author's work,
+and a formatter that guesses names is a formatter that writes code.
+
+** Keyword arguments past five
+:PROPERTIES:
+:CUSTOM_ID: keywords
+:END:
+
+#+begin_src scheme
+(make-window a b c d e f g)                       ; SIFT032
+(make-window x y :width 10 :height 20 :title "s") ; says what it means
+#+end_src
+
+*Why?*  A positional argument is only readable when the reader remembers
+the argument list.  Five is where that stops being true in practice: at the
+call site, the sixth `#t` says nothing, and a keyword says everything.
+`sift` reports the call, not the definition, because the callee's shape is
+the author's to decide; the rule skips special forms and the calls that are
+meant to be variadic (`list`, `format`, `+`), and the limit is
+configuration (`max-positional`).
+
+** Packages are named, and never reached into
+:PROPERTIES:
+:CUSTOM_ID: packages
+:END:
+
+In Common Lisp, an exported symbol is written with its package prefix
+(`app:run`), and a double colon (`other::internal`) is for debugging, not
+production.  SIFT025 and SIFT026 say so, because a file that uses
+`other::internal` is a file that breaks when `other` is reorganised, and a
+file that uses `run` unqualified depends on whatever `*package*` happens to
+be at read time.
+
+* The rule catalogue
+:PROPERTIES:
+:CUSTOM_ID: rules
+:END:
+
+Every rule has a name (what you type) and a code (what an editor shows and
+what a bug report quotes).  The code is stable: it is never reused, and a
+new rule takes the next number.
+
+** Cross-dialect rules
+
+| Code    | Rule                    | Severity | What it says                                              |
+|---------+-------------------------+----------+-----------------------------------------------------------|
+| SIFT001 | trailing-whitespace     | warning  | the line ends with spaces or tabs                          |
+| SIFT002 | tabs                    | warning  | indentation uses a tab character                           |
+| SIFT003 | line-length             | warning  | the line is longer than the soft limit                     |
+| SIFT004 | unmatched-parens        | error    | a delimiter has no partner                                 |
+| SIFT005 | empty-body              | warning  | a `cond`, `let` or `lambda` has no body                    |
+| SIFT006 | redundant-progn         | warning  | `progn` is the only body, where the form already implies one |
+| SIFT007 | reader-prefix-break     | warning  | a newline separates a prefix from its datum                |
+| SIFT010 | trailing-blank-lines    | info     | more than two blank lines at end of file                   |
+| SIFT033 | negated-if              | warning  | `if`/`when` with a negated test is an `unless`             |
+| SIFT031 | wrap-in-let             | info     | a body form is too deep or too long to read at once        |
+| SIFT032 | keyword-arguments       | info     | a call has too many positional arguments                   |
+
+Why these are cross-dialect: they are about the *text* (whitespace, length,
+delimiters) or about a form all three dialects share (`if`, `when`,
+`progn`, `let`).  Everything about a specific dialect's bookkeeping is in
+that dialect's section.
+
+*Why SIFT001 and SIFT002 matter:* trailing whitespace is invisible and
+shows up in every diff; a tab renders at a different width in every editor,
+so indentation that uses one is not indentation the next reader will see.
+
+*Why SIFT004 has no fix:* putting a `)` where sift thinks it belongs is a
+guess about what the program means.  sift reports the opening delimiter and
+stops.
+
+*Why SIFT006 exists:* `(define (f) (progn (a) (b)))` says "a progn" twice —
+the body of a definition is already a sequence.
+
+** Scheme rules
+
+| Code    | Rule                          | Severity | What it says                                             |
+|---------+-------------------------------+----------+----------------------------------------------------------|
+| SIFT011 | internal-define               | warning  | `define` in a procedure body with no enclosing `let`      |
+| SIFT012 | if-without-else               | warning  | `if` with no else branch; `when` says it once             |
+| SIFT013 | when-without-body             | warning  | `when` with no body                                       |
+| SIFT014 | unless-without-body           | warning  | `unless` with no body                                     |
+| SIFT015 | letrec-single-binding         | info     | `letrec` with one non-recursive binding; `let` is enough   |
+| SIFT016 | quasiquote-unquote-constant   | info     | a constant is unquoted inside a quasiquote                |
+| SIFT035 | docstring-texinfo             | info     | a Guile docstring does not document a parameter with `@var{}` |
+| SIFT036 | clause-brackets               | warning  | a `cond` clause is written with the other kind of bracket |
+
+*SIFT011*: Scheme allows definitions at the head of a body, but a `define`
+in the middle of an expression defines in the wrong scope — it is almost
+always a `let` that got written as a `define`.
+
+*SIFT013/SIFT014*: `(when x)` does nothing at all.  Either the body was
+lost in an edit, or the form should not be there.
+
+*SIFT015*: `letrec` promises that the bindings may refer to each other.
+With one binding that does not, it promises something untrue, and the
+reader looks for the recursion that is not there.
+
+*SIFT016*: `` `(1 ,2) `` evaluates to the same list as `` `(1 2) ``.  The
+unquote is a leftover from a version where the value was computed.
+
+*SIFT035*: Guile renders docstrings as Texinfo.  An argument written `x` is
+plain text; `@var{x}` is typeset as a metavariable in `C-h f` and in the
+manual, which is what a parameter is.
+
+*SIFT036*: see [[#brackets][Square brackets for `cond` clauses]].
+
+** Emacs Lisp rules
+
+| Code    | Rule                              | Severity | What it says                                            |
+|---------+-----------------------------------+----------+---------------------------------------------------------|
+| SIFT017 | docstring-missing                 | warning  | a `defun`/`defmacro`/`defvar`/`defcustom` has no docstring |
+| SIFT018 | docstring-first-line              | warning  | the first line is not a capitalised sentence ending in a period |
+| SIFT019 | docstring-indent                  | warning  | continuation lines are indented instead of starting at column 0 |
+| SIFT020 | lexical-binding-missing           | warning  | the file header lacks `-*- lexical-binding: t; -*-`      |
+| SIFT021 | interactive-without-docstring     | warning  | an `interactive` command with no docstring               |
+| SIFT022 | checkdoc-style-verb               | info     | the first sentence is third person, not imperative       |
+| SIFT023 | provide-missing                   | warning  | the file defines a package but never `provide`s it       |
+| SIFT024 | declare-indent                    | info     | `declare` is not indented two columns from the `defun`   |
+| SIFT034 | docstring-arguments               | info     | a docstring does not mention one of its arguments        |
+
+These are the Emacs Lisp Reference Manual's own requirements, taken one at
+a time so a project can adopt them one at a time.  *SIFT020* is the one with
+consequences beyond style: a file without the header is loaded with dynamic
+binding, which changes what a closure captures.
+
+** Common Lisp rules
+
+| Code    | Rule                  | Severity | What it says                                              |
+|---------+-----------------------+----------+-----------------------------------------------------------|
+| SIFT025 | package-prefix        | warning  | an exported symbol is used without its package prefix      |
+| SIFT026 | double-colon          | warning  | `package::symbol` reaches into another package's internals |
+| SIFT027 | dangling-paren        | warning  | a closing parenthesis is on its own line                   |
+| SIFT028 | defun-no-docstring    | info     | `defun`/`defmacro`/`defgeneric` with no docstring          |
+| SIFT029 | loop-keyword-style    | info     | symbolic LOOP keywords where the project writes `:keywords` |
+| SIFT030 | redundant-identity    | info     | `(identity x)` or `(funcall #'foo …)` where the value would do |
+
+*SIFT027* is the Common Lisp half of the community-style decision: the
+Google Common Lisp style guide, and every Lisp I know, keeps the closer on
+the last line.
+
+*SIFT029* is the only rule that is silent by default: LOOP accepts both
+`for` and `:for`, communities differ, and a rule that fires on half the
+world's `loop` forms is a rule that gets switched off.  Set
+`loop-keywords: literal` (or `symbolic`) to enforce one.
+
+*SIFT030*: `identity` in value position is a no-op, and `(funcall #'foo x)`
+is `(foo x)`.
+
+* What sift will not do
+:PROPERTIES:
+:CUSTOM_ID: limits
+:END:
+
+- *It will not reflow.*  Long lines are reported (SIFT003), not broken.
+- *It will not guess.*  An unbalanced file is refused, with the position of
+  the opening delimiter, unless `--force` says "format what you can read".
+- *It will not fix without `--fix`,* and it will not apply a fix that makes
+  the file parse worse.  A fix that would introduce a new parse error is
+  discarded along with every other fix of that run.
+- *It will not rewrite an expression.*  Every fix is either a delimiter, a
+  piece of whitespace, a docstring insertion, or a syntactic equivalence
+  (`if (not x)` → `unless x`).  Names are never invented.
+- *It will not touch a datum comment, a `#.` form or a `#<…>` object.*  Those
+  are copied verbatim; formatting inside them would be a guess about code
+  the reader was told not to read.
+
+* How to disagree
+:PROPERTIES:
+:CUSTOM_ID: disagreeing
+:END:
+
+1. *Turn a rule off* for a line or a form:
+
+   #+begin_src scheme
+   ;; sift:disable-next-line keyword-arguments
+   (make-window a b c d e f g)
+
+   ;; sift:disable wrap-in-let
+   (define (f x)
+     ...)
+   ;; sift:enable wrap-in-let
+   #+end_src
+
+2. *Run fewer rules:* `--checker`, `--exclude-checker`, or a `checkers:`
+   list in `sift.yaml`.
+
+3. *Change a threshold:* `line-length`, `max-depth`, `max-elements`,
+   `max-positional`, `indent`, `brackets`, `loop-keywords`.
+
+4. *Ask why:* `sift explain RULE` prints the rule's code, description,
+   dialects, severity, a failing example and the fix it expects; and
+   `M-x sift-explain-at-point` in Emacs does it from the line you are on.
+
+* The style in one page
+:PROPERTIES:
+:CUSTOM_ID: summary
+:END:
+
+#+begin_src scheme
+;;; Commentary:
+;;
+;; Two columns, one blank line, closers that trail.
+;;; Code:
+
+(define (classify n)
+  "Return a symbol describing @var{n}.
+
+The name says more than the number does at the call site."
+  (cond [(< n 0) 'negative]
+        [(= n 0) 'zero]
+        [else 'positive]))
+
+(define (report n)
+  (let ((kind (classify n)))   ; the name is the documentation
+    (when (symbol? kind)       ; one branch: when, not if
+      (display kind))))
+#+end_src
+
+Everything above is what `sift format` produces from the same code written
+without care, and everything that is not whitespace was already the
+author's.

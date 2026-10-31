@@ -27,32 +27,32 @@
 ;;; ===== unmatched-parens =====
 
 (define (open-token-name token)
-  (cond ((equal? token "(") "parenthesis")
-    ((equal? token "[") "bracket")
-    ((equal? token "{") "brace")
-    (else "delimiter")))
+  (cond [(equal? token "(") "parenthesis"]
+        [(equal? token "[") "bracket"]
+        [(equal? token "{") "brace"]
+        [else "delimiter"]))
 
 (define (unmatched-parens-warnings ast source dialect)
   (let ((warnings '()))
     (for-each-node
        (lambda (node)
          (cond
-           ((and (node-list? node) (not (node-close node)))
+           [(and (node-list? node) (not (node-close node)))
             (set! warnings
               (cons (make-lint-warning
                        'unmatched-parens 'error
                        (format #f "unmatched opening ~a"
                          (open-token-name (node-open node)))
                        (node-start node))
-                warnings)))
-           ((node-stray-delimiter? node)
+                warnings))]
+           [(node-stray-delimiter? node)
             (set! warnings
               (cons (make-lint-warning
                        'unmatched-parens 'error
                        (format #f "unmatched closing delimiter `~a'"
                          (node-value node))
                        (node-start node))
-                warnings)))))
+                warnings))]))
        ast)
     (reverse warnings)))
 
@@ -69,9 +69,9 @@
 
 (define (last-written-child children)
   (let loop ((rest (reverse children)))
-    (cond ((null? rest) #f)
-      ((node-whitespace? (car rest)) (loop (cdr rest)))
-      (else (car rest)))))
+    (cond [(null? rest) #f]
+          [(node-whitespace? (car rest)) (loop (cdr rest))]
+          [else (car rest)])))
 
 (define (close-on-own-line? node)
   "Return @code{#t} when the closer of @var{node} starts a line of its own."
@@ -79,12 +79,12 @@
     (and (node-close node)
       (pair? children)
       (let loop ((rest (reverse children)))
-        (cond ((null? rest) #f)
-          ((node-whitespace? (car rest))
-           (if (> (node-newlines (car rest)) 0)
-             #t
-             (loop (cdr rest))))
-          (else #f))))))
+        (cond [(null? rest) #f]
+              [(node-whitespace? (car rest))
+               (if (> (node-newlines (car rest)) 0)
+                 #t
+                 (loop (cdr rest)))]
+              [else #f])))))
 
 (define (dangling-paren-warnings ast source dialect)
   (let ((warnings '()))

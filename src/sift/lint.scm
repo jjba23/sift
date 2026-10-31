@@ -31,6 +31,7 @@
   #:use-module (sift checkers scheme)
   #:use-module (sift checkers elisp)
   #:use-module (sift checkers cl)
+  #:use-module (sift checkers ergonomics)
   #:export (all-checkers
               find-checker
               checkers-for-dialect
@@ -58,16 +59,17 @@ other report over the whole set cannot drift from the set itself."
           bodies-checkers
           scheme-checkers
           elisp-checkers
-          cl-checkers)
+          cl-checkers
+          ergonomics-checkers)
     (lambda (a b)
       (string<? (symbol->string (lint-checker-name a))
         (symbol->string (lint-checker-name b))))))
 
 (define (normalise-checker-name name)
   "Return @var{name} as a symbol, whatever way it was spelled on the command line."
-  (cond ((symbol? name) name)
-    ((string? name) (string->symbol name))
-    (else (string->symbol (format #f "~a" name)))))
+  (cond [(symbol? name) name]
+        [(string? name) (string->symbol name)]
+        [else (string->symbol (format #f "~a" name))]))
 
 (define* (find-checker name)
   "Return the checker named @var{name}, or @code{#f}."
@@ -131,11 +133,11 @@ comment in a source file outlives the code it was written for."
                                     (string-split part #\,))
                         (string-split rest #\space))))
              (checkers (map normalise-checker-name names)))
-        (case (string->symbol directive)
-          ((sift:disable-next-line) (cons 'disable-next-line checkers))
-          ((sift:disable) (cons 'disable checkers))
-          ((sift:enable) (cons 'enable checkers))
-          (else #f))))))
+        (case [string->symbol directive]
+          [(sift:disable-next-line) (cons 'disable-next-line checkers)]
+          [(sift:disable) (cons 'disable checkers)]
+          [(sift:enable) (cons 'enable checkers)]
+          [else #f])))))
 
 (define (suppression-directives ast)
   "Return the suppression directives in @var{ast}, in document order.
@@ -145,10 +147,10 @@ all of them) and the line it sits on."
   (let ((directives '()))
     (define (walk node)
       (cond
-        ((node-list? node) (for-each walk (node-children node)))
-        ((node-prefix? node) (let ((child (node-child node)))
-                               (when child (walk child))))
-        ((node-comment? node)
+        [(node-list? node) (for-each walk (node-children node))]
+        [(node-prefix? node) (let ((child (node-child node)))
+                               (when child (walk child)))]
+        [(node-comment? node)
          (let ((directive (parse-directive (node-value node))))
            (when directive
              (set! directives
@@ -156,7 +158,7 @@ all of them) and the line it sits on."
                        (cdr directive)
                        (source-location-line (node-start node))
                        (source-location-index (node-start node)))
-                 directives)))))))
+                 directives))))]))
     (for-each walk ast)
     (reverse directives)))
 
@@ -182,19 +184,19 @@ sits in ends, or to the end of the file when it sits between forms.  An
          (match directive
            ((kind checkers line index)
             (case kind
-              ((disable-next-line)
+              [(disable-next-line)
                (set! next-lines
-                 (cons (list (+ line 1) checkers) next-lines)))
-              ((disable)
+                 (cons (list (+ line 1) checkers) next-lines))]
+              [(disable)
                (let* ((form (top-level-form-at ast index))
                       (end (if form (node-end-index form) (string-length ""))))
-                 (set! open (cons (list checkers index end) open))))
-              ((enable)
+                 (set! open (cons (list checkers index end) open)))]
+              [(enable)
                (set! open
                  (remove (lambda (entry)
                            (or (null? checkers)
                              (lset= eq? (first entry) checkers)))
-                   open)))))))
+                   open))]))))
        (suppression-directives ast))
     (values open next-lines)))
 

@@ -33,25 +33,25 @@
   (call-with-values (lambda () (read-source-string source))
     (lambda (ast errors)
       (let loop ((rest ast) (out '()))
-        (cond ((null? rest) (reverse out))
-          ((node-comment? (car rest))
-           (loop (cdr rest) (cons (node-value (car rest)) out)))
-          ((node-list? (car rest))
-           (loop (append (node-children (car rest)) (cdr rest)) out))
-          ((node-block-comment? (car rest))
-           (loop (cdr rest) (cons (node-value (car rest)) out)))
-          (else (loop (cdr rest) out)))))))
+        (cond [(null? rest) (reverse out)]
+              [(node-comment? (car rest))
+               (loop (cdr rest) (cons (node-value (car rest)) out))]
+              [(node-list? (car rest))
+               (loop (append (node-children (car rest)) (cdr rest)) out)]
+              [(node-block-comment? (car rest))
+               (loop (cdr rest) (cons (node-value (car rest)) out))]
+              [else (loop (cdr rest) out)])))))
 
 (define (inline-flags source)
   (call-with-values (lambda () (read-source-string source))
     (lambda (ast errors)
       (let loop ((rest ast) (out '()))
-        (cond ((null? rest) (reverse out))
-          ((node-comment? (car rest))
-           (loop (cdr rest) (cons (node-inline? (car rest)) out)))
-          ((node-list? (car rest))
-           (loop (append (node-children (car rest)) (cdr rest)) out))
-          (else (loop (cdr rest) out)))))))
+        (cond [(null? rest) (reverse out)]
+              [(node-comment? (car rest))
+               (loop (cdr rest) (cons (node-inline? (car rest)) out))]
+              [(node-list? (car rest))
+               (loop (append (node-children (car rest)) (cdr rest)) out)]
+              [else (loop (cdr rest) out)])))))
 
 (define (read-sexps-node source)
   (call-with-values (lambda () (read-source-string source))

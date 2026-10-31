@@ -26,7 +26,10 @@
              (format #f "~a [stderr: ~a]" name (caddr got)))))
 
 (define (spec)
+  ;; serial: every test here starts a process, and a dozen of them at once
+  ;; turns a timing accident into a flaky suite
   (suite "cli"
+    #:concurrent? #f
 
     (test "version prints the version and succeeds"
       (let ((result (run-sift '("version"))))
@@ -90,6 +93,21 @@
         (assert-status #:expect 1 #:got result)
         (assert-same-text #:expect "" #:got (cadr result))))
 
+    (test "lint --format=json carries the rule code"
+      (let* ((result (run-sift '("lint" "--format=json" "tests/fixtures/lint/dirty.scm")))
+             (output (cadr result)))
+        (assert-contains #:expect output #:got "\"code\"")
+        (assert-contains #:expect output #:got "SIFT001")))
+
+    (test "list-checkers prints each rule's code"
+      (let ((result (run-sift '("list-checkers"))))
+        (assert-contains #:expect (cadr result) #:got "SIFT001")
+        (assert-contains #:expect (cadr result) #:got "CODE")))
+
+    (test "explain leads with the rule's code"
+      (let ((result (run-sift '("explain" "if-without-else"))))
+        (assert-contains #:expect (cadr result) #:got "SIFT012")))
+
     (test "lint --checker runs only the checker it names"
       (let* ((result (run-sift '("lint" "--format=json" "--checker=line-length"
                                  "tests/fixtures/lint/dirty.scm")))
@@ -112,6 +130,59 @@
                (assert-status #:expect 0 #:got result)
                (assert-same-text #:expect "(when (ready?) (go))\n"
                  #:got (slurp path)))))))
+
+    (test "format --diff prints a patch and exits 1"
+      (let ((result (run-sift '("format" "--diff"
+                                "tests/fixtures/scheme/community/input/messy.scm"))))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect (cadr result) #:got "@@ ")
+        (assert-contains #:expect (cadr result) #:got "-")))
+
+    (test "format --diff on a formatted file prints nothing and exits 0"
+      (let ((result (run-sift '("format" "--diff"
+                                "tests/fixtures/scheme/community/expected/messy.scm"))))
+        (assert-status #:expect 0 #:got result)
+        (assert-same-text #:expect "" #:got (cadr result))))
+
+    (test "--version prints the version without a subcommand"
+      (let ((result (run-sift '("--version"))))
+        (assert-status #:expect 0 #:got result)
+        (assert-contains #:expect (cadr result) #:got "sift ")))
+
+    (test "fix is lint --fix"
+      (with-temp-directory
+         (lambda (directory)
+           (let ((path (string-append directory "/fixme.scm")))
+             (spit path "(if (ready?) (go))   \n")
+             (let ((result (run-sift (list "fix" path))))
+               (assert-status #:expect 0 #:got result)
+               (assert-same-text #:expect "(when (ready?) (go))\n" #:got (slurp path)))))))
+
+    (test "lint --fix --stdin prints the fixed source to stdout"
+      (let ((result (run-sift '("lint" "--fix" "--stdin" "--dialect=scheme")
+                      #:stdin "(if (ready?) (go))   \n")))
+        (assert-status #:expect 0 #:got result)
+        (assert-same-text #:expect "(when (ready?) (go))\n" #:got (cadr result))))
+
+    (test "--label names the source in diagnostics"
+      (let ((result (run-sift '("lint" "--stdin" "--dialect=scheme"
+                                "--label=my-buffer.scm" "--format=human")
+                      #:stdin "(if (ready?) (go))\n")))
+        (assert-status #:expect 1 #:got result)
+        (assert-contains #:expect (cadr result) #:got "my-buffer.scm")))
+
+    (test "--brackets=parens overrides the Scheme default"
+      (let ((result (run-sift '("format" "--stdin" "--dialect=scheme"
+                                "--brackets=parens")
+                      #:stdin "(cond ((< n 0) 1)\n      (else 2))\n")))
+        (assert-status #:expect 0 #:got result)
+        (assert-contains #:expect (cadr result) #:got "(cond ((< n 0) 1)")))
+
+    (test "an unknown bracket style is a usage error"
+      (let ((result (run-sift '("format" "--brackets=curly"
+                                "tests/fixtures/lint/clean.scm"))))
+        (assert-status #:expect 2 #:got result)
+        (assert-contains #:expect (caddr result) #:got "unknown bracket style")))
 
     (test "--stdin and --stdout work as a filter"
       (let ((result (run-sift '("format" "--stdin" "--stdout" "--dialect=scheme")

@@ -133,6 +133,26 @@ one entry per key and `config-ref' always answers with the winning layer."
        (default . ())
        (flag . #f)
        (description . "Extra indentation rules, as a list of (symbol . columns) pairs, for a project's own macros. Config-only."))
+    (brackets
+       (type . brackets)
+       (default . #f)
+       (flag . "--brackets")
+       (description . "Bracket style for clause lists: square (the Scheme default), parens, or preserve."))
+    (max-depth
+       (type . integer)
+       (default . 4)
+       (flag . #f)
+       (description . "How deeply a body form may nest before wrap-in-let suggests binding part of it. Config-only."))
+    (max-elements
+       (type . integer)
+       (default . 12)
+       (flag . #f)
+       (description . "How many elements a body form may have before wrap-in-let suggests binding part of it. Config-only."))
+    (max-positional
+       (type . integer)
+       (default . 5)
+       (flag . #f)
+       (description . "How many positional arguments a call may take before keyword-arguments suggests :key arguments. Config-only."))
     (comment-align
        (type . boolean)
        (default . #f)
@@ -220,15 +240,15 @@ validator; the caller reports both the same way."
 (define (config-error->string error)
   "Render a configuration error as file:line:column: message."
   (cond
-    ((yaml-error? error)
+    [(yaml-error? error)
      (format #f "~a:~a:~a: ~a"
        (yaml-error-path error) (yaml-error-line error)
-       (yaml-error-column error) (yaml-error-message error)))
-    ((config-error-object? error)
+       (yaml-error-column error) (yaml-error-message error))]
+    [(config-error-object? error)
      (format #f "~a:~a:~a: ~a"
        (config-error-path error) (config-error-line error)
-       (config-error-column error) (config-error-message error)))
-    (else (format #f "~a" error))))
+       (config-error-column error) (config-error-message error))]
+    [else (format #f "~a" error)]))
 
 (define* (with-config-error-handler thunk #:key (port (current-error-port)))
   "Run @var{thunk}, turning a configuration error into a message and #f.
@@ -243,23 +263,23 @@ error, and every caller treats it as one."
 
 (define (normalise-name-list value key path line column)
   (cond
-    ((not value) '())
-    ((or (string? value) (symbol? value))
+    [(not value) '()]
+    [(or (string? value) (symbol? value))
      (map (lambda (part) (string->symbol part))
        (filter (lambda (s) (not (string-null? s)))
          (string-split (if (symbol? value)
                          (symbol->string value)
                          value)
-           #\,))))
-    ((list? value)
+           #\,)))]
+    [(list? value)
      (map (lambda (item)
-            (cond ((symbol? item) item)
-              ((string? item) (string->symbol item))
-              (else (raise-config-error path line column
-                      (format #f "~a must be a list of names" key)))))
-       value))
-    (else (raise-config-error path line column
-            (format #f "~a must be a list of checker names" key)))))
+            (cond [(symbol? item) item]
+                  [(string? item) (string->symbol item)]
+                  [else (raise-config-error path line column
+                          (format #f "~a must be a list of names" key))]))
+       value)]
+    [else (raise-config-error path line column
+            (format #f "~a must be a list of checker names" key))]))
 
 (define* (validate-setting key value #:key path line column)
   "Return @var{value} in its canonical form, or raise a configuration error."
@@ -271,44 +291,51 @@ error, and every caller treats it as one."
       (format #f "unknown configuration key `~a'" key)))
   (let ((type (assq-ref (config-key-doc key) 'type)))
     (case type
-      ((dialect)
-       (let ((dialect (cond ((not value) #f)
-                        ((symbol? value) value)
-                        ((string? value) (string->dialect value))
-                        (else #f))))
-         (if (or (not value) dialect) dialect (bad "scheme, elisp or cl"))))
-      ((style)
-       (let ((style (cond ((symbol? value) value)
-                      ((string? value) (string->style value))
-                      (else #f))))
-         (if style style (bad "community or dangling"))))
-      ((integer)
+      [(dialect)
+       (let ((dialect (cond [(not value) #f]
+                            [(symbol? value) value]
+                            [(string? value) (string->dialect value)]
+                            [else #f])))
+         (if (or (not value) dialect) dialect (bad "scheme, elisp or cl")))]
+      [(style)
+       (let ((style (cond [(symbol? value) value]
+                          [(string? value) (string->style value)]
+                          [else #f])))
+         (if style style (bad "community or dangling")))]
+      [(integer)
        (if (or (not value) (and (integer? value) (> value 0)))
          value
-         (bad "a positive integer")))
-      ((boolean)
-       (if (boolean? value) value (bad "true or false")))
-      ((names)
-       (normalise-name-list value key path line column))
-      ((severity)
+         (bad "a positive integer"))]
+      [(boolean)
+       (if (boolean? value) value (bad "true or false"))]
+      [(names)
+       (normalise-name-list value key path line column)]
+      [(severity)
        (let ((severity (if (string? value) (string->severity value) value)))
          (if (memq severity '(error warning info)) severity
-           (bad "error, warning or info"))))
-      ((output-format)
+           (bad "error, warning or info")))]
+      [(output-format)
        (let ((value (if (string? value) (string->symbol value) value)))
          (if (memq value '(human json null)) value
-           (bad "human, json or null"))))
-      ((color)
-       (let ((value (cond ((string? value) (string->symbol value))
-                      ((boolean? value) (if value 'always 'never))
-                      (else value))))
+           (bad "human, json or null")))]
+      [(color)
+       (let ((value (cond [(string? value) (string->symbol value)]
+                          [(boolean? value) (if value 'always 'never)]
+                          [else value])))
          (if (memq value '(auto always never)) value
-           (bad "auto, always or never"))))
-      ((loop-style)
+           (bad "auto, always or never")))]
+      [(brackets)
+       (let ((style (cond [(not value) #f]
+                          [(symbol? value) value]
+                          [(string? value) (string->brackets value)]
+                          [else #f])))
+         (if (or (not value) style) style
+           (bad "square, parens or preserve")))]
+      [(loop-style)
        (let ((value (if (string? value) (string->symbol value) value)))
          (if (memq value '(either literal symbolic)) value
-           (bad "either, literal or symbolic"))))
-      ((rules)
+           (bad "either, literal or symbolic")))]
+      [(rules)
        (if (and (list? value)
              (every (lambda (pair)
                       (and (pair? pair)
@@ -321,8 +348,8 @@ error, and every caller treats it as one."
                         (string->symbol (car pair)))
                   (cdr pair)))
            value)
-         (bad "a list of (symbol . columns) pairs")))
-      (else value))))
+         (bad "a list of (symbol . columns) pairs"))]
+      [else value])))
 
 ;;; ===== Loading =====
 
@@ -356,10 +383,10 @@ setting is reported where the user can see it."
 (define (node-column-of node) (vector-ref node 3))
 
 (define (node->value node)
-  (case (vector-ref node 0)
-    ((scalar) (vector-ref node 1))
-    ((sequence) (map node->value (vector-ref node 1)))
-    (else #f)))
+  (case [vector-ref node 0]
+    [(scalar) (vector-ref node 1)]
+    [(sequence) (map node->value (vector-ref node 1))]
+    [else #f]))
 
 (define* (load-scheme-config path)
   "Evaluate a Scheme configuration file, returning its settings.
@@ -380,10 +407,10 @@ they trusted it."
       (raise-config-error path 1 1
         (format #f "~a must evaluate to an alist of settings" path)))
     (map (lambda (entry)
-           (let ((key (cond ((symbol? (car entry)) (car entry))
-                        ((string? (car entry)) (string->symbol (car entry)))
-                        (else (raise-config-error path 1 1
-                                "a setting name must be a symbol")))))
+           (let ((key (cond [(symbol? (car entry)) (car entry)]
+                            [(string? (car entry)) (string->symbol (car entry))]
+                            [else (raise-config-error path 1 1
+                                    "a setting name must be a symbol")])))
              (cons key (validate-setting key (cdr entry)
                          #:path path #:line 1 #:column 1))))
       result)))
@@ -488,10 +515,10 @@ never end; every walk in this module goes through this instead."
   "Return the nearest directory at or above @var{directory} holding a .git."
   (let loop ((directory (string-trim-right directory #\/)))
     (cond
-      ((not directory) #f)
-      ((string-null? directory) #f)
-      ((file-exists? (string-append directory "/.git")) directory)
-      (else (loop (parent-directory directory))))))
+      [(not directory) #f]
+      [(string-null? directory) #f]
+      [(file-exists? (string-append directory "/.git")) directory]
+      [else (loop (parent-directory directory))])))
 
 (define* (discover-config-files #:key (cwd (getcwd)))
   "Return the configuration files in effect, lowest precedence first.
@@ -508,11 +535,11 @@ belongs to a different project and must not be applied to this one."
          (project
             (let loop ((directory (string-trim-right cwd #\/)))
               (cond
-                ((not directory) #f)
-                ((string-null? directory) #f)
-                ((existing-config-in directory))
-                ((and root (string=? directory root)) #f)
-                (else (loop (parent-directory directory)))))))
+                [(not directory) #f]
+                [(string-null? directory) #f]
+                [(existing-config-in directory)]
+                [(and root (string=? directory root)) #f]
+                [else (loop (parent-directory directory))]))))
     (filter identity
       (list (and system (cons 'system system))
         (and user (cons 'user user))
@@ -565,7 +592,7 @@ With @var{source?}, every value is followed by where it came from, which is
 the question a user actually has when a setting does not do what they
 expect."
   (case output-format
-    ((scheme)
+    [(scheme)
      (display "(\n" port)
      (for-each
         (lambda (entry)
@@ -576,21 +603,21 @@ expect."
                 (assq-ref (config-provenance->alist config) key))
               (newline port))))
         (config->alist config))
-     (display ")\n" port))
-    (else
+     (display ")\n" port)]
+    [else
        (for-each
           (lambda (entry)
             (let ((key (car entry)) (value (cdr entry)))
               (format port "~a: " key)
-              (cond ((eq? value #t) (display "true" port))
-                ((eq? value #f) (display "false" port))
-                ((null? value) (display "[]" port))
-                ((list? value)
-                 (format port "[~a]" (string-join (map (lambda (item)
-                                                         (format #f "~a" item))
-                                                    value)
-                                       ", ")))
-                (else (format port "~a" value)))
+              (cond [(eq? value #t) (display "true" port)]
+                    [(eq? value #f) (display "false" port)]
+                    [(null? value) (display "[]" port)]
+                    [(list? value)
+                     (format port "[~a]" (string-join (map (lambda (item)
+                                                             (format #f "~a" item))
+                                                        value)
+                                           ", "))]
+                    [else (format port "~a" value)])
               (if source?
                 (format port "   # ~a"
                   (assq-ref (config-provenance->alist config) key)))
@@ -598,7 +625,7 @@ expect."
           (config->alist config))
        (when source?
          (newline port)
-         (format port "# provenance: defaults < system < user < project < command line~%")))))
+         (format port "# provenance: defaults < system < user < project < command line~%"))]))
 
 (define* (config-explain key #:key (port (current-output-port)))
   "Explain one configuration key: what it does, its default and its flag."
@@ -620,4 +647,8 @@ expect."
   (list (cons 'line-length (config-ref config 'line-length))
     (cons 'indent (config-ref config 'indent))
     (cons 'loop-keywords (config-ref config 'loop-keywords))
-    (cons 'indent-rules (config-ref config 'indent-rules))))
+    (cons 'indent-rules (config-ref config 'indent-rules))
+    (cons 'brackets (config-ref config 'brackets))
+    (cons 'max-depth (config-ref config 'max-depth))
+    (cons 'max-elements (config-ref config 'max-elements))
+    (cons 'max-positional (config-ref config 'max-positional))))

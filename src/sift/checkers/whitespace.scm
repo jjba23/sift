@@ -63,9 +63,9 @@
 (define (leading-whitespace-end source start end)
   "Return the index of the first character of a line that is not indentation."
   (let loop ((i start))
-    (cond ((>= i end) end)
-      ((memv (string-ref source i) '(#\space #\tab)) (loop (+ i 1)))
-      (else i))))
+    (cond [(>= i end) end]
+          [(memv (string-ref source i) '(#\space #\tab)) (loop (+ i 1))]
+          [else i])))
 
 (define (tabs-warnings ast source dialect)
   (let* ((spans (line-spans source))
@@ -154,10 +154,10 @@
               (and (> n 0) (char=? (string-ref source (- n 1)) #\newline))))
          (last-non-blank
             (let loop ((rest spans) (number 1) (found 0))
-              (cond ((null? rest) found)
-                ((blank-line? (substring source (caar rest) (cdar rest)))
-                 (loop (cdr rest) (+ number 1) found))
-                (else (loop (cdr rest) (+ number 1) number)))))
+              (cond [(null? rest) found]
+                    [(blank-line? (substring source (caar rest) (cdar rest)))
+                     (loop (cdr rest) (+ number 1) found)]
+                    [else (loop (cdr rest) (+ number 1) number)])))
          ;; The final line a trailing newline creates is not a blank line the
          ;; author wrote, so it is not counted.
          (trailing-blank (- (length spans) last-non-blank

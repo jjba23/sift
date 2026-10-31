@@ -91,17 +91,17 @@ the difference by eye; a byte offset and the two lines around it do not."
   (let* ((limit (min (string-length expected) (string-length actual))))
     (let loop ((i 0))
       (cond
-        ((>= i limit)
+        [(>= i limit)
          (format #f "the texts agree for ~a characters and one of them continues: expected ~a characters, got ~a"
-           limit (string-length expected) (string-length actual)))
-        ((not (char=? (string-ref expected i) (string-ref actual i)))
+           limit (string-length expected) (string-length actual))]
+        [(not (char=? (string-ref expected i) (string-ref actual i)))
          (format #f "characters differ at offset ~a (runes ~s and ~s): expected ~s, got ~s"
            i
            (char->integer (string-ref expected i))
            (char->integer (string-ref actual i))
            (context-around expected i)
-           (context-around actual i)))
-        (else (loop (+ i 1)))))))
+           (context-around actual i))]
+        [else (loop (+ i 1))]))))
 
 (define (context-around text index)
   (let* ((from (max 0 (- index 20)))
@@ -207,31 +207,31 @@ lists, vectors vectors, and a reader prefix becomes the long-hand form it
 abbreviates, so a test can say what the reader understood without knowing
 how a node is built."
   (cond
-    ((node-list? node)
+    [(node-list? node)
      (let ((elements (map node->sexp (node-elements node))))
-       (if (node-vector? node) (list->vector elements) elements)))
-    ((node-prefix? node)
+       (if (node-vector? node) (list->vector elements) elements))]
+    [(node-prefix? node)
      ;; The token is compared as text: a Scheme reader is free to intern the
      ;; symbol `quote' and the symbol named by a lone quote mark differently,
      ;; and a test should not care which it did.
      (let ((child (and (node-child node) (node->sexp (node-child node))))
            (token (node-token node)))
        (cond
-         ((string=? token "'") (list 'quote child))
-         ((string=? token "`") (list 'quasiquote child))
-         ((string=? token ",") (list 'unquote child))
-         ((string=? token ",@") (list 'unquote-splicing child))
-         ((string=? token "#'") (list 'function child))
-         ((string=? token "#;") (list 'datum-comment child))
-         (else (list (string->symbol token) child)))))
-    ((node-stray-delimiter? node) (node-value node))
-    ((node-atom? node)
-     (case (node-atom-type node)
-       ((number) (or (node-field node 'value #f) (node-value node)))
-       ((boolean) (string=? (node-value node) "#t"))
-       ((character string keyword) (node-value node))
-       (else (string->symbol (node-value node)))))
-    (else (node-value node))))
+         [(string=? token "'") (list 'quote child)]
+         [(string=? token "`") (list 'quasiquote child)]
+         [(string=? token ",") (list 'unquote child)]
+         [(string=? token ",@") (list 'unquote-splicing child)]
+         [(string=? token "#'") (list 'function child)]
+         [(string=? token "#;") (list 'datum-comment child)]
+         [else (list (string->symbol token) child)]))]
+    [(node-stray-delimiter? node) (node-value node)]
+    [(node-atom? node)
+     (case [node-atom-type node]
+       [(number) (or (node-field node 'value #f) (node-value node))]
+       [(boolean) (string=? (node-value node) "#t")]
+       [(character string keyword) (node-value node)]
+       [else (string->symbol (node-value node))])]
+    [else (node-value node)]))
 
 (define* (ast->sexp source #:key (dialect 'scheme))
   "Read @var{source} and return its data nodes as ordinary Scheme data."
@@ -363,9 +363,9 @@ list to keep in step."
 
 (define (dialect-of path)
   (let ((parts (string-split path #\/)))
-    (cond ((member "elisp" parts) 'elisp)
-      ((member "cl" parts) 'cl)
-      (else 'scheme))))
+    (cond [(member "elisp" parts) 'elisp]
+          [(member "cl" parts) 'cl]
+          [else 'scheme])))
 
 (define* (assert-fixture pair)
   "Assert that the input of @var{pair} formats to the expected file."

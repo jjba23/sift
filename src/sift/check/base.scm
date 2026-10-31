@@ -72,17 +72,17 @@ told not to read as code."
     (unless (node-commented-out? node)
       (proc node)
       (cond
-        ((node-list? node)
-         (for-each walk (node-elements node)))
-        ((node-prefix? node)
+        [(node-list? node)
+         (for-each walk (node-elements node))]
+        [(node-prefix? node)
          (let ((child (node-child node)))
            (when (and child (not (node-datum-comment? node)))
-             (walk child))))
-        ((node-conditional? node)
+             (walk child)))]
+        [(node-conditional? node)
          (let ((feature (node-feature node))
                (guarded (node-guarded-form node)))
            (when feature (walk feature))
-           (when guarded (walk guarded)))))))
+           (when guarded (walk guarded)))])))
   (for-each (lambda (node) (when (node-data? node) (walk node))) ast))
 
 (define (for-each-top-level proc ast)
@@ -104,18 +104,18 @@ The ancestors come nearest-first, which is the order a checker asks them in:
     (unless (node-commented-out? node)
       (proc node ancestors)
       (cond
-        ((node-list? node)
+        [(node-list? node)
          (for-each (lambda (child) (walk child (cons node ancestors)))
-           (node-elements node)))
-        ((node-prefix? node)
+           (node-elements node))]
+        [(node-prefix? node)
          (let ((child (node-child node)))
            (when (and child (not (node-datum-comment? node)))
-             (walk child ancestors))))
-        ((node-conditional? node)
+             (walk child ancestors)))]
+        [(node-conditional? node)
          (let ((feature (node-feature node))
                (guarded (node-guarded-form node)))
            (when feature (walk feature ancestors))
-           (when guarded (walk guarded ancestors)))))))
+           (when guarded (walk guarded ancestors)))])))
   (for-each (lambda (node) (when (node-data? node) (walk node '()))) ast))
 
 ;;; ===== Reading a form =====
@@ -159,16 +159,16 @@ should not have to know which spelling the author used."
           (type (node-atom-type node))
           (marker (node-package-marker node)))
       (cond
-        ((eq? type 'keyword)
+        [(eq? type 'keyword)
          (string->symbol (if (string-prefix? ":" value)
                            (substring value 1)
-                           value)))
+                           value))]
         ;; `#:run' and `app:run' name the symbol `run'; the marker says
         ;; which package it belongs to, not what it is called.
-        ((and marker (< (string-length marker) (string-length value)))
-         (string->symbol (substring value (string-length marker))))
-        ((eq? type 'symbol) (string->symbol value))
-        (else #f)))))
+        [(and marker (< (string-length marker) (string-length value)))
+         (string->symbol (substring value (string-length marker)))]
+        [(eq? type 'symbol) (string->symbol value)]
+        [else #f]))))
 
 (define (symbol-atom? node name)
   "Return @code{#t} when @var{node} is the symbol @var{name}."
@@ -202,18 +202,18 @@ is not a value here."
           (and (pair? rest) (string-atom? (car rest)) (car rest)))
         #f))
     (case head
-      ((define define* define-public)
+      [(define define* define-public)
        (let ((first (and (pair? args) (car args))))
          ;; (define (f a) "doc" ...) versus (define x "value")
-         (if (and first (node-list? first)) (after 1) #f)))
-      ((defun defmacro defsubst defmethod cl-defun cl-defmacro cl-defsubst
+         (if (and first (node-list? first)) (after 1) #f))]
+      [(defun defmacro defsubst defmethod cl-defun cl-defmacro cl-defsubst
          defgeneric)
-       (after 2))
-      ((lambda lambda* cl-lambda)
-       (after 1))
-      ((defvar defconst defcustom defparameter defface)
-       (after 2))
-      (else #f))))
+       (after 2)]
+      [(lambda lambda* cl-lambda)
+       (after 1)]
+      [(defvar defconst defcustom defparameter defface)
+       (after 2)]
+      [else #f])))
 
 (define (body-elements node skip)
   "Return the body of @var{node}: its elements after the first @var{skip}.
@@ -235,11 +235,11 @@ which is what a text editor shows too."
   (let ((n (string-length source)))
     (let loop ((start 0) (i 0) (out '()))
       (cond
-        ((>= i n)
-         (reverse (cons (cons start i) out)))
-        ((char=? (string-ref source i) #\newline)
-         (loop (+ i 1) (+ i 1) (cons (cons start i) out)))
-        (else (loop start (+ i 1) out))))))
+        [(>= i n)
+         (reverse (cons (cons start i) out))]
+        [(char=? (string-ref source i) #\newline)
+         (loop (+ i 1) (+ i 1) (cons (cons start i) out))]
+        [else (loop start (+ i 1) out)]))))
 
 (define* (line-text source line #:optional (lines #f))
   "Return line @var{line} (1-based) of @var{source}, without its break."
@@ -273,9 +273,9 @@ editor uses for a file it has not been told about."
 (define (line-of-index source index)
   "Return the 1-based line of character @var{index} in @var{source}."
   (let loop ((spans (line-spans source)) (n 1))
-    (cond ((null? spans) n)
-      ((<= index (cdr (car spans))) n)
-      (else (loop (cdr spans) (+ n 1))))))
+    (cond [(null? spans) n]
+          [(<= index (cdr (car spans))) n]
+          [else (loop (cdr spans) (+ n 1))])))
 
 (define (location-at-index source index)
   "Build a location from an index alone.
@@ -344,17 +344,18 @@ checker reads what it needs with @code{option}, which always has a default."
 ;;; ===== Checker construction =====
 
 (define* (checker name description dialects proc
-           #:key (severity 'warning) example)
+           #:key (severity 'warning) example code)
   "Build a <lint-checker> with its documentation attached.
 
 The record is the whole contract: a name to select it by, a description for
 `list-checkers', the dialects it applies to, the severity of what it reports
 and, for `explain', a failing example and the fix it expects."
-  (make-lint-checker name description dialects proc severity example))
+  (make-lint-checker name description dialects proc severity example code))
 
 (define* (make-checker name description dialects proc
-           #:key (severity 'warning) example)
-  (checker name description dialects proc #:severity severity #:example example))
+           #:key (severity 'warning) example code)
+  (checker name description dialects proc #:severity severity #:example example
+    #:code code))
 
 (define* (diagnose checker severity message node #:key fix range)
   "Build a warning about @var{node} on behalf of @var{checker}."

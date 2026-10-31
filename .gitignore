@@ -3,8 +3,9 @@ reports/
 *.go
 *.log
 
-# byte-compiled copies Guile leaves next to the sources when asked to
+# byte-compiled copies Guile and Emacs leave next to the sources
 *.scm.go
+*.elc
 
 # editor and REPL leftovers
 .nrepl-port

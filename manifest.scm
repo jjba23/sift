@@ -14,6 +14,7 @@
 (use-modules (guix packages)
              (guix utils)
              (guix git-download)
+             (gnu packages emacs)
              (gnu packages guile)
              (gnu packages guile-xyz)
              (guix build-system guile)
@@ -49,4 +50,7 @@ table-driven cases, mocks, snapshots, generators and coverage.")
  (list (specification->package "make")
        guile-3.0
        guile-fibers
-       guile-json-4))
+       guile-json-4
+       ;; the Emacs package is developed and tested here too; a minimal
+       ;; Emacs has ERT, Flymake and `json', which is all it needs
+       emacs-minimal))

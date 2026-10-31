@@ -14,12 +14,15 @@
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
   #:use-module (sift records)
+  #:use-module (sift format)
   #:use-module (sift check base)
   #:export (scheme-checkers
               internal-define-checker
               if-without-else-checker
               letrec-single-binding-checker
-              quasiquote-unquote-constant-checker))
+              quasiquote-unquote-constant-checker
+              clause-brackets-checker
+              docstring-texinfo-checker))
 
 ;;; ===== internal-define =====
 
@@ -31,11 +34,11 @@ That is a @code{lambda}, or a @code{define} whose first argument is the
 Scheme has always allowed that, and an internal definition outside one is a
 definition that will run in the wrong scope."
   (cond
-    ((list-headed-by? node 'lambda) #t)
-    ((list-headed-by? node 'define)
+    [(list-headed-by? node 'lambda) #t]
+    [(list-headed-by? node 'define)
      (let ((first (and (pair? (form-arguments node)) (car (form-arguments node)))))
-       (and first (node-list? first))))
-    (else #f)))
+       (and first (node-list? first)))]
+    [else #f]))
 
 (define (internal-define-warnings ast source dialect)
   (let ((warnings '()))
@@ -163,23 +166,23 @@ definition that will run in the wrong scope."
           warnings)))
     (define (check-quasiquote inner)
       (cond
-        ((and (node-prefix? inner) (equal? (node-token inner) ","))
+        [(and (node-prefix? inner) (equal? (node-token inner) ","))
          (let ((child (node-child inner)))
-           (when (and child (constant-atom? child)) (report inner))))
-        ((list-headed-by? inner 'unquote)
+           (when (and child (constant-atom? child)) (report inner)))]
+        [(list-headed-by? inner 'unquote)
          (let ((args (form-arguments inner)))
-           (when (and (pair? args) (constant-atom? (car args))) (report inner))))
-        ((node-list? inner)
-         (for-each check-quasiquote (node-elements inner)))))
+           (when (and (pair? args) (constant-atom? (car args))) (report inner)))]
+        [(node-list? inner)
+         (for-each check-quasiquote (node-elements inner))]))
     (for-each-node
        (lambda (node)
          (cond
-           ((and (node-prefix? node) (equal? (node-token node) "`"))
+           [(and (node-prefix? node) (equal? (node-token node) "`"))
             (let ((child (node-child node)))
-              (when child (check-quasiquote child))))
-           ((list-headed-by? node 'quasiquote)
+              (when child (check-quasiquote child)))]
+           [(list-headed-by? node 'quasiquote)
             (let ((args (form-arguments node)))
-              (when (pair? args) (check-quasiquote (car args)))))))
+              (when (pair? args) (check-quasiquote (car args))))]))
        ast)
     (reverse warnings)))
 
@@ -192,10 +195,121 @@ definition that will run in the wrong scope."
     #:example '((input . "`(1 ,2)")
                 (fix . "no automatic fix; write the constant directly"))))
 
+;;; ===== clause-brackets =====
+
+(define (bracket-pair style)
+  (case style
+    [(square) (cons "[" "]")]
+    [(parens) (cons "(" ")")]
+    [else #f]))
+
+(define (clause-brackets-warnings ast source dialect)
+  (let* ((style (or (option 'brackets #f) (default-brackets dialect)))
+         (wanted (bracket-pair style))
+         (warnings '()))
+    ;; `check` is defined at the top of the body, not inside the `when`:
+    ;; a `when` body is an expression, and a definition there is not allowed.
+    (define (check clause)
+      (when (and (node-list? clause) (node-close clause))
+        (let ((open (node-open clause))
+              (close (node-close clause)))
+          ;; only a bracket that is really a bracket can be swapped: a
+          ;; `#(' vector or a `{' brace is not a clause list
+          (when (and (or (equal? open "(") (equal? open "["))
+                  (or (equal? close ")") (equal? close "]"))
+                  (not (equal? open (car wanted))))
+            (set! warnings
+              (cons (make-lint-warning/range 'clause-brackets 'warning
+                      (format #f "`~a` clause is written with ~a; this project writes it with ~a"
+                        (node-head-name (car (node-elements clause)))
+                        (if (equal? open "(") "parentheses" "square brackets")
+                        (if (equal? open "(") "square brackets" "parentheses"))
+                      (node-start clause)
+                      (node-index clause) (node-end-index clause)
+                      (lambda (source start end)
+                        (string-append (car wanted)
+                          (substring source (+ start 1) (- end 1))
+                          (cdr wanted))))
+                warnings))))))
+    (when wanted
+      (for-each-node
+         (lambda (node)
+           (when (and (node-list? node)
+                   (memq (node-head-name node) '(cond case)))
+             ;; the clauses are the children of the form, not the form itself
+             (for-each check (form-arguments node))))
+         ast))
+    (reverse warnings)))
+
+(define clause-brackets-checker
+  (checker 'clause-brackets
+    "A `cond` or `case` clause written with the other kind of bracket"
+    '(scheme)
+    clause-brackets-warnings
+    #:severity 'warning
+    #:example '((input . "(cond ((= x 1) 'one)\n      (else 'other))")
+                (fix . "(cond [(= x 1) 'one]\n      [else 'other])"))))
+
+;;; ===== docstring-texinfo =====
+
+(define (scheme-parameters node)
+  "Return the parameter names of a procedure definition, as strings."
+  (let* ((arguments (form-arguments node))
+         (first (and (pair? arguments) (car arguments)))
+         (formals (cond
+                    [(and first (node-list? first)) first]
+                    [else #f])))
+    ;; the first element of a `(define (name . formals) ...)' head is the
+    ;; procedure's name, not a parameter
+    (if formals
+      (append-map (lambda (element)
+                    (let ((name (and (node-atom? element) (node-value element))))
+                      (if (and name (not (string-contains name ".")))
+                        (list name)
+                        '())))
+        (if (pair? (node-elements formals))
+          (cdr (node-elements formals))
+          '()))
+      '())))
+
+(define (docstring-texinfo-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-node
+       (lambda (node)
+         (when (node-list? node)
+           (let ((doc (docstring-node node))
+                 (parameters (scheme-parameters node)))
+             (when (and doc (pair? parameters))
+               (let ((text (node-value doc)))
+                 (for-each
+                    (lambda (parameter)
+                      (unless (string-contains text
+                                (string-append "@var{" parameter "}"))
+                        (set! warnings
+                          (cons (make-lint-warning 'docstring-texinfo 'info
+                                  (format #f "the docstring does not document `@var{~a}`; Guile renders it in `C-h f` and in the manual"
+                                    parameter)
+                                  (node-start doc))
+                            warnings))))
+                    parameters))))))
+       ast)
+    (reverse warnings)))
+
+(define docstring-texinfo-checker
+  (checker 'docstring-texinfo
+    "A Guile docstring that does not document its arguments with `@var{}`"
+    '(scheme)
+    docstring-texinfo-warnings
+    #:severity 'info
+    #:example '((input . "(define (f x) \"Return X.\" x)")
+                (fix . "(define (f x) \"Return @var{x}.\" x)"))))
+
 ;;; ===== The list =====
 
 (define scheme-checkers
   (list internal-define-checker
     if-without-else-checker
     letrec-single-binding-checker
-    quasiquote-unquote-constant-checker))
+    quasiquote-unquote-constant-checker
+    clause-brackets-checker
+    docstring-texinfo-checker))

@@ -202,14 +202,14 @@
     (for-each-node
        (lambda (node)
          (cond
-           ((and (list-headed-by? node 'identity)
+           [(and (list-headed-by? node 'identity)
               (= 1 (argument-count node)))
             (set! warnings
               (cons (make-lint-warning 'redundant-identity 'info
                       "`identity` here adds nothing"
                       (node-start node))
-                warnings)))
-           ((and (list-headed-by? node 'funcall)
+                warnings))]
+           [(and (list-headed-by? node 'funcall)
               (pair? (form-arguments node))
               (let ((first (car (form-arguments node))))
                 (and (node-prefix? first)
@@ -218,7 +218,7 @@
               (cons (make-lint-warning 'redundant-identity 'info
                       "`funcall` of a function name can be a direct call"
                       (node-start node))
-                warnings)))))
+                warnings))]))
        ast)
     (reverse warnings)))
 

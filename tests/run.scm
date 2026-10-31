@@ -47,10 +47,10 @@
     (append-map
        (lambda (name)
          (let ((path (string-append directory "/" name)))
-           (cond ((eq? (stat:type (stat path)) 'directory)
-                  (find-files* path))
-             ((scm-file? name) (list path))
-             (else '()))))
+           (cond [(eq? (stat:type (stat path)) 'directory)
+                  (find-files* path)]
+                 [(scm-file? name) (list path)]
+                 [else '()])))
        entries)))
 
 (define (module-name-of path)

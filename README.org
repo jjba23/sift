@@ -23,8 +23,11 @@ built on the host's `read` cannot:
 
 It knows the three dialects apart: a `let` is indented one way in all of them,
 a `defun` is not, `#| ... |#` is a comment in Scheme and Common Lisp and an
-error in Emacs Lisp, and `?a`, `#\a` and `#\a` are three different character
-literals.
+error in Emacs Lisp, `?a`, `#\a` and `#\a` are three different character
+literals, and a Scheme `cond` clause is written with square brackets.
+
+Every formatting choice and every rule is explained, with its reason and its
+code, in [[file:doc/style.org][doc/style.org]].
 
 * Contents
 :PROPERTIES:
@@ -40,6 +43,7 @@ literals.
 - [[#the-formatter][The formatter]]
 - [[#the-linter][The linter]]
 - [[#suppression-comments][Suppression comments]]
+- [[#emacs][Emacs: Flymake, formatting and code actions]]
 - [[#configuration][Configuration]]
 - [[#testing-with-veritas][Testing with Veritas]]
 - [[#architecture][Architecture]]
@@ -126,6 +130,8 @@ guild compile -o /tmp/sift.go src/sift/cli.scm
 | ~maak check~            | Compiles every module, so a syntax error fails the build         |
 | ~maak fixture-check~    | Asserts the fixture corpus is already formatted                  |
 | ~maak self-check~       | Asserts sift's own sources are formatted by sift                 |
+| ~maak emacs-test~       | Runs the Emacs package's ERT suite                               |
+| ~maak emacs-check~      | Byte-compiles the Emacs package, warnings treated as errors      |
 | ~maak install~          | Installs the library and the launcher under ~$(PREFIX)~ (default ~/usr/local~) |
 | ~maak uninstall~        | Removes what ~install~ installed                                 |
 | ~maak fmt~              | Formats sift's own sources with sift                             |
@@ -173,6 +179,7 @@ $ sift lint --checker trailing-whitespace --format=json foo.scm
 sift format   [OPTIONS] [FILE...]
 sift lint     [OPTIONS] [FILE...]
 sift check    [OPTIONS] [FILE...]   # format check only; exit 1 if any file would change
+sift fix      [OPTIONS] [FILE...]   # lint --fix
 sift list-checkers [--dialect DIALECT]
 sift explain CHECKER-NAME
 sift config show|explain|trust ...
@@ -208,6 +215,10 @@ diagnostics.
 | ~--force~                     | format            | Format a file that has parse errors, leaving the broken part verbatim  |
 | ~--config FILE~               | all               | Read this configuration file instead of discovering one                |
 | ~--trust-config~              | all               | Allow the Scheme configuration file of this project to be evaluated    |
+| ~--diff~                      | format            | Print the change as a unified diff and exit 1 when there is one         |
+| ~--label NAME~                | format/lint/check | Name the stdin source in diagnostics                                   |
+| ~--brackets square\|parens\|preserve~ | format   | Bracket style for clause lists (default: square in Scheme)              |
+| ~--version~, ~-V~             | (top level)       | Print the version and exit 0                                           |
 | ~--~                          | all               | Stop option parsing; everything after it is a file                     |
 
 Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
@@ -232,6 +243,13 @@ sift lint --format=json --dialect elisp lisp/*.el
 
 # fix what can be fixed, then report what is left
 sift lint --fix src/
+sift fix src/                 # the same thing, under its own name
+
+# review what formatting would change, before changing it
+sift format --diff src/sift/reader.scm
+
+# apply fixes to a buffer an editor holds, without saving it
+sift lint --fix --stdin --format=null --dialect=scheme < scratch.scm
 #+end_src
 
 * Exit codes
@@ -352,6 +370,28 @@ A short excerpt of the tables:
 The full tables are in ~src/sift/format.scm~, and ~sift explain~ is not the
 place to read them: they are data, and the test suite asserts what they do.
 
+** Square brackets for clauses
+
+In Scheme, a `cond` clause is written with square brackets:
+
+#+begin_src scheme
+(cond [(< n 0) 'negative]
+      [(= n 0) 'zero]
+      [else 'positive])
+#+end_src
+
+This is what Guile's own sources and the Guix code base do: the clause is a
+test and a body, not a call, so the bracket draws its boundary without asking
+the reader to count parentheses.  Since Scheme reads `[` and `(` the same
+way, the change is purely visual.
+
+It is a setting, not a law: `--brackets=parens` (or `brackets: parens` in a
+config file) writes `cond` clauses with parentheses, and
+`--brackets=preserve` leaves every clause as the author wrote it.  Emacs Lisp
+and Common Lisp keep whatever was written, because no such convention exists
+there.  The `clause-brackets` checker (SIFT036) reports a clause in the other
+style, and its fix swaps the two delimiters and nothing else.
+
 ** Determinism and idempotence
 
 Formatting depends only on the tree, the dialect, the style and the options.
@@ -387,39 +427,50 @@ the tree.
 ** Checkers
 
 The table below is the output of ~sift list-checkers~, pasted here by a
-maintainer and checked by the test suite: the list, the dialects and the
-severity all come from the checker records themselves.
+maintainer and checked by the test suite: the list, the codes, the dialects
+and the severity all come from the checker records themselves.
+
+A rule has two names: what you type (~if-without-else~, for ~--checker~ and
+~explain~) and what an editor shows (SIFT012, which never changes).  The
+reasoning behind every rule -- and behind the formatting choices it belongs
+to -- is in [[file:doc/style.org][doc/style.org]].
 
 #+begin_example
-NAME                            DIALECTS        SEVERITY   DESCRIPTION
-checkdoc-style-verb             elisp           info       Docstring first sentence uses the third person instead of the imperative
-dangling-paren                  cl              warning    Closing parenthesis on its own line
-declare-indent                  elisp           info       `declare` not indented two columns from the enclosing `defun`
-defun-no-docstring              cl              info       `defun`, `defmacro` or `defgeneric` without a docstring
-docstring-first-line            elisp           warning    The first line of a docstring is not a capitalised sentence ending in a period
-docstring-indent                elisp           warning    Docstring continuation lines are indented instead of starting at column zero
-docstring-missing               elisp           warning    `defun`, `defmacro`, `defsubst`, `defvar` or `defcustom` without a docstring
-double-colon                    cl              warning    Use of `package::internal-symbol` in production code
-empty-body                      all             warning    A `cond`, `let` or `lambda` form with no body
-if-without-else                 scheme          warning    `if` with no else branch, where `when` expresses the intent
-interactive-without-docstring   elisp           warning    An `interactive` command without a docstring
-internal-define                 scheme          warning    `define` inside a procedure body without an enclosing `let`
-letrec-single-binding           scheme          info       `letrec` with a single binding that does not need recursive scope
-lexical-binding-missing         elisp           warning    The file header lacks `-*- lexical-binding: t; -*-`
-line-length                     all             warning    Line exceeds the configured soft limit
-loop-keyword-style              cl              info       Symbolic LOOP keywords where the project style asks for literal `:keywords`
-package-prefix                  cl              warning    Exported symbols referenced without a package prefix
-provide-missing                 elisp           warning    The file defines a package but has no final `(provide 'feature)`
-quasiquote-unquote-constant     scheme          info       `(quasiquote (unquote constant))` can be simplified
-reader-prefix-break             all             warning    A newline between a reader prefix and its datum
-redundant-identity              cl              info       `(identity x)` or `(funcall #'foo ...)` where the value suffices
-redundant-progn                 all             warning    `progn` used as the sole body of a form that already has an implicit `progn`
-tabs                            all             warning    Tab characters used for indentation
-trailing-blank-lines            all             info       More than two consecutive blank lines at end of file
-trailing-whitespace             all             warning    Lines ending with spaces or tabs
-unless-without-body             scheme,cl       warning    `unless` form with no body
-unmatched-parens                all             error      Unbalanced or unmatched parentheses or brackets
-when-without-body               scheme,cl       warning    `when` form with no body
+NAME                            CODE      DIALECTS          SEVERITY   DESCRIPTION
+checkdoc-style-verb             SIFT022   elisp             info       Docstring first sentence uses the third person instead of the imperative
+clause-brackets                 SIFT036   scheme            warning    A `cond` or `case` clause written with the other kind of bracket
+dangling-paren                  SIFT027   cl                warning    Closing parenthesis on its own line
+declare-indent                  SIFT024   elisp             info       `declare` not indented two columns from the enclosing `defun`
+defun-no-docstring              SIFT028   cl                info       `defun`, `defmacro` or `defgeneric` without a docstring
+docstring-arguments             SIFT034   elisp             info       An Emacs Lisp docstring that does not mention one of its arguments
+docstring-first-line            SIFT018   elisp             warning    The first line of a docstring is not a capitalised sentence ending in a period
+docstring-indent                SIFT019   elisp             warning    Docstring continuation lines are indented instead of starting at column zero
+docstring-missing               SIFT017   elisp             warning    `defun`, `defmacro`, `defsubst`, `defvar` or `defcustom` without a docstring
+docstring-texinfo               SIFT035   scheme            info       A Guile docstring that does not document its arguments with `@var{}`
+double-colon                    SIFT026   cl                warning    Use of `package::internal-symbol` in production code
+empty-body                      SIFT005   all               warning    A `cond`, `let` or `lambda` form with no body
+if-without-else                 SIFT012   scheme            warning    `if` with no else branch, where `when` expresses the intent
+interactive-without-docstring   SIFT021   elisp             warning    An `interactive` command without a docstring
+internal-define                 SIFT011   scheme            warning    `define` inside a procedure body without an enclosing `let`
+keyword-arguments               SIFT032   all               info       A call with more positional arguments than a reader can keep in mind
+letrec-single-binding           SIFT015   scheme            info       `letrec` with a single binding that does not need recursive scope
+lexical-binding-missing         SIFT020   elisp             warning    The file header lacks `-*- lexical-binding: t; -*-`
+line-length                     SIFT003   all               warning    Line exceeds the configured soft limit
+loop-keyword-style              SIFT029   cl                info       Symbolic LOOP keywords where the project style asks for literal `:keywords`
+negated-if                      SIFT033   scheme,elisp,cl   warning    `if` or `when` with a negated test, which `unless` says directly
+package-prefix                  SIFT025   cl                warning    Exported symbols referenced without a package prefix
+provide-missing                 SIFT023   elisp             warning    The file defines a package but has no final `(provide 'feature)`
+quasiquote-unquote-constant     SIFT016   scheme            info       `(quasiquote (unquote constant))` can be simplified
+reader-prefix-break             SIFT007   all               warning    A newline between a reader prefix and its datum
+redundant-identity              SIFT030   cl                info       `(identity x)` or `(funcall #'foo ...)` where the value suffices
+redundant-progn                 SIFT006   all               warning    `progn` used as the sole body of a form that already has an implicit `progn`
+tabs                            SIFT002   all               warning    Tab characters used for indentation
+trailing-blank-lines            SIFT010   all               info       More than two consecutive blank lines at end of file
+trailing-whitespace             SIFT001   all               warning    Lines ending with spaces or tabs
+unless-without-body             SIFT014   scheme,cl         warning    `unless` form with no body
+unmatched-parens                SIFT004   all               error      Unbalanced or unmatched parentheses or brackets
+when-without-body               SIFT013   scheme,cl         warning    `when` form with no body
+wrap-in-let                     SIFT031   all               info       A body form that is too deep or too long to read as one expression
 #+end_example
 
 ~sift explain NAME~ prints one checker's description, dialects, severity, a
@@ -462,6 +513,113 @@ checker.
 
 Suppression is deliberately line-oriented and form-scoped.  There is no range
 syntax, because a range comment outlives the code it was written for.
+
+* Emacs: Flymake, formatting and code actions
+:PROPERTIES:
+:CUSTOM_ID: emacs
+:END:
+
+~emacs/sift.el~ is the editor side, and it is deliberately thin: every
+decision belongs to the executable, and Emacs carries the text there and the
+findings back.  It needs Emacs 28 or newer and nothing else -- no LSP client,
+no external package.
+
+** Setup
+
+#+begin_src elisp
+(add-to-list 'load-path "/path/to/sift/emacs")
+(require 'sift)
+
+(sift-setup)          ; sift-mode in scheme-mode, emacs-lisp-mode, lisp-mode
+(sift-flymake-setup)  ; and Flymake in the same three
+#+end_src
+
+or per mode:
+
+#+begin_src elisp
+(add-hook 'scheme-mode-hook #'sift-mode)
+(add-hook 'emacs-lisp-mode-hook #'sift-flymake-mode)
+#+end_src
+
+~sift-executable~ says where the program is (default ~"sift"~), and
+~sift-dialect~ overrides the dialect the major mode implies -- you rarely
+need either, because the project's own ~sift.yaml~ is read by the executable.
+
+** What the keys do
+
+| Key       | Command                    | What it does                                          |
+|-----------+----------------------------+-------------------------------------------------------|
+| ~C-c s f~ | ~sift-format-buffer~       | Format the buffer through sift, as one undoable change |
+| ~C-c s r~ | ~sift-format-region~       | Format the region                                      |
+| ~C-c s c~ | ~sift-check-buffer~        | Say whether the buffer is formatted                    |
+| ~C-c s l~ | ~sift-lint~                | Lint in a compilation buffer; ~next-error~ navigates    |
+| ~C-c s x~ | ~sift-fix-buffer~          | Apply every fix sift has, without saving               |
+| ~C-c s a~ | ~sift-fix-at-point~        | Apply the fixes of the rule at point only              |
+| ~C-c s e~ | ~sift-explain-at-point~    | Open the documentation of the rule on this line        |
+| ~C-c s d~ | ~sift-flymake-mode~        | Toggle the Flymake backend                             |
+
+Nothing in the package saves a file unless you ask it to (~sift-lint~ asks,
+because a lint of unsaved text reports positions that do not exist yet), and
+~sift-format-on-save-mode~ is what makes formatting happen on save.
+
+** Flymake
+
+The backend sends the buffer to ~sift lint --stdin --format=json~ and turns
+each finding into a diagnostic:
+
+- the *severity* becomes Flymake's (~error~, ~warning~, ~note~);
+- the *text* starts with the rule's code and names the rule, so
+  ~flymake-show-buffer-diagnostics~ lists ~SIFT012~ and the rule name;
+- the *data* carries the rule name and code, which is what
+  ~sift-fix-at-point~ and ~sift-explain-at-point~ read.
+
+The run is asynchronous, so typing is never held up while sift reads the
+buffer, and a buffer that is killed before sift answers is simply not
+reported into.
+
+Because the code travels in the diagnostic, "which rule is this?" is one key
+away: put point on the line and press ~C-c s e~, and the documentation of
+that rule opens -- its code, its dialects, its severity, a failing example
+and the fix it expects.
+
+** Code actions
+
+~sift-fix-buffer~ applies every fix; ~sift-fix-at-point~ applies only the
+fixes of the rule reported at point, which is the useful one when a rule
+fires twenty times in a buffer and you want one of them changed.  Both go
+through ~sift lint --fix --stdin~, so the buffer is changed in place, the
+file is not written, and a single ~undo~ puts it back.
+
+A rule without a fix says so instead of pretending: the echo area answers
+"~sift: `wrap-in-let` has no fix~", because deciding how to split an
+expression is the author's work.
+
+** A note about Emacs Lisp indentation
+
+Emacs's own indenter knows every macro in the buffer, because each macro
+carries a `lisp-indent-function` property that Emacs reads.  sift knows the
+standard forms (they are in its indentation table) and a project's own
+macros through the `indent-rules` configuration key, but it cannot know the
+rest.
+
+So in an Emacs Lisp buffer, `sift-format-buffer` may disagree with `TAB` on
+a form headed by a third-party macro that has a custom indentation spec.
+The useful order of adoption for Emacs Lisp is: turn on `sift-flymake-mode`
+for the rules, use `sift-fix-buffer` for the fixes, and leave
+`sift-format-on-save` off unless you also list your macros in `indent-rules`
+or are happy with the two-column rule.  In Scheme and Common Lisp there is
+no such ambiguity, because the editor has no better information than sift
+does.
+
+** Running the package's tests
+
+#+begin_src shell
+maak emacs-check   # byte-compile, warnings are errors
+maak emacs-test    # the ERT suite
+#+end_src
+
+ERT is Emacs's own framework and the right one for this half of the project;
+the Guile half is tested with Veritas, and the two suites never mix.
 
 * Configuration
 :PROPERTIES:
@@ -538,6 +696,8 @@ checkers:
   - docstring-missing
 exclude-checkers: [line-length]
 loop-keywords: literal
+brackets: square
+max-positional: 4
 #+end_src
 
 #+begin_src scheme
@@ -568,6 +728,10 @@ loop-keywords: literal
 | ~verbose~           | boolean                    | ~false~      | ~--verbose~         |
 | ~force~             | boolean                    | ~false~      | ~--force~           |
 | ~loop-keywords~     | ~either~, ~literal~, ~symbolic~ | ~either~     | config-only        |
+| ~brackets~          | ~square~, ~parens~, ~preserve~  | ~#f~ (square in Scheme) | ~--brackets~ |
+| ~max-depth~         | positive integer            | ~4~          | config-only        |
+| ~max-elements~      | positive integer            | ~12~         | config-only        |
+| ~max-positional~    | positive integer            | ~5~          | config-only        |
 
 ** Inspecting the result
 
@@ -686,11 +850,17 @@ src/sift/
                    checkdoc-style-verb, provide-missing, declare-indent
     cl.scm         package-prefix, double-colon, defun-no-docstring,
                    loop-keyword-style, redundant-identity
+    ergonomics.scm wrap-in-let, keyword-arguments
   lint.scm         the driver: run, filter, suppress, sort, fix, re-lint
   render.scm       human, JSON, null, list-checkers, explain, unified diff
   config.scm       <config>, discovery, merging, provenance, trust
   yaml.scm         the data-only YAML subset the configuration needs
   cli.scm          args-fold, dispatch, exit codes
+emacs/
+  sift.el          the Emacs package: commands, Flymake backend, minor mode
+  sift-test.el     its ERT suite
+doc/
+  style.org        the style, the choices behind it, and every rule with a code
 #+end_example
 
 The dependencies point one way: ~records~ is a vocabulary, ~reader~ and
@@ -738,6 +908,16 @@ giving it a name of its own keeps `format` safe to pipe:
 ~format --stdout~ is not "check", because a pipeline that redirected the
 output would have made the change already.
 
+** Why square brackets for `cond`, and only there
+
+The bracket is a visual boundary, and a boundary is only worth drawing where
+it means something.  A `cond` clause is a pair — a test and a body — so the
+bracket marks the pair, which is what Guile's sources do and what a reader
+of Guile code expects.  A binding list is already a column, a `let` body is
+already indented two in, and a function call is already delimited by its
+operator; wrapping those in brackets would be decoration, and sift only
+changes what it can justify.
+
 ** Why a custom YAML reader
 
 The configuration needs block mappings, block sequences, scalars, inline
@@ -752,6 +932,16 @@ never a silent misreading.
 Everything else in sift is data.  A configuration file that is evaluated turns
 "open this repository" into "run this code", which is a decision a user should
 make once, deliberately, per project.
+
+* Further reading
+:PROPERTIES:
+:CUSTOM_ID: further-reading
+:END:
+
+- [[file:doc/style.org][doc/style.org]] -- the style sift enforces, the ten choices behind it, and
+  every rule with its code, its reasoning and an example.
+- ~sift explain RULE~ -- the same reasoning, one rule at a time, from the
+  program itself.
 
 * License
 :PROPERTIES:

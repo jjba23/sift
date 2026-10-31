@@ -19,7 +19,8 @@
               empty-body-checker
               redundant-progn-checker
               when-without-body-checker
-              unless-without-body-checker))
+              unless-without-body-checker
+              negated-if-checker))
 
 ;;; ===== empty-body =====
 
@@ -41,27 +42,27 @@
        (lambda (node)
          (let ((head (and (node-list? node) (node-head-name node))))
            (case head
-             ((cond)
+             [(cond)
               (for-each (lambda (clause)
                           (when (null? (cdr (form-elements clause)))
                             (warn clause "`cond` clause has no body")))
                 (cond-clauses node))
               (when (null? (cond-clauses node))
-                (warn node "`cond` form has no clauses")))
-             ((let let* letrec letrec* flet labels)
+                (warn node "`cond` form has no clauses"))]
+             [(let let* letrec letrec* flet labels)
               (when (< (length (form-elements node)) 3)
-                (warn node (format #f "`~a` form has no body" head))))
-             ((lambda)
+                (warn node (format #f "`~a` form has no body" head)))]
+             [(lambda)
               (when (< (length (form-elements node)) 3)
-                (warn node "`lambda` form has no body")))
-             ((when unless)
+                (warn node "`lambda` form has no body"))]
+             [(when unless)
               ;; Emacs Lisp has no dedicated `when-without-body' checker, so this
               ;; one covers it; in Scheme and Common Lisp the dedicated checker
               ;; reports it and this one stays quiet, to keep one finding per
               ;; problem.
               (when (and (eq? dialect 'elisp)
                       (< (length (form-elements node)) 3))
-                (warn node (format #f "`~a` form has no body" head)))))))
+                (warn node (format #f "`~a` form has no body" head)))])))
        ast)
     (reverse warnings)))
 
@@ -79,15 +80,15 @@
 (define (head-arguments-to-skip head)
   "Return how many elements of a form come before its body, per operator."
   (case head
-    ((lambda lambda* cl-lambda) 1)
-    ((let let* letrec letrec* let-values let*-values
-       flet labels macrolet symbol-macrolet) 2)
-    ((define define* define-public) 2)
+    [(lambda lambda* cl-lambda) 1]
+    [(let let* letrec letrec* let-values let*-values
+       flet labels macrolet symbol-macrolet) 2]
+    [(define define* define-public) 2]
     ;; the head, the name and the argument list come before the body of a
     ;; function definition, so three elements are not body forms
-    ((defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
-       defmethod defgeneric) 3)
-    (else #f)))
+    [(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
+       defmethod defgeneric) 3]
+    [else #f]))
 
 (define (redundant-progn-warnings ast source dialect)
   (let ((warnings '()))
@@ -162,10 +163,62 @@
     #:example '((input . "(unless (ready?))")
                 (fix . "no automatic fix; add the body or drop the form"))))
 
+;;; ===== negated-if =====
+
+(define (negation-test node)
+  "Return the test inside @code{(not test)}, or @code{#f}."
+  (and (list-headed-by? node 'not)
+    (= 1 (argument-count node))
+    (car (form-arguments node))))
+
+(define (negated-if-warnings ast source dialect)
+  (let ((warnings '()))
+    (define (report node test replacement)
+      (set! warnings
+        (cons (make-lint-warning/range 'negated-if 'warning
+                (format #f "`~a` with a negated test is an `unless`"
+                  (node-head-name node))
+                (node-start node)
+                (node-index node) (node-end-index node)
+                (lambda (source start end) replacement))
+          warnings)))
+    (for-each-node
+       (lambda (node)
+         (when (node-list? node)
+           (let ((head (node-head-name node))
+                 (arguments (form-arguments node)))
+             (when (and (memq head '(if when))
+                     (pair? arguments))
+               (let ((test (negation-test (car arguments))))
+                 (when test
+                   (let* ((rest (cdr arguments))
+                          (pieces (map (lambda (argument)
+                                         (node-source source argument))
+                                    rest)))
+                     (report node test
+                       (string-append "(unless "
+                         (node-source source test)
+                         (if (null? pieces)
+                           ""
+                           (string-append " " (string-join pieces " ")))
+                         ")")))))))))
+       ast)
+    (reverse warnings)))
+
+(define negated-if-checker
+  (checker 'negated-if
+    "`if` or `when` with a negated test, which `unless` says directly"
+    '(scheme elisp cl)
+    negated-if-warnings
+    #:severity 'warning
+    #:example '((input . "(if (not (ready?)) (wait) (go))")
+                (fix . "(unless (ready?) (wait) (go))"))))
+
 ;;; ===== The list =====
 
 (define bodies-checkers
   (list empty-body-checker
     redundant-progn-checker
     when-without-body-checker
-    unless-without-body-checker))
+    unless-without-body-checker
+    negated-if-checker))

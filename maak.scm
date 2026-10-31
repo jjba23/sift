@@ -17,6 +17,8 @@
             uninstall
             fixture-check
             self-check
+            emacs-test
+            emacs-check
             repl
             fmt
             clean
@@ -114,6 +116,31 @@ real executable over every module in the tree."
     (list "sh" "-c"
       (dsl:shell-quote
         "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
+    #:verbose? #t))
+
+(define (emacs-test)
+  "Run the Emacs package's ERT suite.
+
+ERT is the test framework Emacs ships, and it is the right one here: the
+package is a thin wrapper around the executable, so the tests run the
+executable and read what came back, the way a user would.  The Guile suite
+is Veritas; this one never runs the two together."
+  (dsl:manifest-shell
+    (list "emacs" "-Q" "--batch" "-L" "emacs" "-l" "ert"
+      "-l" "emacs/sift-test.el" "-f" "ert-run-tests-batch-and-exit")
+    #:verbose? #t))
+
+(define (emacs-check)
+  "Byte-compile the Emacs package, with warnings treated as errors.
+
+A package that compiles with a warning about a free variable or a wrong
+number of arguments is a package that will misbehave on someone else's
+Emacs; the compiled file is removed afterwards so that the tests always load
+the source under test."
+  (dsl:manifest-shell
+    (list "sh" "-c"
+      (dsl:shell-quote
+        "set -eu\nemacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' -L emacs -f batch-byte-compile emacs/sift.el\nrm -f emacs/sift.elc"))
     #:verbose? #t))
 
 (define (install)

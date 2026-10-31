@@ -101,6 +101,32 @@
     (test "formatting is idempotent on this sentence's own source"
       (assert-idempotent #:source "(define (f x) (progn (a) (b)))\n"))
 
+    (test "cond clauses are written with square brackets"
+      (assert-same-text
+         #:expect "(cond [(< n 0) 'negative]\n      [(= n 0) 'zero]\n      [else 'positive])"
+         #:got (format-string "(cond ((< n 0) 'negative)\n      ((= n 0) 'zero)\n      (else 'positive))")))
+
+    (test "a project that writes parentheses keeps them"
+      (assert-same-text
+         #:expect "(cond ((< n 0) 'negative)\n      (else 'positive))"
+         #:got (format-string "(cond [(< n 0) 'negative]\n      [else 'positive])"
+                 #:brackets 'parens)))
+
+    (test "preserving brackets leaves each clause as it was written"
+      (assert-same-text
+         #:expect "(cond ((< n 0) 1)\n      [else 2])"
+         #:got (format-string "(cond ((< n 0) 1)\n      [else 2])"
+                 #:brackets 'preserve)))
+
+    (test "a cond whose clauses start on their own lines indents them two in"
+      (assert-same-text
+         #:expect "(cond\n  [(< n 0) 1]\n  [else 2])"
+         #:got (format-string "(cond\n((< n 0) 1)\n(else 2))")))
+
+    (test "a vector keeps its own opener whatever the bracket style is"
+      (assert-same-text #:expect "#(1 2 3)"
+        #:got (format-string "#(1  2  3)" #:brackets 'square)))
+
     (test "a file without a final newline keeps that shape"
       (assert-same-text #:expect "(a b)"
         #:got (format-string "(a  b)")))))

@@ -40,17 +40,21 @@
               parse-options
               build-overrides))
 
-(define sift-version "0.1.0")
+(define sift-version "0.2.0")
 
 (define usage-text
   "Usage:
   sift format [OPTIONS] [FILE...]
   sift lint [OPTIONS] [FILE...]
   sift check [OPTIONS] [FILE...]
+  sift fix [OPTIONS] [FILE...]        # lint --fix
   sift list-checkers [--dialect DIALECT]
   sift explain CHECKER-NAME
   sift config show|explain|trust ...
   sift version
+
+Options common to the commands: --dialect, --brackets, --line-length,
+--style, --severity, --format, --color/--no-color, --verbose, --config.
 
 Run `sift COMMAND --help' for the options of a command.
 ")
@@ -74,6 +78,14 @@ Run `sift COMMAND --help' for the options of a command.
        (lambda (opt name arg state) (acons 'stdout #t state)))
      (option '("fix") #f #f
        (lambda (opt name arg state) (acons 'fix #t state)))
+     (option '("diff") #f #f
+       (lambda (opt name arg state) (acons 'diff #t state)))
+     (option '("label") #t #f
+       (lambda (opt name arg state) (acons 'label arg state)))
+     (option '("brackets") #t #f
+       (lambda (opt name arg state) (acons 'brackets arg state)))
+     (option '(#\V "version") #f #f
+       (lambda (opt name arg state) (acons 'version #t state)))
      (option '("comment-align") #f #f
        (lambda (opt name arg state) (acons 'comment-align #t state)))
      (option '("no-color") #f #f
@@ -127,12 +139,12 @@ Abbreviation is resolved here because the SRFI-37 implementation Guile
 ships matches long names exactly; doing it in one place keeps `--dial',
 `--line-len' and the full spellings interchangeable."
   (cond
-    ((member name long-option-names) name)
-    (else
+    [(member name long-option-names) name]
+    [else
        (let ((matches (filter (lambda (candidate)
                                 (string-prefix? name candidate))
                         long-option-names)))
-         (and (= 1 (length matches)) (car matches))))))
+         (and (= 1 (length matches)) (car matches)))]))
 
 (define (normalise-long-options args)
   "Rewrite `--name value' into `--name=value' and expand abbreviations.
@@ -145,28 +157,28 @@ it is the only place that knows which options take a value, so that list
 cannot drift from the specification above it."
   (let loop ((rest args) (out '()))
     (cond
-      ((null? rest) (reverse out))
-      ((string=? (car rest) "--") (append (reverse out) rest))
-      ((not (string-prefix? "--" (car rest)))
-       (loop (cdr rest) (cons (car rest) out)))
-      (else
+      [(null? rest) (reverse out)]
+      [(string=? (car rest) "--") (append (reverse out) rest)]
+      [(not (string-prefix? "--" (car rest)))
+       (loop (cdr rest) (cons (car rest) out))]
+      [else
          (let* ((arg (car rest))
                 (equal-at (string-index arg #\=))
                 (name (substring arg 2 (or equal-at (string-length arg))))
                 (full (resolve-long-name name)))
            (cond
-             ((not full) (loop (cdr rest) (cons arg out)))
-             ((and (not equal-at)
+             [(not full) (loop (cdr rest) (cons arg out))]
+             [(and (not equal-at)
                 (member full long-options-with-values)
                 (pair? (cdr rest)))
-              (loop (cddr rest) (cons (string-append "--" full "=" (cadr rest)) out)))
-             ((and (not equal-at) (not (member full long-options-with-values)))
-              (loop (cdr rest) (cons (string-append "--" full) out)))
-             (else
+              (loop (cddr rest) (cons (string-append "--" full "=" (cadr rest)) out))]
+             [(and (not equal-at) (not (member full long-options-with-values)))
+              (loop (cdr rest) (cons (string-append "--" full) out))]
+             [else
                 (loop (cdr rest)
                   (cons (string-append "--" full
                           (if equal-at (substring arg equal-at) ""))
-                    out)))))))))
+                    out))]))])))
 
 (define* (parse-options args)
   "Parse @var{args} and return @code{(state . files)}.
@@ -237,6 +249,13 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
                   (usage-error "unknown output format `~a'; supported formats are human, json and null"
                     value))
                 (cons 'format output))))
+          (let ((value (assq-ref state 'brackets)))
+            (and value
+              (let ((brackets (string->brackets value)))
+                (unless brackets
+                  (usage-error "unknown bracket style `~a'; supported styles are square, parens and preserve"
+                    value))
+                (cons 'brackets brackets))))
           (let ((value (number-option 'line-length "--line-length")))
             (and value (cons 'line-length value)))
           (let ((value (number-option 'indent "--indent")))
@@ -347,7 +366,7 @@ delimiter goes, and sift does not guess."
 ;;; ===== format =====
 
 (define* (format-one config path source #:key (write? #f) (check? #f)
-           (label #f))
+           (label #f) (diff? #f))
   "Format one source, returning the exit status for it.
 
 @var{path} is @code{#f} for standard input.  Nothing is written unless
@@ -356,7 +375,8 @@ delimiter goes, and sift does not guess."
   (let* ((dialect (dialect-for config path source #:label label))
          (style (config-ref config 'style))
          (indent (config-ref config 'indent))
-         (align (config-ref config 'comment-align)))
+         (align (config-ref config 'comment-align))
+         (brackets (config-ref config 'brackets)))
     (emit-verbose config "formatting ~a (~a, ~a)"
       (or path "<stdin>") dialect style)
     (let ((denied (deny-on-parse-errors config path source dialect)))
@@ -366,34 +386,44 @@ delimiter goes, and sift does not guess."
           (lambda ()
             (format-source source #:dialect dialect #:file path
               #:style style #:indent indent
-              #:comment-align align))
+              #:comment-align align #:brackets brackets))
           (lambda (formatted errors)
             (cond
-              (check?
+              [check?
                  (if (string=? formatted source)
                    (begin (emit-verbose config "~a is already formatted"
                             (or path "<stdin>"))
                      0)
                    (begin
-                     (case (config-ref config 'format)
-                       ((json)
+                     (case [config-ref config 'format]
+                       [(json)
                         (format #t "[{\"file\":~a,\"changed\":true}]~%"
-                          (json-escape (or path "<stdin>"))))
-                       ((null) *unspecified*)
-                       (else
+                          (json-escape (or path "<stdin>")))]
+                       [(null) *unspecified*]
+                       [else
                           (display (unified-diff source formatted
                                      #:path (or path "<stdin>")
                                      #:color? (color-enabled?
                                                  #:no-color (eq? (config-ref config 'color) 'never)))
-                            (current-output-port))))
-                     1)))
-              (write?
+                            (current-output-port))])
+                     1))]
+              [write?
                  (write-string-to path formatted)
                  (emit-verbose config "wrote ~a" path)
-                 0)
-              (else
+                 0]
+              [diff?
+                 ;; `format --diff' is the review-friendly form of `check':
+                 ;; the same question, answered with the patch it would make.
+                 (display (unified-diff source formatted
+                            #:path (or path label "<stdin>")
+                            #:color? (color-enabled?
+                                        #:no-color (eq? (config-ref config 'color)
+                                                     'never)))
+                   (current-output-port))
+                 (if (string=? formatted source) 0 1)]
+              [else
                  (display formatted (current-output-port))
-                 0))))))))
+                 0])))))))
 
 (define (command-format args)
   (let* ((state (parse-options args))
@@ -431,19 +461,21 @@ only has to answer with the usage status."
 
 (define (run-format config files state)
   (cond
-    ((assq 'stdin state)
+    [(assq 'stdin state)
      (when (> (length files) 1)
        (usage-error "--stdin reads one source; at most one file may be named, as a label"))
-     (let ((source (get-string-all (current-input-port))))
+     (let ((source (get-string-all (current-input-port)))
+           (label (or (assq-ref state 'label) (and (pair? files) (car files)))))
        (if (assq 'write state)
          (if (null? files)
            (usage-error "--write with --stdin needs a real file path to write")
            (format-one config (car files) source #:write? #t))
-         (format-one config #f source #:label (and (pair? files) (car files))))))
-    ((null? files)
+         (format-one config #f source #:label label
+           #:diff? (and (assq 'diff state) #t))))]
+    [(null? files)
      ;; No files and no --stdin: read standard input, as every Unix filter does.
-     (format-one config #f (get-string-all (current-input-port))))
-    ((assq 'write state)
+     (format-one config #f (get-string-all (current-input-port)))]
+    [(assq 'write state)
      (fold (lambda (path status)
              (if (= status 2)
                status
@@ -451,16 +483,17 @@ only has to answer with the usage status."
                  (lambda (source failure)
                    (if failure failure
                      (format-one config path source #:write? #t))))))
-       0 files))
-    (else
+       0 files)]
+    [else
        (fold (lambda (path status)
                (if (= status 2)
                  status
                  (call-with-values (lambda () (safe-read-file path))
                    (lambda (source failure)
                      (if failure failure
-                       (format-one config path source))))))
-         0 files))))
+                       (format-one config path source
+                         #:diff? (and (assq 'diff state) #t)))))))
+         0 files)]))
 
 ;;; ===== check =====
 
@@ -504,7 +537,11 @@ only has to answer with the usage status."
 (define (lint-options config)
   (list (cons 'line-length (config-ref config 'line-length))
     (cons 'indent (config-ref config 'indent))
-    (cons 'loop-keywords (config-ref config 'loop-keywords))))
+    (cons 'loop-keywords (config-ref config 'loop-keywords))
+    (cons 'brackets (config-ref config 'brackets))
+    (cons 'max-depth (config-ref config 'max-depth))
+    (cons 'max-elements (config-ref config 'max-elements))
+    (cons 'max-positional (config-ref config 'max-positional))))
 
 (define* (lint-text config source #:key (path #f) (label #f))
   "Lint one source, returning @code{(values warnings dialect status)}."
@@ -518,10 +555,10 @@ only has to answer with the usage status."
 
 (define* (report-warnings config warnings #:key (files 1))
   "Write @var{warnings} in the configured format, and the summary line."
-  (let* ((color? (case (config-ref config 'color)
-                   ((always) #t)
-                   ((never) #f)
-                   (else (color-enabled?))))
+  (let* ((color? (case [config-ref config 'color]
+                   [(always) #t]
+                   [(never) #f]
+                   [else (color-enabled?)]))
          (format* (config-ref config 'format)))
     (render-warnings warnings #:format format* #:color? color? #:quiet #t)
     (when (and (not (config-ref config 'quiet))
@@ -540,11 +577,26 @@ only has to answer with the usage status."
 (define* (run-lint config files state)
   (let ((fix? (assq 'fix state)))
     (if (or (assq 'stdin state) (null? files))
-      (let* ((source (get-string-all (current-input-port))))
-        (call-with-values (lambda () (lint-text config source))
+      (let* ((label (or (assq-ref state 'label) (and (pair? files) (car files))))
+             (source (get-string-all (current-input-port))))
+        (call-with-values (lambda () (lint-text config source #:path label))
           (lambda (warnings dialect status)
-            (report-warnings config warnings #:files 1)
-            (if (findings? warnings) 1 0))))
+            (if fix?
+              ;; `--fix' with `--stdin' has nowhere to write but stdout: the
+              ;; fixed text goes there, and what is left is reported on stderr
+              ;; so that an editor can take the buffer and a human can still
+              ;; read the reason.
+              (let* ((fixed (apply-fixes source warnings))
+                     (remaining (call-with-values
+                                  (lambda () (lint-text config fixed #:path label))
+                                  (lambda (left dialect status) left))))
+                (display fixed (current-output-port))
+                (render-warnings remaining #:format (config-ref config 'format)
+                  #:quiet #t #:port (current-error-port))
+                (if (findings? remaining) 1 0))
+              (begin
+                (report-warnings config warnings #:files 1)
+                (max status (if (findings? warnings) 1 0)))))))
       (fold (lambda (path status)
               (if (= status 2)
                 status
@@ -555,11 +607,11 @@ only has to answer with the usage status."
                         (lambda () (lint-text config source #:path path))
                         (lambda (warnings dialect status)
                           (cond
-                            (fix?
-                               (lint-with-fixes config path source warnings))
-                            (else
+                            [fix?
+                               (lint-with-fixes config path source warnings)]
+                            [else
                                (report-warnings config warnings #:files 1)
-                               (max status (if (findings? warnings) 1 0)))))))))))
+                               (max status (if (findings? warnings) 1 0))]))))))))
         0
         files))))
 
@@ -637,12 +689,12 @@ finding work is a bug, not a queue."
     ((sub . rest)
      (let* ((state (parse-options rest))
             (files (operands state)))
-       (case (string->symbol sub)
-         ((show)
+       (case [string->symbol sub]
+         [(show)
           (let* ((format-name (or (assq-ref state 'format) "yaml"))
-                 (output-format (cond ((member format-name '("yaml" "yml")) 'yaml)
-                                  ((string=? format-name "scheme") 'scheme)
-                                  (else (usage-error "config show --format must be yaml or scheme"))))
+                 (output-format (cond [(member format-name '("yaml" "yml")) 'yaml]
+                                      [(string=? format-name "scheme") 'scheme]
+                                      [else (usage-error "config show --format must be yaml or scheme")]))
                  ;; `--format' means "how to render the configuration" for
                  ;; this subcommand, so it is taken out before the rest of
                  ;; the command line is turned into settings
@@ -655,8 +707,8 @@ finding work is a bug, not a queue."
                 (config-show config #:output-format output-format
                   #:source? (and (assq 'verbose state) #t)
                   #:port (current-output-port))
-                0))))
-         ((explain)
+                0)))]
+         [(explain)
           (match files
             (() (usage-error "config explain needs a key"))
             ((key . _)
@@ -665,8 +717,8 @@ finding work is a bug, not a queue."
                (begin
                  (format (current-error-port)
                    "sift: unknown configuration key `~a'~%" key)
-                 2)))))
-         ((trust)
+                 2))))]
+         [(trust)
           (match files
             (() (usage-error "config trust needs a file"))
             ((path . _)
@@ -674,8 +726,8 @@ finding work is a bug, not a queue."
                (begin (trust-config-file! path) 0)
                (begin
                  (format (current-error-port) "sift: no such file: ~a~%" path)
-                 2)))))
-         (else (usage-error "unknown config subcommand `~a'" sub)))))))
+                 2))))]
+         [else (usage-error "unknown config subcommand `~a'" sub)])))))
 
 ;;; ===== Dispatch =====
 
@@ -683,16 +735,17 @@ finding work is a bug, not a queue."
   (match args
     (() (usage-error "no command given"))
     ((command . rest)
-     (case (string->symbol command)
-       ((format) (command-format rest))
-       ((lint) (command-lint rest))
-       ((check) (command-check rest))
-       ((list-checkers) (command-list-checkers rest))
-       ((explain) (command-explain rest))
-       ((config) (command-config rest))
-       ((version) (command-version rest))
-       ((help --help -h) (display usage-text) 0)
-       (else (usage-error "unknown command `~a'" command))))))
+     (case [string->symbol command]
+       [(format) (command-format rest)]
+       [(lint) (command-lint rest)]
+       [(check) (command-check rest)]
+       [(list-checkers) (command-list-checkers rest)]
+       [(explain) (command-explain rest)]
+       [(config) (command-config rest)]
+       [(fix) (command-lint (cons "--fix" rest))]
+       [(version --version -V) (command-version rest)]
+       [(help --help -h) (display usage-text) 0]
+       [else (usage-error "unknown command `~a'" command)]))))
 
 (define* (sift-main args)
   "Run sift with @var{args} and return the exit status.

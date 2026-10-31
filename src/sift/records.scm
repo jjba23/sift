@@ -61,11 +61,14 @@
               lint-checker-proc
               lint-checker-severity
               lint-checker-example
+              lint-checker-code
               lint-checker-for-dialect?
               lint-checker->string
 
               ;; --- dialects -------------------------------------------------
               dialects
+              rule-codes
+              rule-code
               valid-dialect?
               dialect->string
               string->dialect
@@ -160,12 +163,12 @@ one about a named file in the same run."
   (let ((fa (source-location-file a))
         (fb (source-location-file b)))
     (cond
-      ((and fa fb (not (string=? fa fb))) (string<? fa fb))
-      ((and (not fa) fb) #t)
-      ((and fa (not fb)) #f)
-      ((not (= (source-location-line a) (source-location-line b)))
-       (< (source-location-line a) (source-location-line b)))
-      (else (< (source-location-column a) (source-location-column b))))))
+      [(and fa fb (not (string=? fa fb))) (string<? fa fb)]
+      [(and (not fa) fb) #t]
+      [(and fa (not fb)) #f]
+      [(not (= (source-location-line a) (source-location-line b)))
+       (< (source-location-line a) (source-location-line b))]
+      [else (< (source-location-column a) (source-location-column b))])))
 
 ;;; ===== Lint warnings =====
 
@@ -203,19 +206,19 @@ applied safely."
 
 (define (string->severity string)
   "Return the severity named by @var{string}, or @code{#f}."
-  (case (string->symbol (string-downcase string))
-    ((error) 'error)
-    ((warning warn) 'warning)
-    ((info) 'info)
-    (else #f)))
+  (case [string->symbol (string-downcase string)]
+    [(error) 'error]
+    [(warning warn) 'warning]
+    [(info) 'info]
+    [else #f]))
 
 (define (severity-rank severity)
   "Return how loud @var{severity} is: errors 3, warnings 2, info 1."
   (case severity
-    ((error) 3)
-    ((warning) 2)
-    ((info) 1)
-    (else 0)))
+    [(error) 3]
+    [(warning) 2]
+    [(info) 1]
+    [else 0]))
 
 (define (lint-warning->string warning)
   "Render @var{warning} as one line in the Guix lint style.
@@ -238,31 +241,94 @@ the formatter and the linter promise the same output on every run."
   (let ((loc-a (lint-warning-location a))
         (loc-b (lint-warning-location b)))
     (cond
-      ((and (source-location-file loc-a) (source-location-file loc-b)
+      [(and (source-location-file loc-a) (source-location-file loc-b)
          (not (string=? (source-location-file loc-a)
                 (source-location-file loc-b))))
-       (string<? (source-location-file loc-a) (source-location-file loc-b)))
-      ((not (eqv? (source-location-line loc-a) (source-location-line loc-b)))
-       (< (source-location-line loc-a) (source-location-line loc-b)))
-      ((not (eqv? (source-location-column loc-a) (source-location-column loc-b)))
-       (< (source-location-column loc-a) (source-location-column loc-b)))
-      (else
+       (string<? (source-location-file loc-a) (source-location-file loc-b))]
+      [(not (eqv? (source-location-line loc-a) (source-location-line loc-b)))
+       (< (source-location-line loc-a) (source-location-line loc-b))]
+      [(not (eqv? (source-location-column loc-a) (source-location-column loc-b)))
+       (< (source-location-column loc-a) (source-location-column loc-b))]
+      [else
          (string<? (symbol->string (lint-warning-checker a))
-           (symbol->string (lint-warning-checker b)))))))
+           (symbol->string (lint-warning-checker b)))])))
 
 ;;; ===== Lint checkers =====
 
 (define-record-type <lint-checker>
-  (make-lint-checker name description dialects proc severity example)
+  (%make-lint-checker name code description dialects proc severity example)
   lint-checker?
   (name lint-checker-name) ; symbol
+  (code lint-checker-code) ; "SIFT012": the stable name of the rule
   (description lint-checker-description) ; string, one sentence
   (dialects lint-checker-dialects) ; '(scheme elisp cl), '(...), or 'all
   (proc lint-checker-proc) ; (lambda (ast source dialect) warnings)
   (severity lint-checker-severity) ; default severity of its findings
   (example lint-checker-example)) ; #f or an alist for `explain`
 
+(define* (make-lint-checker name description dialects proc severity example
+           #:optional (code #f))
+  "Return a checker record, with its rule code.
+
+A checker's *name* is what a person types; its *code* is what an editor
+attaches to a diagnostic so that a key press can jump to the rule's
+documentation.  The code is derived from the name through @code{rule-codes}
+when it is not given, so a checker cannot be written without one and a code
+cannot move when the list is re-sorted."
+  (%make-lint-checker name (or code (rule-code name)) description dialects
+    proc severity example))
+
 (define dialects '(scheme elisp cl))
+
+;;; ===== Rule codes =====
+;;;
+;;; The codes are assigned by hand and never reused: a diagnostic printed by
+;;; an older sift in a bug report still means the same rule today.  New rules
+;;; take the next free number, so the list grows at the end rather than
+;;; being re-sorted.
+
+(define rule-codes
+  '((trailing-whitespace . "SIFT001")
+    (tabs . "SIFT002")
+    (line-length . "SIFT003")
+    (unmatched-parens . "SIFT004")
+    (empty-body . "SIFT005")
+    (redundant-progn . "SIFT006")
+    (reader-prefix-break . "SIFT007")
+    (empty-form . "SIFT008")
+    (duplicate-keyword . "SIFT009")
+    (trailing-blank-lines . "SIFT010")
+    (internal-define . "SIFT011")
+    (if-without-else . "SIFT012")
+    (when-without-body . "SIFT013")
+    (unless-without-body . "SIFT014")
+    (letrec-single-binding . "SIFT015")
+    (quasiquote-unquote-constant . "SIFT016")
+    (docstring-missing . "SIFT017")
+    (docstring-first-line . "SIFT018")
+    (docstring-indent . "SIFT019")
+    (lexical-binding-missing . "SIFT020")
+    (interactive-without-docstring . "SIFT021")
+    (checkdoc-style-verb . "SIFT022")
+    (provide-missing . "SIFT023")
+    (declare-indent . "SIFT024")
+    (package-prefix . "SIFT025")
+    (double-colon . "SIFT026")
+    (dangling-paren . "SIFT027")
+    (defun-no-docstring . "SIFT028")
+    (loop-keyword-style . "SIFT029")
+    (redundant-identity . "SIFT030")
+    ;; the rules added with the editor integration
+    (wrap-in-let . "SIFT031")
+    (keyword-arguments . "SIFT032")
+    (negated-if . "SIFT033")
+    (docstring-arguments . "SIFT034")
+    (docstring-texinfo . "SIFT035")
+    (clause-brackets . "SIFT036")))
+
+(define (rule-code name)
+  "Return the code of the rule named @var{name}, or @code{#f}."
+  (assq-ref rule-codes name))
 
 (define (valid-dialect? thing)
   "Return @code{#t} when @var{thing} names a dialect sift reads."
@@ -276,11 +342,11 @@ the formatter and the linter promise the same output on every run."
 
 Both the editor-facing names and the everyday ones are accepted, so
 @code{elisp} and @code{emacs-lisp} name the same dialect."
-  (case (string->symbol (string-downcase string))
-    ((scheme) 'scheme)
-    ((elisp emacs-lisp emacs) 'elisp)
-    ((cl common-lisp lisp) 'cl)
-    (else #f)))
+  (case [string->symbol (string-downcase string)]
+    [(scheme) 'scheme]
+    [(elisp emacs-lisp emacs) 'elisp]
+    [(cl common-lisp lisp) 'cl]
+    [else #f]))
 
 (define (lint-checker-for-dialect? checker dialect)
   "Return @code{#t} when @var{checker} applies to @var{dialect}."
@@ -481,23 +547,23 @@ This is the structural inverse of the reader and is what the round-trip
 fixtures compare: no formatting decisions are made here at all."
   (define (emit node out)
     (cond
-      ((node-list? node)
+      [(node-list? node)
        (display (node-open node) out)
        (for-each (lambda (child) (emit child out)) (node-children node))
-       (when (node-close node) (display (node-close node) out)))
-      ((node-prefix? node)
+       (when (node-close node) (display (node-close node) out))]
+      [(node-prefix? node)
        (display (node-token node) out)
        (let ((gap (node-field node 'gap ""))
              (child (node-child node)))
          (display gap out)
-         (when child (emit child out))))
-      ((node-conditional? node)
+         (when child (emit child out)))]
+      [(node-conditional? node)
        (display (node-token node) out)
        (display (node-field node 'gap "") out)
        (emit (node-feature node) out)
        (display (node-field node 'gap2 " ") out)
-       (when (node-guarded-form node) (emit (node-guarded-form node) out)))
-      (else (display (node-value node) out))))
+       (when (node-guarded-form node) (emit (node-guarded-form node) out))]
+      [else (display (node-value node) out)]))
   (let ((out (open-output-string)))
     (emit node out)
     (get-output-string out)))

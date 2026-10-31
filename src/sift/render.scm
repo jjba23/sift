@@ -80,13 +80,13 @@ sentence with no trailing period."
 consumer wants; @code{null} writes nothing at all and exists so that a
 script can ask for the exit status alone."
   (case format
-    ((json) (display (warnings->json warnings) port) (newline port))
-    ((null) *unspecified*)
-    (else
+    [(json) (display (warnings->json warnings) port) (newline port)]
+    [(null) *unspecified*]
+    [else
        (for-each (lambda (warning)
                    (display (render-warning warning #:color? color?) port)
                    (newline port))
-         warnings))))
+         warnings)]))
 
 (define* (render-summary files warnings errors infos
            #:key (color? #f) (port (current-output-port)))
@@ -113,15 +113,15 @@ script can ask for the exit status alone."
     (string-for-each
        (lambda (c)
          (case c
-           ((#\") (display "\\\"" out))
-           ((#\\) (display "\\\\" out))
-           ((#\newline) (display "\\n" out))
-           ((#\return) (display "\\r" out))
-           ((#\tab) (display "\\t" out))
-           (else
+           [(#\") (display "\\\"" out)]
+           [(#\\) (display "\\\\" out)]
+           [(#\newline) (display "\\n" out)]
+           [(#\return) (display "\\r" out)]
+           [(#\tab) (display "\\t" out)]
+           [else
               (if (char<? c #\space)
                 (format out "\\u~4,'0x" (char->integer c))
-                (display c out)))))
+                (display c out))]))
        string)
     (display "\"" out)
     (get-output-string out)))
@@ -139,6 +139,10 @@ changed, and a hash table would not promise that."
        "\"column\":" (number->string (source-location-column location)) ","
        "\"checker\":" (json-escape (symbol->string
                                       (lint-warning-checker warning))) ","
+       ;; the rule code is what an editor attaches to a diagnostic, so that a
+       ;; key press can open the documentation of the rule that fired
+       "\"code\":" (json-escape (or (rule-code (lint-warning-checker warning))
+                                  "")) ","
        "\"severity\":" (json-escape (severity->string
                                        (lint-warning-severity warning))) ","
        "\"message\":" (json-escape (lint-warning-message warning))
@@ -181,17 +185,20 @@ can select, because the name printed is the name `--checker' takes."
                   (map (lambda (checker)
                          (string-length (dialects->string checker)))
                     checkers)))))
-         (severity-width 10))
-    (format port "~a ~a ~a ~a~%"
+         (severity-width 10)
+         (code-width 9))
+    (format port "~a ~a ~a ~a ~a~%"
       (string-pad-right "NAME" name-width)
+      (string-pad-right "CODE" code-width)
       (string-pad-right "DIALECTS" dialect-width)
       (string-pad-right "SEVERITY" severity-width)
       "DESCRIPTION")
     (for-each
        (lambda (checker)
-         (format port "~a ~a ~a ~a~%"
+         (format port "~a ~a ~a ~a ~a~%"
            (string-pad-right (symbol->string (lint-checker-name checker))
              name-width)
+           (string-pad-right (or (lint-checker-code checker) "") code-width)
            (string-pad-right (dialects->string checker) dialect-width)
            (string-pad-right (symbol->string (lint-checker-severity checker))
              severity-width)
@@ -201,6 +208,7 @@ can select, because the name printed is the name `--checker' takes."
 (define* (explain-checker checker #:key (port (current-output-port)))
   "Write everything sift knows about @var{checker}."
   (let ((example (lint-checker-example checker)))
+    (format port "CODE~%~a~%~%" (or (lint-checker-code checker) ""))
     (format port "NAME~%~a~%~%" (lint-checker-name checker))
     (format port "DESCRIPTION~%~a~%~%" (lint-checker-description checker))
     (format port "DIALECTS~%~a~%~%"
