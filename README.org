@@ -16,7 +16,9 @@
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
-an apostrophe.  It understands and enforces good practices in Lisp, Scheme, Emacs Lisp and Common Lisp.
+an apostrophe.
+
+It understands and enforces good practices in: Lisp, Scheme, Emacs Lisp and Common Lisp.
 
 [[file:assets/sift-demo.gif]]
 
