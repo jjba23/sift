@@ -60,11 +60,22 @@
 
 ;;; ===== Running =====
 
+(define (spec-tasks spec)
+  "Return the tasks @var{spec} asks for, as a list.
+
+A file with one suite returns that suite; a file with several returns a list
+of them.  Both are understood, and neither can be dropped: an earlier runner
+wrapped whatever it was given in another list, so a file that returned two
+suites had both of them silently skipped while the run still reported a
+total."
+  (let ((tasks (spec)))
+    (if (list? tasks) tasks (list tasks))))
+
 (define (load-suites path)
   "Load the module for @var{path} and return the tasks its spec asks for."
   (let* ((module (resolve-module (module-name-of path)))
          (spec (module-ref module 'spec)))
-    (spec)))
+    (spec-tasks spec)))
 
 (define (run-all!)
   "Run every suite; return the exit status Veritas would exit with.
@@ -78,17 +89,24 @@ a suite that cannot be read has not passed."
        (lambda (path)
          (format (current-error-port) "loading ~a~%" path)
          (catch #t
-           (lambda () (set! tasks (append tasks (list (load-suites path)))))
+           (lambda () (set! tasks (append tasks (load-suites path))))
            (lambda (key . args)
              (set! broken (cons (format #f "~a: ~a ~s" path key args) broken)))))
        files)
     (for-each (lambda (message)
                 (format (current-error-port) "sift: could not load ~a~%" message))
       (reverse broken))
-    (if (null? tasks)
-      (begin
-        (format (current-error-port) "sift: no test suites were found~%")
-        1)
-      (begin
-        (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
-        (if (null? broken) 0 1)))))
+    (cond
+      [(null? tasks)
+       (format (current-error-port) "sift: no test suites were found~%")
+       1]
+      ;; A suite is a procedure, so a list where a suite should be means a
+      ;; suite was never unwrapped: Veritas would then run nothing and report
+      ;; success, which is the one outcome a test runner must never give.
+      [(any list? tasks)
+       (format (current-error-port)
+         "sift: a suite was passed to the runner without being unwrapped~%")
+       1]
+      [else
+         (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
+         (if (null? broken) 0 1)])))
