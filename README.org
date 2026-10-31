@@ -10,26 +10,19 @@
 #+description: A dialect-aware formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp. Formats and lints without ever losing a comment, a blank line or an apostrophe.
 #+keywords: scheme emacs-lisp common-lisp formatter linter lsp guile emacs
 
-[[file:assets/sift.svg]]
-
 *The Lisp formatter, linter and language server that never loses a byte.*
 
 [[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.1.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-50-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
-an apostrophe.  It knows the difference between Scheme, Emacs Lisp and Common
-Lisp, down to which character literal syntax a file uses and whether
-~#| ... |#~ begins a comment.
+an apostrophe.  It understands and enforces good practices in Lisp, Scheme, Emacs Lisp and Common Lisp.
+
+[[file:assets/sift-demo.gif]]
 
 Install it with ~guix install sift~ (or ~nix run~), or
 [[#quick-start][clone the repository]] and run ~./bin/sift version~: Guile 3.0 is
 all it needs, and ~sift doctor~ will tell you what it found.
-
-That sounds like a small promise.  It is not: most formatters are built on the
-host's ~read~, which throws comments away and keeps no positions.  sift has its
-own reader, so it can put back exactly what it took out, indent it, and hand
-you a diff you can trust.
 
 It is also a language server (~sift lsp~), which means the same findings, the
 same fixes and the same formatting reach Emacs through Eglot, Neovim, and any
@@ -38,13 +31,6 @@ editor that speaks LSP — one integration instead of four.
 sift is written in Guile Scheme, ships as one executable plus one Emacs
 package, and is licensed MIT.  It is for people who have decided that Lisp is
 worth formatting properly, and who would like the formatter to agree.
-
-* See it work
-:PROPERTIES:
-:CUSTOM_ID: demo
-:END:
-
-[[file:assets/sift-demo.gif]]
 
 #+begin_quote
 *Check, format, lint — three questions, one reader.*  ~sift check~ prints the
