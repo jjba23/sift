@@ -447,8 +447,33 @@ is judging is a job nobody trusts.
 
 ** GitHub Actions
 
-~--format=github~ writes workflow commands instead of prose, so each finding
-lands as an annotation on the line of the diff:
+There is a reusable workflow, so most repositories need one file and no flags:
+
+#+begin_src yaml
+# .github/workflows/sift.yml
+name: sift
+on: [push, pull_request]
+jobs:
+  sift:
+    uses: jjba23/sift/.github/workflows/sift.yml@v0.4.0
+#+end_src
+
+That annotates the diff with what it found and uploads the SARIF document to
+code scanning, so a finding that was not fixed becomes an alert in the
+Security tab rather than a line in a log nobody scrolls through again.  The
+same repository also publishes a composite action, for a job that wants sift
+as one step among its own:
+
+#+begin_src yaml
+- uses: jjba23/sift@v0.4.0
+  with:
+    paths: src/ tests/
+    severity: warning
+#+end_src
+
+If you would rather spell the step out, ~--format=github~ writes workflow
+commands instead of prose, so each finding lands as an annotation on the line
+of the diff:
 
 #+begin_src yaml
 - name: sift

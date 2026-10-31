@@ -1,0 +1,123 @@
+# sift --- the reusable workflow
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# A repository that wants sift in its pipeline writes one file:
+#
+#   # .github/workflows/sift.yml
+#   name: sift
+#   on: [push, pull_request]
+#   jobs:
+#     sift:
+#       uses: jjba23/sift/.github/workflows/sift.yml@v0.4.0
+#
+# and gets both halves of what sift has to say: annotations on the lines of the
+# pull request, and a SARIF document uploaded to code scanning so that a
+# finding that was not fixed becomes an alert in the Security tab rather than a
+# log line nobody reads again.
+#
+# The workflow is a caller and nothing else: everything it knows how to do is
+# in `action.yml' at the root, which it checks out and uses.  One
+# implementation, two ways in.
+#
+# Uploading SARIF needs `security-events: write'.  The job asks for it, so a
+# caller that has restricted the workflow's permissions must allow it too --
+# otherwise `sift' still reports the findings as annotations and the upload
+# step is what fails.
+
+name: sift
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: The files or directories to judge, space separated.
+        required: false
+        type: string
+        default: .
+      mode:
+        description: What to ask. `ci` checks formatting and lints, `lint` only lints, `check` only checks formatting.
+        required: false
+        type: string
+        default: ci
+      severity:
+        description: The lowest severity to report, error, warning or info.
+        required: false
+        type: string
+        default: warning
+      install:
+        description: How to provide sift. `guix` installs Guix and builds the checkout, `path` uses a sift already on the PATH.
+        required: false
+        type: string
+        default: guix
+      sarif-file:
+        description: Where to write the SARIF document. Empty writes none.
+        required: false
+        type: string
+        default: sift.sarif
+      fail-on-findings:
+        description: Fail the job when sift finds something. False reports the findings and passes.
+        required: false
+        type: boolean
+        default: true
+      upload-sarif:
+        description: Upload the SARIF document to code scanning.
+        required: false
+        type: boolean
+        default: true
+      sift-ref:
+        description: The revision of jjba23/sift whose action runs. Pin it to the same tag as `uses:`.
+        required: false
+        type: string
+        default: main
+    outputs:
+      findings:
+        description: How many findings the run reported.
+        value: ${{ jobs.sift.outputs.findings }}
+
+permissions:
+  contents: read
+
+jobs:
+  sift:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      findings: ${{ steps.sift.outputs.findings }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The action lives in the sift repository, so that is checked out beside
+      # the tree under judgement rather than on top of it.
+      - name: Check out sift
+        uses: actions/checkout@v4
+        with:
+          repository: jjba23/sift
+          ref: ${{ inputs.sift-ref }}
+          path: .sift
+
+      - name: Install Guix
+        if: inputs.install == 'guix'
+        uses: PromyLOPh/guix-install-action@v1
+
+      - id: sift
+        uses: ./.sift
+        with:
+          paths: ${{ inputs.paths }}
+          mode: ${{ inputs.mode }}
+          severity: ${{ inputs.severity }}
+          install: ${{ inputs.install }}
+          fail-on-findings: ${{ inputs.fail-on-findings }}
+          sarif-file: ${{ inputs.sarif-file }}
+
+      # `always()' because a gate that failed is exactly when a code scanning
+      # service wants the document: the findings are the reason the job is red,
+      # and they belong in the Security tab rather than only in the log.
+      - name: Upload the SARIF document
+        if: always() && inputs.upload-sarif && inputs.sarif-file != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ inputs.sarif-file }}
+          category: sift

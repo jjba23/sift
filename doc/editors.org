@@ -164,7 +164,73 @@ One command asks both questions, and the exit status is the answer:
 sift ci src/ tests/
 #+end_src
 
-=--format=github= turns each finding into an annotation on the pull request:
+** The reusable workflow
+
+A repository that wants sift in its pipeline writes one file and gets both
+halves of the answer: annotations on the lines of the pull request, and a
+SARIF document in the Security tab.
+
+#+begin_src yaml
+# .github/workflows/sift.yml
+name: sift
+on: [push, pull_request]
+jobs:
+  sift:
+    uses: jjba23/sift/.github/workflows/sift.yml@v0.4.0
+#+end_src
+
+The workflow takes inputs, all of them optional:
+
+| input             | default      | meaning                                                        |
+|-------------------+--------------+----------------------------------------------------------------|
+| ~paths~           | ~.~          | files or directories to judge, space separated                 |
+| ~mode~            | ~ci~         | ~ci~ formats and lints, ~lint~ only lints, ~check~ only checks |
+| ~severity~        | ~warning~    | lowest severity to report: ~error~, ~warning~ or ~info~        |
+| ~install~         | ~guix~       | ~guix~ builds the checkout, ~path~ uses a sift on the PATH     |
+| ~sarif-file~      | ~sift.sarif~ | where the SARIF document goes, empty for none                  |
+| ~fail-on-findings~ | ~true~       | ~false~ reports the findings and passes the job                |
+| ~upload-sarif~    | ~true~       | upload the document to code scanning                           |
+| ~sift-ref~        | ~main~       | which revision of sift provides the action                     |
+
+Two permissions matter.  The job asks for =security-events: write= so that the
+upload can happen; a caller that has narrowed the workflow's permissions must
+allow it too, and the findings are then still annotations, with the upload as
+the only step that fails.
+
+** The action on its own
+
+The workflow is a caller of =action.yml= at the root of the repository, which
+is a composite action a job can use beside its other steps:
+
+#+begin_src yaml
+- uses: actions/checkout@v4
+- uses: jjba23/sift@v0.4.0
+  with:
+    paths: src/ tests/
+    severity: warning
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: sift.sarif
+#+end_src
+
+It takes the same inputs as the workflow, minus ~upload-sarif~ and
+~sift-ref~, and answers with two outputs: ~sarif-file~, and ~findings~, the
+number of findings the document holds.  The action never uploads anything
+itself, because a step that quietly needs a permission the caller did not
+grant fails for a reason that has nothing to do with the code being judged.
+
+The work is done by [[file:../ci/sift-action.sh][=ci/sift-action.sh=]], a POSIX shell script this file only
+wraps, so the action can be run and tested without a runner:
+
+#+begin_src shell
+SIFT_INSTALL=path SIFT_PATHS=src/ ./ci/sift-action.sh
+#+end_src
+
+** Without the action
+
+The same two answers, spelled out.  =--format=github= turns each finding into
+an annotation on the pull request:
 
 #+begin_src yaml
 - name: sift
@@ -172,14 +238,17 @@ sift ci src/ tests/
 #+end_src
 
 =--format=sarif= writes a document that GitHub code scanning reads, which is
-what puts the findings in the repository's Security tab:
+what puts the findings in the repository's Security tab.  It is one document
+for the whole run, whichever mode asked for it, which is what makes it safe to
+redirect to a file:
 
 #+begin_src yaml
 - name: sift (SARIF)
-  run: ./bin/sift lint --format=sarif src/ > sift.sarif
+  run: ./bin/sift ci --format=sarif src/ > sift.sarif
 
 - name: Upload SARIF
   uses: github/codeql-action/upload-sarif@v3
+  if: always()
   with:
     sarif_file: sift.sarif
 #+end_src

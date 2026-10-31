@@ -1,0 +1,84 @@
+# sift --- the GitHub action
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# One step that asks sift's two questions about a tree and leaves behind both
+# of the answers a pull request wants: annotations on the lines that were
+# found, and a SARIF document for code scanning (which the caller uploads, so
+# that this action needs no permission of its own beyond reading the tree).
+#
+#   - uses: jjba23/sift@v0.4.0
+#     with:
+#       paths: src/ tests/
+#
+# The work is done by `ci/sift-action.sh`, which is a POSIX shell script this
+# file only wraps: an action whose logic runs on a laptop is an action that can
+# be tested on a laptop.
+#
+# Nothing here uploads the SARIF document.  Uploading needs
+# `security-events: write', and a step that quietly needs a permission the
+# caller did not grant fails for a reason that has nothing to do with the code
+# being judged.  The reusable workflow in `.github/workflows/sift.yml' is the
+# one-line way to get both halves.
+
+name: sift
+description: Format check and lint Scheme, Emacs Lisp and Common Lisp, with annotations and SARIF.
+
+author: Josep Bigorra
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  paths:
+    description: The files or directories to judge, space separated.
+    required: false
+    default: .
+  mode:
+    description: What to ask. `ci` checks formatting and lints, `lint` only lints, `check` only checks formatting.
+    required: false
+    default: ci
+  severity:
+    description: The lowest severity to report, error, warning or info.
+    required: false
+    default: warning
+  annotations:
+    description: Annotate the diff with each finding, as a workflow command.
+    required: false
+    default: 'true'
+  sarif-file:
+    description: Where to write the SARIF document. Empty writes none.
+    required: false
+    default: sift.sarif
+  install:
+    description: How to provide sift. `auto` uses the PATH, then guix, then nix; `path`, `guix` and `nix` name one of them.
+    required: false
+    default: auto
+  fail-on-findings:
+    description: Fail the step when sift finds something. False reports the findings and passes.
+    required: false
+    default: 'true'
+
+outputs:
+  sarif-file:
+    description: The SARIF document the run wrote.
+    value: ${{ steps.sift.outputs.sarif-file }}
+  findings:
+    description: How many findings the SARIF document holds.
+    value: ${{ steps.sift.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    - id: sift
+      shell: sh
+      env:
+        SIFT_PATHS: ${{ inputs.paths }}
+        SIFT_MODE: ${{ inputs.mode }}
+        SIFT_SEVERITY: ${{ inputs.severity }}
+        SIFT_SARIF_FILE: ${{ inputs.sarif-file }}
+        SIFT_ANNOTATIONS: ${{ inputs.annotations }}
+        SIFT_INSTALL: ${{ inputs.install }}
+        SIFT_FAIL_ON_FINDINGS: ${{ inputs.fail-on-findings }}
+        SIFT_ACTION_DIR: ${{ github.action_path }}
+      run: sh "${{ github.action_path }}/ci/sift-action.sh"

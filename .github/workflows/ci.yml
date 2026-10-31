@@ -17,6 +17,11 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  # the SARIF document the action writes is uploaded to code scanning
+  security-events: write
+
 env:
   VERITAS_DIR: ${{ github.workspace }}/veritas
   GUILE_LOAD_PATH: ${{ github.workspace }}/src:${{ github.workspace }}:${{ github.workspace }}/veritas/src
@@ -90,3 +95,25 @@ jobs:
         run: |
           guix shell -m manifest.scm -- \
             ./bin/sift ci --format=github src/
+
+      # --- the action, used the way a consumer uses it ----------------
+      #
+      # sift's own pipeline runs sift's own action: an action nobody runs is an
+      # action that breaks quietly.  The launcher goes on the PATH first, which
+      # is what `install: path' asks the action to use.
+
+      - name: Put sift on the PATH
+        run: echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      - name: sift (the action)
+        uses: ./
+        with:
+          paths: src/
+          install: path
+
+      - name: Upload the SARIF document
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sift.sarif
+          category: sift
