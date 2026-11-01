@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 62 rules in sift 1.11.1.
+There are 63 rules in sift 1.11.1.
 
 * Summary
 
@@ -68,6 +68,7 @@ There are 62 rules in sift 1.11.1.
 | special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
 | sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
 | sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
+| sxml-empty-element | SIFT063 | scheme | warning | An element with attributes and no children, which serializes as a self-closing tag |
 | tabs | SIFT002 | all | warning | Tab characters used for indentation |
 | too-many-arguments | SIFT058 | scheme, elisp, cl | info | A parameter list long enough that a call site has to be looked up |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
@@ -1120,6 +1121,26 @@ A child of an element that is a list of children rather than a child
 
 #+begin_quote
 Run ~sift explain sxml-child~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT063 sxml-empty-element
+:PROPERTIES:
+:CUSTOM_ID: sxml-empty-element
+:END:
+
+An element with attributes and no children, which serializes as a self-closing tag
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (div (@ (class "card")) "")
+
+#+begin_src scheme
+(div (@ (class "card")))
+#+end_src
+
+#+begin_quote
+Run ~sift explain sxml-empty-element~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

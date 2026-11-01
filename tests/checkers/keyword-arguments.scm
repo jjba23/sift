@@ -73,4 +73,32 @@
 
     (test "the limit is configuration"
       (assert-warnings #:source "(make-window a b c)\n" #:checker 'keyword-arguments
-                       #:options '((max-positional . 2)) #:expect '((1 1))))))
+                       #:options '((max-positional . 2)) #:expect '((1 1))))
+
+    ;; A record macro takes one argument per field, so its argument count is
+    ;; the size of the record and not the length of a parameter list.
+    ;; `(package :name "x" :version "1")' is not Guix, and a rule that asked
+    ;; for it would be asking for code no Guix command reads.
+    (test "a Guix package is a record, not a call with too many arguments"
+      (assert-warnings
+       #:source "(package\n  (name \"x\")\n  (version \"1\")\n  (source s)\n  (build-system gnu-build-system)\n  (home-page \"h\")\n  (synopsis \"s\"))\n"
+       #:checker 'keyword-arguments #:expect '()))
+
+    (test "an operating-system is a record too"
+      (assert-warnings
+       #:source "(operating-system\n  (host-name \"h\")\n  (timezone \"Europe/Amsterdam\")\n  (locale \"en_US.utf8\")\n  (bootloader b)\n  (file-systems fs)\n  (users users))\n"
+       #:checker 'keyword-arguments #:expect '()))
+
+    (test "the fields of a record macro are still linted"
+      ;; The exemption is about the *count*: a package whose fields are wrong
+      ;; in some other way is still a package sift has an opinion about.
+      (assert-warnings
+       #:source "(package\n  (name \"x\")\n  (version \"1\")\n  (source (if a b))\n  (build-system gnu-build-system)\n  (home-page \"h\")\n  (synopsis \"s\"))\n"
+       #:checker 'if-without-else #:expect '((4 12))))
+
+    (test "a project names its own record macros"
+      (assert-warnings
+       #:source "(my-record one two three four five six seven)\n"
+       #:checker 'keyword-arguments
+       #:options '((field-macros . (my-record))) #:expect '()))))
+

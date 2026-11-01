@@ -361,7 +361,9 @@ cannot move when the list is re-sorted."
     ;; the rules about what a file claims to use
     (unused-import . "SIFT060")
     (library-not-found . "SIFT061")
-    (unused-definition . "SIFT062")))
+    (unused-definition . "SIFT062")
+    ;; the rules added after the first release of the editor integration
+    (sxml-empty-element . "SIFT063")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

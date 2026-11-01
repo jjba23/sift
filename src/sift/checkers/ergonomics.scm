@@ -231,8 +231,33 @@ their own; a parameter written `(name default)' contributes `name'."
          format error warn display string-append string-join
          + * and or begin cond case))
 
+;; Macros whose arguments are *fields* rather than positional parameters.
+;; `(package (name "x") (version "1") ...)' takes one argument per field of the
+;; record it builds, and the number of those is the size of a package
+;; description -- nine for a plain one -- not the length of somebody's
+;; parameter list.  Suggesting `:key' there is suggesting that a Guix package
+;; be written as `(package :name "x" :version "1")', which no Guix command
+;; reads.
+;;
+;; The list is a setting rather than a constant because every project with a
+;; record DSL of its own has the same problem, and sift cannot know the name
+;; of a macro it has never seen: `field-macros: (package operating-system
+;; my-record)' in `sift.yaml' is how a project says which of its macros
+;; deserve the exemption.  The two defaults are the Guix ones -- the macros
+;; whose field count is large enough to trip the rule on a first try.
+(define default-field-macros '(package operating-system))
+
+(define (field-macro-names)
+  "Return the macros whose arguments are fields, as symbols."
+  (map (lambda (name)
+         (cond [(symbol? name) name]
+               [(string? name) (string->symbol name)]
+               [else #f]))
+       (or (option 'field-macros default-field-macros) default-field-macros)))
+
 (define (keyword-arguments-warnings ast source dialect)
   (let ((max-positional (or (option 'max-positional 5)))
+        (field-macros (field-macro-names))
         (warnings '()))
     (for-each-form
      (lambda (node)
@@ -246,6 +271,7 @@ their own; a parameter written `(name default)' contributes `name'."
                 (arguments (form-arguments node)))
            (when (and name
                    (not (memq name variadic-operators))
+                   (not (memq name field-macros))
                    ;; a form in the indentation table is a special form or a
                    ;; known macro, and knows its own argument list
                    (not (indent-rule dialect name))

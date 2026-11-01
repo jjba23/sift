@@ -417,6 +417,28 @@ the author's to decide; the rule skips special forms and the calls that are
 meant to be variadic (`list`, `format`, `+`), and the limit is
 configuration (`max-positional`).
 
+A *record* macro is the other thing that is not a call, and it is the one that
+matters most in a Guix file:
+
+#+begin_src scheme
+(package                                    ; SIFT032, if it were a call
+  (name "hello")
+  (version "2.12")
+  (build-system gnu-build-system)
+  (home-page "https://example.org")
+  (synopsis "A package")
+  (description "...")
+  (license license:gpl3+))
+#+end_src
+
+Each argument of `package` is a *field* of the record it builds, so their
+number is the size of a package description and not the length of somebody's
+parameter list; `(package :name "hello" :version "2.12")` is not Guix, and a
+rule that asked for it would be asking for code no Guix command reads.
+`package` and `operating-system` are exempt out of the box, and `field-macros`
+names the record macros of a project's own DSL -- sift cannot know the name of
+a macro it has never seen.
+
 A *declaration* is not a call either, and the two look enough alike to fool a
 rule that only counts:
 
@@ -886,24 +908,43 @@ has to be named.  A fix sift cannot state that confidently is not a fix.
 
 (ul (@ (id "x")) ((li "a") (li "b")))      ; SIFT050: a child is a child
 (ul (@ (id "x")) (li "a") (li "b"))
+
+(div (@ (class "card")))                   ; SIFT063: an element with no children
+(div (@ (class "card")) "")
 #+end_src
 
 *Why?*  SXML is Lisp used as markup — `(element (@ (attribute "value")) child
 ...)` — and a formatter does not need to know that: an element is a list, and
 the attribute list, being the first argument, lines up under itself the way
-every call does.  A linter can say the two things the shape itself cannot: the
-attribute list belongs first and there is one of it, and a child is an element,
-a string or a number rather than a list of them.
+every call does.  A linter can say the three things the shape itself cannot:
+the attribute list belongs first and there is one of it, a child is an element,
+a string or a number rather than a list of them, and an element with no
+children at all is an element whose tag will not be closed.
 
-What makes these two rules safe to ship is the test for "is this markup": the
+What makes these rules safe to ship is the test for "is this markup": the
 attribute list itself.  A list whose head is a symbol and that holds an
 `(@ ...)` child is an element, and nothing else is judged.  `(f "a" "b")` in
 ordinary code is a call with two strings, and SXML has no opinion about it.
 
-Neither rule has a fix.  Moving an attribute list is a rearrangement of
-markup, and the missing element name in `((li "a") (li "b"))` is the author's
-to supply — a formatter that invented `div` there would be guessing at the
-document.
+*Why SIFT063 is a warning:* `(div (@ (class "card")))` serializes as
+`<div class="card"/>`.  XML reads that as a complete element; HTML does not —
+the self-closing form exists only for the void elements, so a browser keeps the
+`div` open and every following element ends up inside it.  One omitted child
+is therefore a page whose layout collapses, with nothing in the source to show
+for it.  The element that really is empty says so: `(div (@ (class "card"))
+"")` is an empty text child, and every serializer writes it as `<div
+class="card"></div>`.
+
+SIFT063 has a fix, because the edit is the one the author would make by hand
+and it adds nothing to the document: the element's own text with ` ""` before
+its closing delimiter.  Writing the child of an element that *is* meant to be
+self-closing — an HTML `img`, `br` or `input`, or any element of a document
+that is XML rather than HTML — is the author's call, so those say
+`; sift:disable-next-line sxml-empty-element`, or the project leaves the rule
+off with `exclude-checkers: sxml-empty-element` in `sift.yaml`.  The two shape
+rules have no fix: moving an attribute list is a rearrangement of markup, and
+the missing element name in `((li "a") (li "b"))` is the author's to supply —
+a formatter that invented `div` there would be guessing at the document.
 
 ** Three rules about shape
 
