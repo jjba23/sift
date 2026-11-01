@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.11.1-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-59-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.11.1-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
@@ -699,7 +699,7 @@ a default severity, a procedure, and an example.  The driver reads the file
 once, runs the applicable rules, folds in what the reader found, applies the
 suppression comments, sorts by file, line, column and rule, and reports.
 
-There are 59 rules.  They are listed one by one, with their codes and their
+There are 63 rules.  They are listed one by one, with their codes and their
 reasoning, in [[file:doc/rules.org][doc/rules.org]] — a document generated from those records, so it
 cannot describe a rule that does not exist, and a test fails when it falls
 behind.  The style the rules belong to, and why each choice is idiomatic Lisp,
@@ -713,7 +713,7 @@ The short version:
 | Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification   |
 | Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation         |
 | Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~                                                                 |
-| SXML documents   | the attribute list comes first and there is one of it, and a child is a child                                                                                     |
+| SXML documents   | the attribute list comes first and there is one of it, a child is a child, and an element with attributes and no children says so with ~""~                        |
 
 When you want the catalogue as data rather than prose, the program prints it:
 
@@ -965,6 +965,7 @@ from the editor's side.
 | ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
 | ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
 | ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
+| ~textDocument/inlayHint~                             | yes     | a parameter's name beside each positional argument of a call sift can resolve; ~inlay-hints: false~ turns it off |
 | ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
 | ~window/logMessage~ (server to client)              | yes     | what the server did: the root it serves, the dialect of each buffer, the findings a report carries, every re-read |
@@ -973,7 +974,7 @@ from the editor's side.
 | ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
 | ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
 | ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
-| ~textDocument/inlayHint~, ~codeLens~                 | no      | nothing is inferred that a reader of the file could not see                        |
+| ~textDocument/inlayHint~, ~codeLens~                 | partly  | a parameter's name beside its argument, and nothing else: a lens would have to guess at what it is for |
 | ~textDocument/foldingRange~                          | no      | the formatter has no opinion about what to fold                                   |
 | ~textDocument/rangeFormatting~, ~onTypeFormatting~   | no      | sift formats a whole buffer or nothing                                            |
 | ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
@@ -1143,8 +1144,10 @@ line-length: 90
 brackets: square
 blank-lines: one
 single-letter-names: [i, j, k]
+field-macros: [package, operating-system, my-record]
 file-filter: ["src/**", "!src/generated/**"]
 max-positional: 4
+inlay-hints: false
 severity: warning
 checkers:
   - trailing-whitespace
@@ -1172,6 +1175,15 @@ A malformed configuration is an error, with a position:
 #+begin_example
 sift: sift.yaml:1:1: unknown configuration key `line-lenght'
 #+end_example
+
+The language server is configured by these same files, so a project's
+~sift.yaml~ is the one place its editor behaviour is written down:
+~inlay-hints~, ~hover~ and ~completion~ say what the server answers.  An editor
+can send its own settings as well -- Eglot's ~eglot-workspace-configuration~, a
+~settings.json~ section, ~initializationOptions~ -- and they are layered over
+the files and validated the same way, with a key sift does not have reported in
+the editor's log rather than silently ignored.  [[file:doc/editors.org][doc/editors.org]] has the
+object each editor sends.
 
 A typo that is silently ignored is a setting you believe is in effect, so it
 is refused and named.  And you never have to guess which layer won:

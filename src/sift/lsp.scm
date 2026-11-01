@@ -27,6 +27,7 @@
 ;;   textDocument/documentSymbol       the outline of the buffer
 ;;   workspace/symbol                  search those outlines
 ;;   textDocument/completion           the names the project defines
+;;   textDocument/inlayHint            a parameter's name beside its argument
 ;;   textDocument/prepareRename        whether a symbol can be renamed here
 ;;   textDocument/rename               rename it, by name, in the project
 ;;
@@ -39,8 +40,17 @@
 ;; what the server answers.
 ;;
 ;; What it does not do is as deliberate: no signature help, no type hierarchy,
-;; no inlay hints.  A server that answered every request an editor can make
-;; would be a server that lies about half of them.
+;; no hover that guesses at a type.  A server that answered every request an
+;; editor can make would be a server that lies about half of them.
+;;
+;; Everything the server answers is configurable, in the same place as the
+;; rest of sift: `inlay-hints', `hover' and `completion' are settings like
+;; `line-length' is, so a project can set them in its `sift.yaml'.  They can
+;; also be set by the editor itself -- `initializationOptions' when the
+;; session starts, and `eglot-workspace-configuration' or a `settings.json'
+;; through `workspace/didChangeConfiguration' -- and those settings are read by
+;; the same validator and layered over the files, because what the editor says
+;; is the most specific thing anyone can say about this session.
 ;;
 ;; Documents are kept whole and replaced whole (`change: 1' in the sync
 ;; options).  An incremental edit would mean patching a string by character
@@ -686,10 +696,14 @@ is forgotten rather than kept as a stale answer."
    (field "range" (json-range text (definition-index definition)
                               (definition-end definition)))))
 
-(define (definition-sites workspace documents uri text dialect index)
-  "Return every place the symbol at @var{index} is defined, in the project."
-  (let* ((ast (ast-of-text text dialect))
-         (local (resolve-definition ast index)))
+(define (definition-sites-in ast workspace documents uri text dialect index)
+  "Return every place the symbol at @var{index} is defined, in the project.
+
+The AST is passed in rather than read here, because a request that asks the
+same question about many positions -- inlay hints ask it once per call in the
+range the editor is showing -- must parse the buffer once, not once per
+question."
+  (let ((local (resolve-definition ast index)))
     (cond
       [local (list (list uri text local))]
       [else
@@ -698,6 +712,11 @@ is forgotten rather than kept as a stale answer."
             '()
             (append (document-definition-sites documents name dialect uri)
                     (workspace-definition-sites workspace name dialect))))])))
+
+(define (definition-sites workspace documents uri text dialect index)
+  "Return every place the symbol at @var{index} is defined, in the project."
+  (definition-sites-in (ast-of-text text dialect) workspace documents
+                       uri text dialect index))
 
 (define* (lsp-definition workspace documents uri text dialect index)
   "Return the locations the symbol at @var{index} is defined at, as an array."
@@ -1077,6 +1096,110 @@ than answering nothing."
         (let ((path (json-ref params "rootPath" #f)))
           (and (string? path) (not (string-null? path)) path))])))
 
+;;; ===== Inlay hints =====
+;;;
+;;; A hint is a parameter's name written where its argument is, so that
+;;; `(make-window ui width 640)' can be read without opening `make-window' to
+;;; find out which number is which.  What sift knows is a definition's own
+;;; formal list -- the same one signature help shows -- so a call to a
+;;; procedure sift cannot read gets no hint at all: an inlay hint is an
+;;; assertion about what an argument means, and a guessed one is worse than a
+;;; blank space.
+;;;
+;;; Hints are emitted only for positional arguments.  An argument that is
+;;; already a keyword says its own name, and a hint over it would be the
+;;; editor repeating what the code says.
+
+(define (argument-name-at formals index)
+  "Return the parameter name of the argument at @var{index}, or @code{#f}."
+  (and (< index (length formals)) (list-ref formals index)))
+
+(define (positional-arguments form)
+  "Return the arguments of @var{form} up to its first keyword, in order.
+
+A call has positional arguments and then keyword ones: once `#:width' is
+passed, what follows is the value of a keyword, and the keyword says its own
+name.  Hinting `480' in `(make-window ui 640 #:height 480)' with `width' would
+be reading the call as if the keyword were not there."
+  (let loop ((rest (form-arguments form)) (kept '()))
+    (cond
+      [(null? rest) (reverse kept)]
+      [(keyword-node? (car rest)) (reverse kept)]
+      [else (loop (cdr rest) (cons (car rest) kept))])))
+
+(define (inlay-hint label position padding-left?)
+  "Return one `InlayHint' for @var{label} at @var{position}.
+
+`kind' 2 is the protocol's \"parameter\": an editor that styles hints shows it
+as a parameter name rather than as a type.  `paddingLeft' asks for a space
+before the label, so the hint reads as a word beside the argument instead of
+as part of it."
+  (json-object
+   (field "position" position)
+   (field "label" label)
+   (field "kind" 2)
+   (field "paddingLeft" padding-left?)))
+
+(define (call-formals ast workspace documents uri text dialect node)
+  "Return the parameter names of the procedure @var{node} calls, or @code{#f}.
+
+The definition is resolved the way a jump resolves it, at the position of the
+call's own name, so a hint and a jump never disagree about which `open' the
+call means."
+  (let* ((head (node-head node))
+         (sites (definition-sites-in ast workspace documents uri text dialect
+                                     (source-location-index (node-start head))))
+         (definition (and (pair? sites) (caddr (car sites)))))
+    (and definition
+      (let ((formals (filter-map (lambda (formal)
+                                   (and (node-atom? formal) (node-value formal)))
+                                 (definition-formals definition))))
+        (and (pair? formals) formals)))))
+
+(define* (lsp-inlay-hints workspace documents uri text dialect start end)
+  "Return the inlay hints for the calls of @var{text} between @var{start} and
+@var{end}, as the array an editor expects.
+
+The range decides what is answered, not only what is looked at: a hint is
+emitted for an argument that *starts* inside it, which is what an editor asks
+for -- the part of the file it is showing -- and which keeps a long file from
+being resolved a form at a time for hints nobody will see.
+
+The walk is over forms rather than over every list, because a parameter list
+is a list and is not a call: `(define (make-window parent width) ...)' has a
+`parent' in argument position that nothing is being passed to, and a hint
+there would be sift describing a definition as if it were a call to itself."
+  (let ((hints '())
+        (ast (ast-of-text text dialect)))
+    (for-each-form
+     (lambda (node)
+       (when (and (call-form? node)
+               (let ((head (node-head node)))
+                 (and head (node-atom? head)
+                   (eq? (node-atom-type head) 'symbol))))
+         (let ((arguments (positional-arguments node)))
+           ;; the cheap question first: is any of this call's arguments in the
+           ;; part of the file the editor is showing?
+           (when (any (lambda (argument)
+                        (let ((index (source-location-index (node-start argument))))
+                          (and (>= index start) (<= index end))))
+                      arguments)
+             (let ((formals (call-formals ast workspace documents uri text dialect
+                                          node)))
+               (when formals
+                 (let loop ((rest arguments) (position 0))
+                   (unless (null? rest)
+                     (let* ((argument (car rest))
+                            (index (source-location-index (node-start argument)))
+                            (name (argument-name-at formals position)))
+                       (when (and name (>= index start) (<= index end))
+                         (set! hints
+                               (cons (inlay-hint name (json-position text index) #t)
+                                     hints)))
+                       (loop (cdr rest) (+ position 1)))))))))))
+     ast)
+    (list->vector (reverse hints))))
+
 ;;; ===== Findings =====
 ;;;
 ;;; Everything the editor sees is computed from the buffer the editor has, at
@@ -1091,6 +1214,7 @@ than answering nothing."
         (cons 'brackets (config-ref config 'brackets))
         (cons 'blank-lines (config-ref config 'blank-lines))
         (cons 'single-letter-names (config-ref config 'single-letter-names))
+        (cons 'field-macros (config-ref config 'field-macros))
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
@@ -1586,6 +1710,12 @@ typed, and the findings for the part that could be read are still reported."
            (field "documentHighlightProvider" #t)
            (field "documentSymbolProvider" #t)
            (field "workspaceSymbolProvider" #t)
+           ;; A hint is a parameter name beside its argument, so the editor
+           ;; asks for the ones it is showing and sift answers about those:
+           ;; there is nothing to fill in later, which is what
+           ;; `resolveProvider' would promise.
+           (field "inlayHintProvider"
+                  (json-object (field "resolveProvider" #f)))
            (field "renameProvider"
                   (json-object (field "prepareProvider" #t)))
            (field "completionProvider"
@@ -1623,7 +1753,10 @@ typed, and the findings for the part that could be read are still reported."
   ;; reads it again: a project that edits its own `sift.yaml' in the editor it
   ;; is linting from should not have to restart the server to be heard
   (config session-config set-session-config!)
-  (reload session-reload set-session-reload!))
+  (reload session-reload set-session-reload!)
+  ;; the settings the editor itself sent, as JSON, kept so that reading the
+  ;; project's files again does not drop them
+  (settings session-settings set-session-settings!))
 
 (define* (new-session #:key config reload)
   (let ((session (make-session)))
@@ -1636,6 +1769,7 @@ typed, and the findings for the part that could be read are still reported."
     (set-session-registered! session #f)
     (set-session-config! session config)
     (set-session-reload! session reload)
+    (set-session-settings! session #f)
     session))
 
 (define (client-supports-watchers? params)
@@ -1888,6 +2022,86 @@ included."
   (hash-clear! (workspace-files workspace))
   (set-workspace-scanned! workspace #f))
 
+;;; --- the editor's own settings -------------------------------------------
+;;;
+;;; An editor can configure a language server, and it does it in two places:
+;;; `initializationOptions' when the session starts, and
+;;; `workspace/didChangeConfiguration' whenever the user's settings change --
+;;; which is Eglot's `eglot-workspace-configuration', and the same object a VS
+;;; Code client keeps in its `settings.json'.  Both arrive as one JSON object,
+;;; and sift reads it as one more layer of its own configuration: above the
+;;; files, because what the editor says is the most specific thing anyone can
+;;; say about this session.  A key sift does not know is a key it does not
+;;; pretend to have read -- it is logged, and the layer below wins.
+
+(define (settings-object-of params key)
+  "Return the sift section of the settings a client sent under @var{key}.
+
+Eglot sends `eglot-workspace-configuration', which is organized by server:
+`(:sift (:inlay-hints :json-false))' arrives as `{\"sift\": {...}}'.  A client
+that keeps one flat object of settings is understood too, because the object
+is only nested when there is a section to nest."
+  (let* ((object (json-ref params key #f))
+         (section (and (json-object? object) (json-ref object "sift" #f))))
+    (cond
+      [(json-object? section) section]
+      [(json-object? object) object]
+      [else #f])))
+
+(define (json-value->setting value)
+  "Return a JSON value as the value a configuration key is written with.
+
+JSON's booleans arrive as symbols and a list arrives as a vector, so this is
+the one place where the two spellings meet.  An object is not a setting sift
+has: no key takes one."
+  (cond
+    [(eq? value json-true) #t]
+    [(eq? value json-false) #f]
+    [(vector? value) (map json-value->setting (vector->list value))]
+    [(json-object? value) #f]
+    [else value]))
+
+(define (setting-with-complaint config entry out)
+  "Return @var{config} with one client @var{entry} applied, or unchanged.
+
+Every value is checked by the same code that checks a `sift.yaml' entry, so a
+project cannot set from the editor what it could not set from its own file,
+and a value of the wrong shape is reported and skipped rather than believed."
+  (let* ((name (car entry))
+         (key (string->symbol name))
+         (value (json-value->setting (cdr entry))))
+    (if (not (config-key-documented? key))
+      (begin
+        (log-message! out 2
+                      (format #f "sift: no setting is called `~a'; ignoring it" name))
+        config)
+      (let ((result (catch 'sift-config-error
+                           (lambda ()
+                             (config-set config key (validate-setting key value)
+                                         "the editor's settings"))
+                           (lambda (kind object) object))))
+        (if (config? result)
+          result
+          (begin
+            (log-message! out 2
+                          (format #f "sift: ~a" (config-error->string result)))
+            config))))))
+
+(define (apply-client-settings config settings out)
+  "Return @var{config} with the client's @var{settings} applied over it."
+  (fold (lambda (entry config) (setting-with-complaint config entry out))
+        config
+        (json-fields settings)))
+
+(define (settings-config session out config)
+  "Return @var{config} with the settings the client last sent applied over it.
+
+The client's settings are kept on the session rather than folded into the
+configuration once, because re-reading `sift.yaml' -- a save, a reload -- must
+not quietly drop what the editor asked for."
+  (let ((settings (session-settings session)))
+    (if settings (apply-client-settings config settings out) config)))
+
 (define (reload-config! session workspace out documents)
   "Read the configuration again, and check the open buffers against it.
 
@@ -1900,8 +2114,9 @@ one bad save would go quiet at the worst moment."
          (config (and reload (reload))))
     (cond
       [config
-        (set-session-config! session config)
-        (set-workspace-filter! workspace (config-ref config 'file-filter))
+        (set-session-config! session (settings-config session out config))
+        (set-workspace-filter!
+         workspace (config-ref (session-config session) 'file-filter))
         (forget-workspace! workspace)
         (let ((open (hash-count (const #t) documents)))
           (notice! out
@@ -1909,7 +2124,7 @@ one bad save would go quiet at the worst moment."
                            open (if (= 1 open) "" "s"))))
         ;; The text did not change but the yardstick did, so what sift last
         ;; said about that text is not what it would say now.
-        (publish-all! config out documents #:force #t)]
+        (publish-all! (session-config session) out documents #:force #t)]
       [reload
         (notice! out (string-append
                       "sift: the configuration could not be read; "
@@ -1975,6 +2190,12 @@ dead server."
        ;; The root is where a question about \"the project\" is answered from;
        ;; an editor that names none still gets its open buffers searched.
        (set-workspace-root! workspace (workspace-root-of (params)))
+       ;; Settings an editor sends with `initialize' are the first layer
+       ;; above the files, and they stay until it sends others.
+       (set-session-settings! session
+                              (settings-object-of (params) "initializationOptions"))
+       (set-session-config! session
+                            (settings-config session out (session-config session)))
        (reply! out id (initialize-result))
        (notice! out
                 (format #f "sift ~a: serving ~a"
@@ -2094,8 +2315,12 @@ dead server."
 
       [(string=? method "workspace/didChangeConfiguration")
        ;; A client that says the settings changed is a client whose next
-       ;; finding can be a different finding; read the project's own files
-       ;; again rather than trusting the ones the session started with.
+       ;; finding can be a different finding.  Its own settings come with the
+       ;; message -- Eglot sends the whole of `eglot-workspace-configuration'
+       ;; every time -- and the project's files are read again under them,
+       ;; because a setting can change what a finding is measured against.
+       (set-session-settings! session
+                              (settings-object-of (params) "settings"))
        (reload-config! session workspace out documents)
        'continue]
 
@@ -2132,7 +2357,7 @@ dead server."
       [(string=? method "textDocument/hover")
        (let ((document (document-of)))
          (reply! out id
-                 (if document
+                 (if (and document (config-ref config 'hover))
                    (let* ((text (document-text document))
                           (dialect (document-dialect document))
                           (position (json-ref (params) "position" (json-object)))
@@ -2221,7 +2446,7 @@ dead server."
       [(string=? method "textDocument/completion")
        (let ((document (document-of)))
          (reply! out id
-                 (if document
+                 (if (and document (config-ref config 'completion))
                    (completion-items workspace documents
                                      (document-uri document)
                                      (document-text document)
@@ -2231,6 +2456,21 @@ dead server."
                                       (json-ref (params) "position" (json-object))))
                    (vector)))
          'continue)]
+
+      [(string=? method "textDocument/inlayHint")
+       ;; The editor asks for the hints of the part of the file it is
+       ;; showing, so the answer is about that range and nothing else.
+       (let ((document (document-of)))
+         (if (not (and document (config-ref config 'inlay-hints)))
+           (reply! out id (vector))
+           (let* ((text (document-text document))
+                  (span (range-of-request text (params))))
+             (reply! out id
+                     (lsp-inlay-hints workspace documents
+                                      (document-uri document) text
+                                      (document-dialect document)
+                                      (car span) (cdr span))))))
+       'continue]
 
       [(string=? method "textDocument/signatureHelp")
        (let ((document (document-of)))

@@ -123,6 +123,66 @@ The server is `sift lsp` by default.  If the program is not on your ~PATH~,
 `sift-executable` and `sift-eglot-command` say where it is; `sift-eglot-contact`
 is what Eglot calls, and it says so plainly when the program is missing.
 
+** Inlay hints
+
+The server answers `textDocument/inlayHint' with the name of a parameter beside
+each positional argument of a call it can resolve, so that
+`(make-window root 640 480 "Main")' reads as what it is without opening
+`make-window':
+
+#+begin_example
+(make-window root parent 640 width 480 height "Main" title)
+#+end_example
+
+What is hinted is what sift knows: the definition's own formal list, resolved
+the way a jump resolves it.  A call to a procedure in a library sift cannot
+read gets no hint at all, and neither does an argument that is already a
+keyword -- `#:height' says its own name.  Eglot shows hints once
+`M-x eglot-inlay-hints-mode' is on, and Neovim 0.10 and later with
+`vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })'.
+
+** Configuring the server
+
+`sift lsp` is configured in the same place as the rest of sift, and in one
+more.  These can go in a project's `sift.yaml` or in the editor's own
+configuration, which is sent to the server and layered over the files, because
+what the editor says is the most specific thing anyone can say about this
+session:
+
+| Setting       | Default | What it does                                     |
+|---------------+---------+--------------------------------------------------|
+| =inlay-hints= | =true=   | name the positional arguments of a call          |
+| =hover=       | =true=   | answer the hover with a rule or a definition     |
+| =completion=  | =true=   | offer the names the project defines while typing |
+
+Every other setting is the server's too -- `severity`, `line-length`,
+`checkers`, `exclude-checkers`, `field-macros` -- because the server computes
+its answers with the same configuration the command line does.  A key sift does
+not have is not a silent no-op: it is reported in the editor's log, where a
+typo in an editor's settings can be seen.
+
+In Emacs, `eglot-workspace-configuration` is the object Eglot sends:
+
+#+begin_src elisp
+(setq-default eglot-workspace-configuration
+              '(:sift (:inlay-hints :json-false
+                      :field-macros ["package" "operating-system" "my-record"])))
+#+end_src
+
+In Neovim, `settings` on the client:
+
+#+begin_src lua
+vim.lsp.config("sift", {
+  cmd = { "sift", "lsp" },
+  root_dir = ...,
+  settings = { sift = { ["inlay-hints"] = false } },
+})
+#+end_src
+
+Changing one of these takes effect at once: the server reads its files again
+under the new settings and re-checks every open buffer, which is the same path
+a saved `sift.yaml` takes.
+
 Without Eglot, the package's Flymake backend is the integration and needs
 nothing installed:
 

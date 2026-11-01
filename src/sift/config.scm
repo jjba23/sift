@@ -48,6 +48,7 @@
             config-defaults
             config-keys
             config-key-documented?
+            validate-setting
             load-config-file
             discover-config-files
             load-config
@@ -171,6 +172,26 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . (i j))
      (flag . #f)
      (description . "Single-letter names single-letter-name accepts, such as index variables."))
+    (field-macros
+     (type . names)
+     (default . (package operating-system))
+     (flag . #f)
+     (description . "Macros whose arguments are named fields rather than positional parameters, which keyword-arguments leaves alone. Config-only."))
+    (hover
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Answer the language server's hover with a rule or a definition. Config-only."))
+    (completion
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Offer the project's names in the language server's completion. Config-only."))
+    (inlay-hints
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Show a parameter's name beside each positional argument of a call, as an inlay hint. Config-only."))
     (comment-align
      (type . boolean)
      (default . #f)
@@ -261,16 +282,22 @@ validator; the caller reports both the same way."
   (throw 'sift-config-error (make-config-error path line column message)))
 
 (define (config-error->string error)
-  "Render a configuration error as file:line:column: message."
+  "Render a configuration error as file:line:column: message.
+
+A setting that did not come from a file -- one the editor sent with
+`workspace/didChangeConfiguration' -- has no line and column to name, and its
+message is the whole of what can be said about it."
   (cond
     [(yaml-error? error)
      (format #f "~a:~a:~a: ~a"
              (yaml-error-path error) (yaml-error-line error)
              (yaml-error-column error) (yaml-error-message error))]
     [(config-error-object? error)
-     (format #f "~a:~a:~a: ~a"
-             (config-error-path error) (config-error-line error)
-             (config-error-column error) (config-error-message error))]
+     (if (config-error-path error)
+       (format #f "~a:~a:~a: ~a"
+               (config-error-path error) (config-error-line error)
+               (config-error-column error) (config-error-message error))
+       (config-error-message error))]
     [else (format #f "~a" error)]))
 
 (define* (with-config-error-handler thunk #:key (port (current-error-port)))
@@ -744,6 +771,7 @@ expect."
         (cons 'brackets (config-ref config 'brackets))
         (cons 'blank-lines (config-ref config 'blank-lines))
         (cons 'single-letter-names (config-ref config 'single-letter-names))
+        (cons 'field-macros (config-ref config 'field-macros))
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))

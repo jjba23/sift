@@ -151,6 +151,24 @@ server that handles one."
    (field "method" "workspace/didChangeConfiguration")
    (field "params" (json-object (field "settings" (json-object))))))
 
+(define (configuration-with settings)
+  "Return a `didChangeConfiguration' notification carrying @var{settings}.
+
+Eglot sends `eglot-workspace-configuration', which is organized by server, so
+what a user writes as `(:sift (:inlay-hints :json-false))' arrives under a
+`sift' key."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "workspace/didChangeConfiguration")
+   (field "params" (json-object (field "settings" settings)))))
+
+(define (inlay-hint-request id line)
+  "Return an `inlayHint' request for the whole of @var{line} of the buffer."
+  (request id "textDocument/inlayHint"
+           (json-object
+            (field "textDocument" (text-document))
+            (field "range" (range (point line 0) (point line 200))))))
+
 (define* (watched-change uri #:optional (type 2))
   "Return a `workspace/didChangeWatchedFiles' notification for @var{uri}.
 
@@ -705,6 +723,122 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (answer (json-ref (answer-to (cdr result) 9) "result")))
         (assert-equal #:expect 'null #:got answer
           #:name "no invented signature")))
+
+    (test "inlay hints name the positional arguments of a call"
+      (let* ((text "(define (make-window parent width height title)\n  (list parent width height title))\n\n(make-window root 640 480 \"Main\")\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (inlay-hint-request 11 3))))
+             (hints (json-ref (answer-to (cdr result) 11) "result"))
+             (labels (map (lambda (hint) (json-ref hint "label"))
+                          (vector->list hints))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect '("parent" "width" "height" "title")
+          #:got labels
+          #:name "one hint per argument, named by the definition")
+        (assert-equal #:expect 2
+          #:got (json-ref (vector-ref hints 0) "kind")
+          #:name "and each one is a parameter, which is how an editor styles it")))
+
+    (test "an inlay hint sits where its argument starts"
+      (let* ((text "(define (greet name)\n  name)\n\n(greet world)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (inlay-hint-request 12 3))))
+             (hints (json-ref (answer-to (cdr result) 12) "result"))
+             (hint (and (> (vector-length hints) 0) (vector-ref hints 0))))
+        (assert-equal #:expect 3
+          #:got (json-ref (json-ref hint "position") "line")
+          #:name "on the line of the call, counted from zero")
+        (assert-equal #:expect "name" #:got (json-ref hint "label"))))
+
+    (test "a keyword argument is not hinted"
+      ;; `(greet/who "x" #:loud? #t)' says its own names from the first
+      ;; keyword on, and a hint over `#t' would be reading the call as if the
+      ;; keyword were not there.
+      (let* ((text "(define* (greet/who name #:key loud?)\n  name)\n\n(greet/who \"x\" #:loud? #t)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (inlay-hint-request 13 3))))
+             (hints (json-ref (answer-to (cdr result) 13) "result"))
+             (labels (map (lambda (hint) (json-ref hint "label"))
+                          (vector->list hints))))
+        (assert-equal #:expect '("name") #:got labels
+          #:name "only the positional argument is named")))
+
+    (test "a call sift cannot resolve gets no inlay hint"
+      (let* ((text "(mystery 1 2)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (inlay-hint-request 14 0))))
+             (hints (json-ref (answer-to (cdr result) 14) "result")))
+        (assert-equal #:expect 0 #:got (vector-length hints)
+          #:name "an invented name would be worse than none")))
+
+    (test "a parameter list is not a call to the procedure it defines"
+      ;; `(define (f a b) ...)' has `a' and `b' in argument position that
+      ;; nothing is passed to: a hint there would describe a definition as if
+      ;; it were a call to itself.
+      (let* ((text "(define (f alpha beta)\n  alpha)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (inlay-hint-request 15 0))))
+             (hints (json-ref (answer-to (cdr result) 15) "result")))
+        (assert-equal #:expect 0 #:got (vector-length hints))))
+
+    (test "the editor's settings are part of the configuration"
+      ;; `eglot-workspace-configuration' is a JSON object the client sends
+      ;; when the session starts and again whenever it changes; sift reads it
+      ;; as the layer above its own files.
+      (let* ((text "(define (make-window parent width)\n  parent)\n\n(make-window root 640)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (configuration-with
+                                     (json-object
+                                      (field "sift"
+                                             (json-object
+                                              (field "inlay-hints" 'false)))))
+                                    (inlay-hint-request 16 3))))
+             (hints (json-ref (answer-to (cdr result) 16) "result")))
+        (assert-equal #:expect 0 #:got (car result)
+          #:name "a setting the server does not have a file for is not a failure")
+        (assert-equal #:expect 0 #:got (vector-length hints)
+          #:name "and turning the hints off turns them off")))
+
+    (test "a setting the client sends with initialize is the configuration too"
+      (let* ((text "(define (make-window parent width)\n  parent)\n\n(make-window root 640)\n")
+             (result (session (list (request 17 "initialize"
+                                             (json-object
+                                              (field "capabilities" (json-object))
+                                              (field "initializationOptions"
+                                                     (json-object
+                                                      (field "sift"
+                                                             (json-object
+                                                              (field "inlay-hints" 'false)))))))
+                                    (open-with-text text)
+                                    (inlay-hint-request 18 3))))
+             (hints (json-ref (answer-to (cdr result) 18) "result")))
+        (assert-equal #:expect 0 #:got (vector-length hints)
+          #:name "the session started with the editor's settings")))
+
+    (test "a setting the client sends that sift does not have is reported"
+      (let* ((text "(define (f) 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (configuration-with
+                                     (json-object
+                                      (field "sift"
+                                             (json-object
+                                              (field "inlay-hint" 'false))))))))
+             (logs (map (lambda (message)
+                          (json-ref-path message "params" "message"))
+                        (notifications (cdr result) "window/logMessage"))))
+        (assert-true
+          (and (find (lambda (message)
+                       (and message (string-contains message "inlay-hint")))
+                     logs)
+            #t)
+          #:name "the editor can see that the setting went nowhere")))
 
     (test "completion puts the name being typed first"
       (let* ((text "(define (alpha-one) 1)\n(define (beta) 2)\n(al\n")
