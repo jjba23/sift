@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 53 rules in sift 1.6.0.
+There are 59 rules in sift 1.6.0.
 
 * Summary
 
@@ -24,8 +24,10 @@ There are 53 rules in sift 1.6.0.
 | clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
 | comment-semicolons | SIFT051 | all | info | A comment's semicolon level does not say where it belongs |
 | composition | SIFT047 | scheme | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
+| cond-else-not-last | SIFT056 | scheme, elisp, cl | warning | A ~cond~ clause after ~else~, which can never run |
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
+| defcustom-without-type | SIFT059 | elisp | warning | A ~defcustom~ whose value Customize cannot render for lack of ~:type~ |
 | defun-no-docstring | SIFT028 | cl | info | ~defun~, ~defmacro~ or ~defgeneric~ without a docstring |
 | docstring-arguments | SIFT034 | elisp | info | An Emacs Lisp docstring that does not mention one of its arguments |
 | docstring-before-interactive | SIFT038 | elisp | warning | A docstring that is not the first form in the body, so Emacs never reads it |
@@ -35,9 +37,11 @@ There are 53 rules in sift 1.6.0.
 | docstring-texinfo | SIFT035 | scheme | info | A Guile docstring that does not document its arguments with ~@var{}~ |
 | double-colon | SIFT026 | cl | warning | Use of ~package::internal-symbol~ in production code |
 | duplicate-binding | SIFT037 | all | warning | The same name bound twice in one binding list |
+| duplicate-case-datum | SIFT057 | scheme, elisp, cl | warning | A ~case~ datum matched by an earlier clause |
 | duplicate-keyword | SIFT009 | all | warning | A keyword argument given more than once in the same call |
 | empty-body | SIFT005 | all | warning | A ~cond~, ~let~ or ~lambda~ form with no body |
 | empty-form | SIFT008 | scheme | warning | ~()~ used where a value is expected |
+| eq-on-literal | SIFT055 | scheme, elisp, cl | warning | ~eq?~ asked about a number or a string, where identity is not the question |
 | eta-reduction | SIFT045 | scheme | info | A lambda that only passes its argument on, where the procedure itself would do |
 | if-without-else | SIFT012 | scheme | warning | ~if~ with no else branch, where ~when~ expresses the intent |
 | interactive-without-docstring | SIFT021 | elisp | warning | An ~interactive~ command without a docstring |
@@ -55,6 +59,7 @@ There are 53 rules in sift 1.6.0.
 | predicate-name | SIFT041 | all | info | A procedure that answers a question but is not named like one |
 | provide-missing | SIFT023 | elisp | warning | The file defines a package but has no final ~(provide 'feature)~ |
 | quasiquote-unquote-constant | SIFT016 | scheme | info | ~(quasiquote (unquote constant))~ can be simplified |
+| quote-of-constant | SIFT054 | scheme, elisp, cl | info | A quote around a datum that already evaluates to itself |
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
@@ -63,6 +68,7 @@ There are 53 rules in sift 1.6.0.
 | sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
 | sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
 | tabs | SIFT002 | all | warning | Tab characters used for indentation |
+| too-many-arguments | SIFT058 | scheme, elisp, cl | info | A parameter list long enough that a call site has to be looked up |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
 | unless-without-body | SIFT014 | scheme, cl | warning | ~unless~ form with no body |
@@ -206,6 +212,26 @@ Run ~sift explain composition~ at the command line, or ~M-x sift-explain-at-poin
 #+end_quote
 
 
+** SIFT056 cond-else-not-last
+:PROPERTIES:
+:CUSTOM_ID: cond-else-not-last
+:END:
+
+A ~cond~ clause after ~else~, which can never run
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (cond ((a) 1) ((b) 3) (else 2))
+
+#+begin_src scheme
+(cond ((a) 1) (else 2) ((b) 3))
+#+end_src
+
+#+begin_quote
+Run ~sift explain cond-else-not-last~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT027 dangling-paren
 :PROPERTIES:
 :CUSTOM_ID: dangling-paren
@@ -247,6 +273,26 @@ Run ~sift explain dangling-paren~ at the command line, or ~M-x sift-explain-at-p
 
 #+begin_quote
 Run ~sift explain declare-indent~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT059 defcustom-without-type
+:PROPERTIES:
+:CUSTOM_ID: defcustom-without-type
+:END:
+
+A ~defcustom~ whose value Customize cannot render for lack of ~:type~
+
+- *Dialects:* elisp
+- *Severity:* warning
+- *Fix:* (defcustom sift-thing nil :type 'boolean :group 'sift)
+
+#+begin_src elisp
+(defcustom sift-thing nil :group 'sift)
+#+end_src
+
+#+begin_quote
+Run ~sift explain defcustom-without-type~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -442,6 +488,26 @@ Run ~sift explain duplicate-binding~ at the command line, or ~M-x sift-explain-a
 #+end_quote
 
 
+** SIFT057 duplicate-case-datum
+:PROPERTIES:
+:CUSTOM_ID: duplicate-case-datum
+:END:
+
+A ~case~ datum matched by an earlier clause
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (case x ((a) 1) ((b) 2))
+
+#+begin_src scheme
+(case x ((a) 1) ((a b) 2))
+#+end_src
+
+#+begin_quote
+Run ~sift explain duplicate-case-datum~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT009 duplicate-keyword
 :PROPERTIES:
 :CUSTOM_ID: duplicate-keyword
@@ -499,6 +565,26 @@ Run ~sift explain empty-body~ at the command line, or ~M-x sift-explain-at-point
 
 #+begin_quote
 Run ~sift explain empty-form~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT055 eq-on-literal
+:PROPERTIES:
+:CUSTOM_ID: eq-on-literal
+:END:
+
+~eq?~ asked about a number or a string, where identity is not the question
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (eqv? (length items) 3)
+
+#+begin_src scheme
+(eq? (length items) 3)
+#+end_src
+
+#+begin_quote
+Run ~sift explain eq-on-literal~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -852,6 +938,26 @@ Run ~sift explain quasiquote-unquote-constant~ at the command line, or ~M-x sift
 #+end_quote
 
 
+** SIFT054 quote-of-constant
+:PROPERTIES:
+:CUSTOM_ID: quote-of-constant
+:END:
+
+A quote around a datum that already evaluates to itself
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* 5
+
+#+begin_src scheme
+'5
+#+end_src
+
+#+begin_quote
+Run ~sift explain quote-of-constant~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT007 reader-prefix-break
 :PROPERTIES:
 :CUSTOM_ID: reader-prefix-break
@@ -1011,6 +1117,26 @@ Tab characters used for indentation
 
 #+begin_quote
 Run ~sift explain tabs~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT058 too-many-arguments
+:PROPERTIES:
+:CUSTOM_ID: too-many-arguments
+:END:
+
+A parameter list long enough that a call site has to be looked up
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* (define (place x y area colour) ...)
+
+#+begin_src scheme
+(define (place x y width height colour outline) ...)
+#+end_src
+
+#+begin_quote
+Run ~sift explain too-many-arguments~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

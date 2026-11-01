@@ -37,6 +37,7 @@
   #:use-module (sift checkers naming)
   #:use-module (sift checkers simplify)
   #:use-module (sift checkers sxml)
+  #:use-module (sift checkers practices)
   #:export (all-checkers
             find-checker
             checkers-for-dialect
@@ -69,7 +70,8 @@ other report over the whole set cannot drift from the set itself."
                 ergonomics-checkers
                 naming-checkers
                 simplify-checkers
-                sxml-checkers)
+                sxml-checkers
+                practices-checkers)
         (lambda (a b)
           (string<? (symbol->string (lint-checker-name a))
                     (symbol->string (lint-checker-name b))))))

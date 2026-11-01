@@ -350,7 +350,14 @@ cannot move when the list is re-sorted."
     ;; the layout rules of Riastradh's style guide
     (comment-semicolons . "SIFT051")
     (blank-line-in-body . "SIFT052")
-    (single-letter-name . "SIFT053")))
+    (single-letter-name . "SIFT053")
+    ;; the rules about a form that reads as safe and is not quite
+    (quote-of-constant . "SIFT054")
+    (eq-on-literal . "SIFT055")
+    (cond-else-not-last . "SIFT056")
+    (duplicate-case-datum . "SIFT057")
+    (too-many-arguments . "SIFT058")
+    (defcustom-without-type . "SIFT059")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."
