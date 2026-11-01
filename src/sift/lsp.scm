@@ -44,13 +44,14 @@
 ;; editor can make would be a server that lies about half of them.
 ;;
 ;; Everything the server answers is configurable, in the same place as the
-;; rest of sift: `inlay-hints', `hover' and `completion' are settings like
-;; `line-length' is, so a project can set them in its `sift.yaml'.  They can
-;; also be set by the editor itself -- `initializationOptions' when the
-;; session starts, and `eglot-workspace-configuration' or a `settings.json'
-;; through `workspace/didChangeConfiguration' -- and those settings are read by
-;; the same validator and layered over the files, because what the editor says
-;; is the most specific thing anyone can say about this session.
+;; rest of sift: `inlay-hints' (which kinds of hint, or none), `hover' and
+;; `completion' are settings like `line-length' is, so a project can set them
+;; in its `sift.yaml'.  They can also be set by the editor itself --
+;; `initializationOptions' when the session starts, and
+;; `eglot-workspace-configuration' or a `settings.json' through
+;; `workspace/didChangeConfiguration' -- and those settings are read by the
+;; same validator and layered over the files, because what the editor says is
+;; the most specific thing anyone can say about this session.
 ;;
 ;; Documents are kept whole and replaced whole (`change: 1' in the sync
 ;; options).  An incremental edit would mean patching a string by character
@@ -1111,8 +1112,11 @@ than answering nothing."
 ;;; editor repeating what the code says.
 
 (define (argument-name-at formals index)
-  "Return the parameter name of the argument at @var{index}, or @code{#f}."
-  (and (< index (length formals)) (list-ref formals index)))
+  "Return the parameter name of the argument at @var{index}, or @code{#f}.
+
+@var{formals} is @code{#f} for a call sift cannot resolve, and then no
+argument has a name to put beside it."
+  (and (pair? formals) (< index (length formals)) (list-ref formals index)))
 
 (define (positional-arguments form)
   "Return the arguments of @var{form} up to its first keyword, in order.
@@ -1127,18 +1131,73 @@ be reading the call as if the keyword were not there."
       [(keyword-node? (car rest)) (reverse kept)]
       [else (loop (cdr rest) (cons (car rest) kept))])))
 
-(define (inlay-hint label position padding-left?)
+(define (inlay-hint label position kind padding-left?)
   "Return one `InlayHint' for @var{label} at @var{position}.
 
-`kind' 2 is the protocol's \"parameter\": an editor that styles hints shows it
-as a parameter name rather than as a type.  `paddingLeft' asks for a space
-before the label, so the hint reads as a word beside the argument instead of
-as part of it."
+@var{kind} is the protocol's: 1 is a type and 2 a parameter, and an editor
+that styles hints draws the two differently -- a name beside its argument, a
+type in the same place but greyer.  `paddingLeft' asks for a space before the
+label, so the hint reads as a word beside the argument instead of as part of
+it."
   (json-object
    (field "position" position)
    (field "label" label)
-   (field "kind" 2)
+   (field "kind" kind)
    (field "paddingLeft" padding-left?)))
+
+;;; --- the type an argument states outright --------------------------------
+;;;
+;;; sift infers nothing, and a type hint is the one place a hint could look
+;;; like inference.  So this answers only where the *source* states the type:
+;;; a string literal is a string, `#t' is a boolean, `(lambda ...)' is a
+;;; procedure.  An argument that is a name gets no hint, because the only thing
+;;; sift could say about it is what the reader already has to know.
+;;;
+;;; That is also why the setting is off by default: beside `"Main"' a hint
+;;; reading `string' is the editor repeating the source, and a hint nobody
+;;; needs is worse than no hint at all.
+
+(define (quoted-type node)
+  "Return the type a quoted datum states, or @code{#f}."
+  (let ((child (node-child node)))
+    (and child (node-data? child)
+      (cond
+        [(node-atom? child) (literal-type child)]
+        [(node-list? child) "list"]
+        [(node-vector? child) "vector"]
+        [else #f]))))
+
+(define (literal-call-type node)
+  "Return the type a call whose result is its own definition states, or #f.
+
+Three forms say what they build and nothing else: `lambda' is a procedure,
+`list' a list and `vector' a vector.  Nothing else is read this way -- `(cons
+1 2)' is a pair, but saying so is sift following a definition it cannot see
+rather than reading the form in front of it."
+  (case [node-head-name node]
+    [(lambda) "procedure"]
+    [(list) "list"]
+    [(vector) "vector"]
+    [else #f]))
+
+(define (literal-type node)
+  "Return the type an atom states, or @code{#f}."
+  (case [node-atom-type node]
+    [(string) "string"]
+    [(number) "number"]
+    [(character) "character"]
+    [(boolean) "boolean"]
+    [else #f]))
+
+(define (obvious-type argument)
+  "Return the type @var{argument} states outright, or @code{#f}."
+  (cond
+    [(not (node-data? argument)) #f]
+    [(node-atom? argument) (literal-type argument)]
+    [(node-prefix? argument) (quoted-type argument)]
+    [(node-list? argument) (literal-call-type argument)]
+    [(node-vector? argument) "vector"]
+    [else #f]))
 
 (define (call-formals ast workspace documents uri text dialect node)
   "Return the parameter names of the procedure @var{node} calls, or @code{#f}.
@@ -1156,7 +1215,8 @@ call means."
                                  (definition-formals definition))))
         (and (pair? formals) formals)))))
 
-(define* (lsp-inlay-hints workspace documents uri text dialect start end)
+(define* (lsp-inlay-hints workspace documents uri text dialect start end
+                          #:key (kinds '(parameters)))
   "Return the inlay hints for the calls of @var{text} between @var{start} and
 @var{end}, as the array an editor expects.
 
@@ -1168,35 +1228,55 @@ being resolved a form at a time for hints nobody will see.
 The walk is over forms rather than over every list, because a parameter list
 is a list and is not a call: `(define (make-window parent width) ...)' has a
 `parent' in argument position that nothing is being passed to, and a hint
-there would be sift describing a definition as if it were a call to itself."
+there would be sift describing a definition as if it were a call to itself.
+
+@var{kinds} is what the configuration asked for: `parameters' names a call's
+positional arguments from the definition, and `types' says what type an
+argument states outright.  Both can be on at once, and then a reader gets
+`width' followed by `number' on the same argument -- the name from the
+definition, the type from the source."
   (let ((hints '())
-        (ast (ast-of-text text dialect)))
+        (ast (ast-of-text text dialect))
+        (wanted? (lambda (kind) (memq kind kinds))))
     (for-each-form
      (lambda (node)
        (when (and (call-form? node)
                (let ((head (node-head node)))
                  (and head (node-atom? head)
                    (eq? (node-atom-type head) 'symbol))))
-         (let ((arguments (positional-arguments node)))
+         (let ((arguments (form-arguments node)))
            ;; the cheap question first: is any of this call's arguments in the
            ;; part of the file the editor is showing?
            (when (any (lambda (argument)
                         (let ((index (source-location-index (node-start argument))))
                           (and (>= index start) (<= index end))))
                       arguments)
-             (let ((formals (call-formals ast workspace documents uri text dialect
-                                          node)))
-               (when formals
-                 (let loop ((rest arguments) (position 0))
-                   (unless (null? rest)
-                     (let* ((argument (car rest))
-                            (index (source-location-index (node-start argument)))
-                            (name (argument-name-at formals position)))
-                       (when (and name (>= index start) (<= index end))
+             (let ((formals (and (wanted? 'parameters)
+                              (call-formals ast workspace documents uri text
+                                            dialect node))))
+               (let loop ((rest arguments) (position 0) (named? #t))
+                 (unless (null? rest)
+                   (let* ((argument (car rest))
+                          (index (source-location-index (node-start argument)))
+                          (keyword? (keyword-node? argument))
+                          (name (and named? (not keyword?)
+                                  (argument-name-at formals position)))
+                          (type (and (wanted? 'types) (obvious-type argument)))
+                          (here? (and (>= index start) (<= index end))))
+                     (when here?
+                       ;; the name first: `width' is what the argument is, and
+                       ;; `number' is what it is made of
+                       (when name
                          (set! hints
-                               (cons (inlay-hint name (json-position text index) #t)
+                               (cons (inlay-hint name (json-position text index) 2 #t)
                                      hints)))
-                       (loop (cdr rest) (+ position 1)))))))))))
+                       (when type
+                         (set! hints
+                               (cons (inlay-hint type (json-position text index) 1 #t)
+                                     hints))))
+                     (loop (cdr rest)
+                           (if (or (not named?) keyword?) position (+ position 1))
+                           (and named? (not keyword?)))))))))))
      ast)
     (list->vector (reverse hints))))
 
@@ -2460,8 +2540,9 @@ dead server."
       [(string=? method "textDocument/inlayHint")
        ;; The editor asks for the hints of the part of the file it is
        ;; showing, so the answer is about that range and nothing else.
-       (let ((document (document-of)))
-         (if (not (and document (config-ref config 'inlay-hints)))
+       (let ((document (document-of))
+             (kinds (config-ref config 'inlay-hints '(parameters))))
+         (if (not (and document (pair? kinds)))
            (reply! out id (vector))
            (let* ((text (document-text document))
                   (span (range-of-request text (params))))
@@ -2469,7 +2550,8 @@ dead server."
                      (lsp-inlay-hints workspace documents
                                       (document-uri document) text
                                       (document-dialect document)
-                                      (car span) (cdr span))))))
+                                      (car span) (cdr span)
+                                      #:kinds kinds)))))
        'continue]
 
       [(string=? method "textDocument/signatureHelp")

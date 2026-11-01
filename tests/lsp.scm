@@ -766,6 +766,67 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect '("name") #:got labels
           #:name "only the positional argument is named")))
 
+    (test "a literal's type is hinted when the project asks for it"
+      ;; A type hint is the one hint that could look like inference, so it is
+      ;; off unless asked for and it only ever repeats what the source says:
+      ;; `"Main"' is a string because it is written with quotes.
+      (let* ((text "(define (make-window parent width title)\n  (list parent width title))\n\n(make-window root 640 \"Main\")\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (configuration-with
+                                     (json-object
+                                      (field "sift"
+                                             (json-object
+                                              (field "inlay-hints"
+                                                     (list "parameters" "types"))))))
+                                    (inlay-hint-request 21 3))))
+             (hints (vector->list (json-ref (answer-to (cdr result) 21) "result")))
+             (named (lambda (kind)
+                      (map (lambda (hint) (json-ref hint "label"))
+                           (filter (lambda (hint)
+                                     (equal? kind (json-ref hint "kind")))
+                                   hints)))))
+        (assert-equal #:expect '("parent" "width" "title") #:got (named 2)
+          #:name "the parameters are named, as before")
+        (assert-equal #:expect '("number" "string") #:got (named 1)
+          #:name "and a literal says its own type")))
+
+    (test "a name says nothing about its type"
+      ;; `root` is a variable: sift would have to follow it to say what it
+      ;; holds, and a hint that guessed would be worse than a blank space.
+      (let* ((text "(define (make-window parent width)\n  (list parent width))\n\n(make-window root 640)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (configuration-with
+                                     (json-object
+                                      (field "sift"
+                                             (json-object
+                                              (field "inlay-hints"
+                                                     (list "types"))))))
+                                    (inlay-hint-request 22 3))))
+             (hints (json-ref (answer-to (cdr result) 22) "result"))
+             (labels (map (lambda (hint) (json-ref hint "label"))
+                          (vector->list hints))))
+        (assert-equal #:expect '("number") #:got labels
+          #:name "only the argument whose type is written down")))
+
+    (test "the project chooses which kinds of hint it gets"
+      (let* ((text "(define (make-window parent width)\n  (list parent width))\n\n(make-window root 640)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (configuration-with
+                                     (json-object
+                                      (field "sift"
+                                             (json-object
+                                              (field "inlay-hints" (list "types"))))))
+                                    (inlay-hint-request 23 3))))
+             (hints (json-ref (answer-to (cdr result) 23) "result"))
+             (kinds (delete-duplicates
+                     (map (lambda (hint) (json-ref hint "kind"))
+                          (vector->list hints)))))
+        (assert-equal #:expect '(1) #:got kinds
+          #:name "types alone means no parameter names")))
+
     (test "a call sift cannot resolve gets no inlay hint"
       (let* ((text "(mystery 1 2)\n")
              (result (session (list (initialize-request 1)

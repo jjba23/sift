@@ -965,7 +965,7 @@ from the editor's side.
 | ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
 | ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
 | ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
-| ~textDocument/inlayHint~                             | yes     | a parameter's name beside each positional argument of a call sift can resolve; ~inlay-hints: false~ turns it off |
+| ~textDocument/inlayHint~                             | yes     | a parameter's name beside each positional argument of a call sift can resolve, and the type a literal states when ~inlay-hints: [parameters, types]~ asks for it |
 | ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
 | ~window/logMessage~ (server to client)              | yes     | what the server did: the root it serves, the dialect of each buffer, the findings a report carries, every re-read |
@@ -1147,7 +1147,7 @@ single-letter-names: [i, j, k]
 field-macros: [package, operating-system, my-record]
 file-filter: ["src/**", "!src/generated/**"]
 max-positional: 4
-inlay-hints: false
+inlay-hints: [parameters, types]
 severity: warning
 checkers:
   - trailing-whitespace
@@ -1178,12 +1178,12 @@ sift: sift.yaml:1:1: unknown configuration key `line-lenght'
 
 The language server is configured by these same files, so a project's
 ~sift.yaml~ is the one place its editor behaviour is written down:
-~inlay-hints~, ~hover~ and ~completion~ say what the server answers.  An editor
-can send its own settings as well -- Eglot's ~eglot-workspace-configuration~, a
-~settings.json~ section, ~initializationOptions~ -- and they are layered over
-the files and validated the same way, with a key sift does not have reported in
-the editor's log rather than silently ignored.  [[file:doc/editors.org][doc/editors.org]] has the
-object each editor sends.
+~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~ say
+what the server answers.  An editor can send its own settings as well --
+Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
+~initializationOptions~ -- and they are layered over the files and validated the
+same way, with a key sift does not have reported in the editor's log rather than
+silently ignored.  [[file:doc/editors.org][doc/editors.org]] has the object each editor sends.
 
 A typo that is silently ignored is a setting you believe is in effect, so it
 is refused and named.  And you never have to guess which layer won:

@@ -141,6 +141,19 @@ keyword -- `#:height' says its own name.  Eglot shows hints once
 `M-x eglot-inlay-hints-mode' is on, and Neovim 0.10 and later with
 `vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })'.
 
+A hint can also say what type an argument states outright, which is off by
+default and turned on with `inlay-hints: [parameters, types]`:
+
+#+begin_example
+(make-window root parent 640 width number 480 height number "Main" title string)
+#+end_example
+
+That is the whole of the claim sift makes about types, and it is why the kind
+is opt-in: the source has to say it.  A string literal is a string, `#t` is a
+boolean, `(lambda ...)` is a procedure, `'(1 2)` is a list.  A variable gets no
+type hint -- `root` could hold anything, and sift will not follow it to find
+out, because an inlay hint that guessed would be worse than a blank space.
+
 ** Configuring the server
 
 `sift lsp` is configured in the same place as the rest of sift, and in one
@@ -149,11 +162,11 @@ configuration, which is sent to the server and layered over the files, because
 what the editor says is the most specific thing anyone can say about this
 session:
 
-| Setting       | Default | What it does                                     |
-|---------------+---------+--------------------------------------------------|
-| =inlay-hints= | =true=   | name the positional arguments of a call          |
-| =hover=       | =true=   | answer the hover with a rule or a definition     |
-| =completion=  | =true=   | offer the names the project defines while typing |
+| Setting       | Default      | What it does                                     |
+|---------------+--------------+--------------------------------------------------|
+| =inlay-hints= | =parameters= | which hints to answer: =parameters= (a parameter's name beside its argument), =types= (the type a literal states), both as a list, or =false= for none |
+| =hover=       | =true=       | answer the hover with a rule or a definition     |
+| =completion=  | =true=       | offer the names the project defines while typing |
 
 Every other setting is the server's too -- `severity`, `line-length`,
 `checkers`, `exclude-checkers`, `field-macros` -- because the server computes
@@ -165,7 +178,7 @@ In Emacs, `eglot-workspace-configuration` is the object Eglot sends:
 
 #+begin_src elisp
 (setq-default eglot-workspace-configuration
-              '(:sift (:inlay-hints :json-false
+              '(:sift (:inlay-hints ["parameters" "types"]
                       :field-macros ["package" "operating-system" "my-record"])))
 #+end_src
 

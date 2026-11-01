@@ -594,4 +594,25 @@ has exactly one of, which is a question `assert-contains' cannot ask."
           (let ((result (run-sift '("config" "show") #:directory directory)))
             (assert-status #:expect 0 #:got result)
             (assert-contains #:expect (cadr result)
-              #:got "exclude-checkers: []"))))))))
+              #:got "exclude-checkers: []")))))
+
+     ;; `inlay-hints' is one setting with three shapes: off, on, and the list
+     ;; of kinds.  A project writes it in its own file, so the YAML reader has
+     ;; to give all three.
+     (test "the inlay hints a project asks for are readable in YAML"
+       (with-temp-directory
+        (lambda (directory)
+          (spit (string-append directory "/sift.yaml")
+                "inlay-hints: [parameters, types]\n")
+          (let ((result (run-sift '("config" "show") #:directory directory)))
+            (assert-status #:expect 0 #:got result)
+            (assert-contains #:expect (cadr result)
+              #:got "inlay-hints: [parameters, types]")))))
+
+     (test "and off is a shape the setting accepts"
+       (with-temp-directory
+        (lambda (directory)
+          (spit (string-append directory "/sift.yaml") "inlay-hints: false\n")
+          (let ((result (run-sift '("config" "show") #:directory directory)))
+            (assert-status #:expect 0 #:got result)
+            (assert-contains #:expect (cadr result) #:got "inlay-hints: []"))))))))

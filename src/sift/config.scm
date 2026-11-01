@@ -188,10 +188,10 @@ one entry per key and `config-ref' always answers with the winning layer."
      (flag . #f)
      (description . "Offer the project's names in the language server's completion. Config-only."))
     (inlay-hints
-     (type . boolean)
-     (default . #t)
+     (type . hints)
+     (default . (parameters))
      (flag . #f)
-     (description . "Show a parameter's name beside each positional argument of a call, as an inlay hint. Config-only."))
+     (description . "Inlay hints the server answers: `parameters' (a parameter's name beside each positional argument), `types' (the type a literal states outright), both as a list, or #f for none. Config-only."))
     (comment-align
      (type . boolean)
      (default . #f)
@@ -435,6 +435,36 @@ rule writes, and an error about brackets would be the wrong thing to say."
         patterns
         (bad "a list of glob patterns")))))
 
+;; The kinds of inlay hint the language server can answer with.
+(define hint-kinds
+  '(parameters types))
+
+(define (hints-setting value bad)
+  "Return @var{value} as the kinds of inlay hint to answer with.
+
+`false' is no hints at all, `true' is the parameter names -- what sift
+answered before there was a choice -- and a list names the kinds: `parameters'
+for a parameter's name beside its argument, `types' for the type a literal
+states outright.  A single name is written without brackets, because a
+one-element setting always is."
+  (define (as-kind item)
+    (let ((kind (cond [(symbol? item) item]
+                      [(string? item)
+                       (string->symbol
+                        (string-downcase (string-trim-both item)))]
+                      [else #f])))
+      (if (memq kind hint-kinds) kind (bad "parameters, types, true or false"))))
+  (let ((items (cond
+                 [(or (eq? value #f) (eq? value 'false)) 'none]
+                 [(or (eq? value #t) (eq? value 'true)) '(parameters)]
+                 [(string? value) (map string-trim-both (string-split value #\,))]
+                 [(symbol? value) (list (symbol->string value))]
+                 [(list? value) value]
+                 [else (bad "parameters, types, true or false")])))
+    (if (eq? items 'none)
+      '()
+      (delete-duplicates (map as-kind items)))))
+
 ;;; The procedure that reads each kind of setting, keyed by the key's type.
 ;;;
 ;;; A new kind of setting is a procedure here and an entry in this table, not
@@ -447,6 +477,7 @@ rule writes, and an error about brackets would be the wrong thing to say."
     (integer . ,integer-setting)
     (boolean . ,boolean-setting)
     (names . ,names-setting)
+    (hints . ,hints-setting)
     (severity . ,severity-setting)
     (output-format . ,output-format-setting)
     (color . ,color-setting)
