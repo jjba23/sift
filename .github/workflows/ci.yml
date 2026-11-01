@@ -1,125 +1,32 @@
-# sift --- continuous integration
+# sift
 #
-# The job runs the same commands a contributor runs, in the same order, and
-# ends with the gate: `sift ci' over the library sources, annotated so that a
-# failure lands on the line of the pull request instead of in a log nobody
-# scrolls.
-#
-# Veritas is checked out beside the project because the suite is written
-# against its development version; the load path points at src/, at the
-# repository root (the tests are the (tests ...) modules) and at that
-# checkout.
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
-name: ci
+name: CI
 
 on:
   push:
     branches: [trunk]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
-  # the SARIF document the action writes is uploaded to code scanning
-  security-events: write
 
-env:
-  VERITAS_DIR: ${{ github.workspace }}/veritas
-  GUILE_LOAD_PATH: ${{ github.workspace }}/src:${{ github.workspace }}:${{ github.workspace }}/veritas/src
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Guix
-        uses: PromyLOPh/guix-install-action@v1
-
-      - name: Check out veritas
-        uses: actions/checkout@v4
-        with:
-          repository: jjba23/veritas
-          path: veritas
-
-      # --- the library -------------------------------------------------
-
-      - name: Run the Veritas suite
-        run: |
-          guix shell -m manifest.scm -- \
-            guile -L ./src -L . -L "$VERITAS_DIR/src" \
-              -c '(begin (use-modules (tests run)) (exit (run-all!)))'
-
-      - name: Compile every module
-        run: |
-          guix shell -m manifest.scm -- \
-            sh -c 'set -eu
-              find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
-                | xargs -0 -n 1 sh -c "guild compile -o \$(mktemp) \"\$1\"" sh'
-
-      # --- the editor half ---------------------------------------------
-
-      - name: Byte-compile the Emacs package
-        run: |
-          guix shell -m manifest.scm -- \
-            sh -c "emacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' -L emacs -f batch-byte-compile emacs/sift.el && rm -f emacs/sift.elc"
-
-      - name: Run the Emacs tests
-        run: |
-          guix shell -m manifest.scm -- \
-            emacs -Q --batch -L emacs -l ert -l emacs/sift-test.el \
-              -f ert-run-tests-batch-and-exit
-
-      # The Vim and VS Code integrations are tested by their own tools, which
-      # the runner has: Vim executes the plugin in batch, and Node executes the
-      # extension's arithmetic.  Neither needs the Guix environment.
-      - name: Run the Vim and VS Code tests
-        run: maak editors-check
-
-      # --- the gate ----------------------------------------------------
-
-      - name: Check that sift is formatted by sift
-        run: |
-          guix shell -m manifest.scm -- \
-            sh -c 'find src tests -name "*.scm" -not -path "tests/fixtures/*" -print0 \
-                     | xargs -0 ./bin/sift check'
-
-      - name: Check the fixture corpus is formatted
-        run: |
-          guix shell -m manifest.scm -- \
-            sh -c 'set -eu
-              for dir in tests/fixtures/*/*/expected; do
-                style=$(basename "$(dirname "$dir")")
-                case $(basename "$(dirname "$(dirname "$dir")")") in
-                  elisp) dialect=elisp ;;
-                  cl) dialect=cl ;;
-                  *) dialect=scheme ;;
-                esac
-                ./bin/sift check --dialect="$dialect" --style="$style" "$dir"/*
-              done'
-
-      - name: sift ci
-        run: |
-          guix shell -m manifest.scm -- \
-            ./bin/sift ci --format=github src/
-
-      # --- the action, used the way a consumer uses it ----------------
-      #
-      # sift's own pipeline runs sift's own action: an action nobody runs is an
-      # action that breaks quietly.  The launcher goes on the PATH first, which
-      # is what `install: path' asks the action to use.
-
-      - name: Put sift on the PATH
-        run: echo "$PWD/bin" >> "$GITHUB_PATH"
-
-      - name: sift (the action)
-        uses: ./
-        with:
-          paths: src/
-          install: path
-
-      - name: Upload the SARIF document
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: sift.sarif
-          category: sift
+  byggsteg:
+    name: 🧱 Byggsteg
+    uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
+    with:
+      tasks: maak-ci maak-test maak-emacs-test
+      # Bound the wait.  The bridge follows the deployment's job by polling it,
+      # eight seconds apart, and gives up after 4096 polls -- most of a working
+      # day.  Four hundred and fifty is an hour: longer than this configuration
+      # takes to build from nothing, and short enough that a job that has hung
+      # fails while somebody is still watching it.
+      poll-limit: "450"
+    secrets: inherit
