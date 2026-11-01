@@ -15,10 +15,13 @@
 [[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.14.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
-whitespace — and it does that without ever losing a comment, a blank line or
-an apostrophe.
+whitespace.  It does that without ever losing a comment, a blank line or an
+apostrophe — because a formatter you have to re-read is a formatter you stop
+running.
 
-It understands and enforces good practices in: Lisp, Scheme, Emacs Lisp and Common Lisp.
+It speaks the three Lisps people actually write — Scheme, Emacs Lisp and
+Common Lisp — and reads each one as itself rather than as a compromise
+between them.
 
 [[file:assets/sift-demo.gif]]
 
@@ -35,18 +38,19 @@ package, and is licensed MIT.  It is for people who have decided that Lisp is
 worth formatting properly, and who would like the formatter to agree.
 
 #+begin_quote
-*Check, format, lint  ~sift check~ prints the
+*Check, format, lint*  ~sift check~ prints the
 patch it would make and exits 1; ~sift format~ prints the formatted file;
 ~sift lint~ names the rule that fired, its severity and its position.  These
 are the same answers your editor and your pipeline get.  Every line in that
 recording is real output, on files small enough to read in the picture.
 #+end_quote
 
-* Who it is for
+* It's for you Lispers, Schemers and Emacsen
 :PROPERTIES:
 :CUSTOM_ID: audience
 :END:
 
+- *People learning Lisp, Scheme or Emacs Lisp* 🩷
 - *Guile and Guix hackers* whose ~cond~ clauses are written with square
   brackets, and who want a formatter that agrees with the code base next door
   instead of re-deciding it.
@@ -85,7 +89,7 @@ eat a comment, this is for you.
   on purpose: ~format~ prints, ~--write~ writes, ~lint~ reports, ~lint --fix~
   fixes, and ~ci~ asks the formatting question and the lint question in one
   go without ever touching the tree.
-- *Fifty rules that say why.*  Every rule has a name, a stable code
+- *Sixty-three rules that say why.*  Every rule has a name, a stable code
   (~SIFT012~), a sentence, the dialects it applies to, an example, and its own
   test file.  ~sift explain RULE~ reads the reasoning from the program;
   [[file:doc/rules.org][doc/rules.org]] is the same thing as a book, generated from the rules
@@ -95,8 +99,9 @@ eat a comment, this is for you.
   error.  Nothing invents a missing delimiter, and nothing renames your code.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
   input and output: diagnostics, quickfixes and formatting, go to definition
-  and references for all three dialects, an outline, completion, and a hover
-  that describes a symbol or the rule under it.
+  and references for all three dialects, an outline, completion, inlay hints
+  that name a call's arguments, and a hover that describes a symbol or the
+  rule under it.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and
@@ -106,6 +111,10 @@ eat a comment, this is for you.
   tells you which layer won.
 - *MIT, no strings.*  A formatter belongs in as many pipelines as possible
   without a copyright question in the way.
+
+If none of that is your reason: it is a Lisp program that treats your Lisp
+program as a tree of forms rather than as a file of text, and that turns out
+to be most of it.
 
 * A thirty-second tour
 :PROPERTIES:
@@ -208,7 +217,7 @@ $ sift doctor
 sift 1.14.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       53
+  rules       63
   dialects    scheme, elisp, cl
 
 Configuration
@@ -696,8 +705,9 @@ nothing.
 
 A rule is a record: a name, a code, a description, the dialects it applies to,
 a default severity, a procedure, and an example.  The driver reads the file
-once, runs the applicable rules, folds in what the reader found, applies the
-suppression comments, sorts by file, line, column and rule, and reports.
+once, runs the rules the dialect applies to, folds in whatever the reader
+complained about, honours the suppression comments, and reports the lot sorted
+by file, line, column and rule — the same order your editor lists them in.
 
 There are 63 rules.  They are listed one by one, with their codes and their
 reasoning, in [[file:doc/rules.org][doc/rules.org]] — a document generated from those records, so it
@@ -758,7 +768,7 @@ semicolons a comment takes is one at the end of a line, two inside a form, and
 three at top level (four is a heading, and a heading is left alone), and where
 the comment sits is something the reader knows.  What the comment is *for* is
 still the author's, so the fix re-levels a comment and puts a space after its
-semicolons, and `sift fix` over a whole buffer does exactly that to every
+semicolons, and ~sift fix~ over a whole buffer does exactly that to every
 comment the rule reports.  A project whose ~severity~ is ~warning~ sees none of
 them, so ~sift fix --severity=info~ is how a tidy-up run asks for them.
 
@@ -974,7 +984,7 @@ from the editor's side.
 | ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
 | ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
 | ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
-| ~textDocument/inlayHint~, ~codeLens~                 | partly  | a parameter's name beside its argument, and nothing else: a lens would have to guess at what it is for |
+| ~codeLens~                                           | no      | a lens would have to guess at what it is for                                      |
 | ~textDocument/foldingRange~                          | no      | the formatter has no opinion about what to fold                                   |
 | ~textDocument/rangeFormatting~, ~onTypeFormatting~   | no      | sift formats a whole buffer or nothing                                            |
 | ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
@@ -1123,10 +1133,10 @@ half-rewriting a tree and then explaining itself.
 :CUSTOM_ID: configuration
 :END:
 
-A `file-filter` decides what a *directory* holds when sift walks one: `*'
-stops at a separator, `**' crosses one, a leading `!' excludes, and the last
-pattern that matches a file decides.  A file named on the command line is
-always read -- a filter is a rule about walking, not about what you said.
+A ~file-filter~ decides what a *directory* holds when sift walks one: ~*~
+stops at a separator, ~**~ crosses one, a leading ~!~ excludes, and the last
+pattern that matches a file decides.  A file you name on the command line is
+always read — a filter is a rule about walking, not about what you said.
 
 Four layers, each winning over the one before: built-in defaults, the system
 file (~/etc/sift/config.yaml~), your user file (~$XDG_CONFIG_HOME/sift/~), the
@@ -1269,14 +1279,15 @@ sources the plugin and drives it through ~:SiftLint~ and ~:SiftFix~, and the
 VS Code test runs the extension's own arithmetic — the ranges a quickfix
 replaces — with Node's ~assert~.
 
-The suite is not a smoke test.  The reader is tested dialect by dialect on
-every reader macro, every escape, CRLF and UTF-8 columns; the formatter on a
-golden corpus in both styles plus an idempotence pass over every expected
-file; each rule has its own file with a passing case, a failing case at a
-known line and column, a case per applicable dialect, and — where there is a
-fix — the fixed text and a re-lint that must find nothing; the command line is
-tested as a subprocess, by exit status; and the language server is tested by
-talking to it, a frame at a time, including the frames that are not JSON.
+The suite is not a smoke test, and it is not one file.  The reader is tested
+dialect by dialect on every reader macro, every escape, CRLF and UTF-8
+columns; the formatter on a golden corpus in both styles plus an idempotence
+pass over every expected file; each rule has its own file with a passing case,
+a failing case at a known line and column, a case per applicable dialect, and
+— where there is a fix — the fixed text and a re-lint that must find nothing;
+the command line is tested as a subprocess, by exit status; and the language
+server is tested by talking to it, a frame at a time, including the frames
+that are not JSON.
 
 * How it is built
 :PROPERTIES:
@@ -1342,7 +1353,7 @@ findings for everything before it.
 
 Three questions dominated the cost of a lint, and all three were answered by
 walking something again.  Whether a node is code or data -- it is data inside a
-quote, inside a vector literal, in the datum of a `case` clause, in a parameter
+quote, inside a vector literal, in the datum of a ~case~ clause, in a parameter
 list -- was decided by walking *up* the ancestors for every node of every
 checker's walk, which is a walk per node per level.  What a form is called, and
 which of its children carry a datum, was recomputed by walking its children
@@ -1416,10 +1427,11 @@ means what it meant.
 :END:
 
 sift does not resolve macros, does not type-check, and does not know your
-project's conventions.  It reports; you decide.  Where it can be wrong it says
-so: ~wrap-in-let~ is a suggestion, ~keyword-arguments~ counts, and the
-thresholds are settings.  The language server answers the requests
-[[#lsp-coverage][the table above]] lists, and refuses the rest with "method not
+project's conventions.  It reports; you decide.  That is not modesty — it is
+the only way a linter stays useful to a project it has never seen.  Where it
+can be wrong it says so: ~wrap-in-let~ is a suggestion, ~keyword-arguments~
+counts, and the thresholds are settings.  The language server answers the
+requests [[#lsp-coverage][the table above]] lists, and refuses the rest with "method not
 found" rather than guessing.
 
 * Contributing
