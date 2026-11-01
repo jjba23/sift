@@ -97,6 +97,11 @@ server that handles one."
 
 (define buffer-uri "file:///tmp/sift-lsp-test.scm")
 
+;; A second buffer, so that a jump across files has somewhere to land and
+;; `references' has more than one file to look in.
+(define lib-uri "file:///tmp/sift-lsp-test-lib.scm")
+(define lib-source "(define (square x)\n  (* x x))\n")
+
 ;; A buffer with a fixable warning, an unfixable one, and trailing whitespace.
 (define unclean
   "(define (f x)\n  (if (ready?)   \n      (go)))\n")
@@ -186,6 +191,18 @@ bug; the server has to survive it."
             (field "range" (range (point line character) (point line character)))
             (field "context" (json-object (field "diagnostics" (vector)))))))
 
+(define (code-action-only-request id line character only)
+  ;; A client that asks for `context.only' is asking a narrower question, and
+  ;; a server that answered the wider one would tempt an editor into showing
+  ;; a rewrite where the user asked for a fix.
+  (request id "textDocument/codeAction"
+           (json-object
+            (field "textDocument" (text-document))
+            (field "range" (range (point line character) (point line character)))
+            (field "context"
+                   (json-object (field "diagnostics" (vector))
+                                (field "only" (list->vector only)))))))
+
 (define (formatting-request id)
   (request id "textDocument/formatting"
            (json-object
@@ -201,6 +218,68 @@ bug; the server has to survive it."
 
 (define (shutdown-request id)
   (request id "shutdown" (json-object)))
+
+;;; ===== Navigation =====
+;;;
+;;; A jump is asked for with a position, so these builders take a line and a
+;;; column rather than a character index: turning the protocol's counts into an
+;;; offset is the server's work, and a test that did it first would agree with
+;;; a broken implementation.
+
+(define* (open-at uri text #:key (version 1) (language "scheme"))
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "textDocument/didOpen")
+   (field "params"
+          (json-object
+           (field "textDocument"
+                  (json-object
+                   (field "uri" uri)
+                   (field "languageId" language)
+                   (field "version" version)
+                   (field "text" text)))))))
+
+(define (position-request id method uri line character)
+  (request id method
+           (json-object
+            (field "textDocument" (json-object (field "uri" uri)))
+            (field "position" (point line character)))))
+
+(define (definition-request id uri line character)
+  (position-request id "textDocument/definition" uri line character))
+
+(define (highlight-request id uri line character)
+  (position-request id "textDocument/documentHighlight" uri line character))
+
+(define (hover-at-request id uri line character)
+  (position-request id "textDocument/hover" uri line character))
+
+(define (references-request id uri line character)
+  (request id "textDocument/references"
+           (json-object
+            (field "textDocument" (json-object (field "uri" uri)))
+            (field "position" (point line character))
+            (field "context" (json-object (field "includeDeclaration" #t))))))
+
+(define (symbols-request id uri)
+  (request id "textDocument/documentSymbol"
+           (json-object (field "textDocument" (json-object (field "uri" uri))))))
+
+(define (completion-at-request id uri line character)
+  (position-request id "textDocument/completion" uri line character))
+
+(define (prepare-rename-request id uri line character)
+  (position-request id "textDocument/prepareRename" uri line character))
+
+(define (rename-request id uri line character new-name)
+  (request id "textDocument/rename"
+           (json-object
+            (field "textDocument" (json-object (field "uri" uri)))
+            (field "position" (point line character))
+            (field "newName" new-name))))
+
+(define (workspace-symbol-request id query)
+  (request id "workspace/symbol" (json-object (field "query" query))))
 
 ;;; ===== Reading answers =====
 
@@ -231,10 +310,11 @@ bug; the server has to survive it."
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "documentFormattingProvider")
           #:name "the server formats")
-        (assert-equal #:expect #("quickfix")
+        (assert-equal #:expect #("quickfix" "refactor.rewrite"
+                                 "source.fixAll" "source.fixAll.sift")
           #:got (json-ref (json-ref capabilities "codeActionProvider")
                           "codeActionKinds")
-          #:name "the server offers quickfixes")
+          #:name "the server offers fixes and the one rewrite it can make")
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "hoverProvider")
           #:name "the server answers a hover")))
@@ -304,6 +384,58 @@ bug; the server has to survive it."
         (assert-contains #:expect replacement #:got "when"
           #:name "the fix is the one that turns if into when")))
 
+    (test "one action fixes every safe finding in the buffer"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open unclean)
+                                    (code-action-only-request 2 1 4
+                                                              '("source.fixAll")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result"))
+             (action (and (> (vector-length actions) 0) (vector-ref actions 0)))
+             (changes (json-ref (json-ref action "edit") "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits"))
+             (replacement (json-ref (vector-ref edits 0) "newText")))
+        (assert-equal #:expect 1 #:got (vector-length actions)
+          #:name "one action, not one per finding")
+        (assert-equal #:expect "source.fixAll.sift" #:got (json-ref action "kind"))
+        (assert-contains #:expect replacement #:got "when"
+          #:name "the `if' was rewritten")
+        (assert-equal #:expect #f #:got (string-contains replacement "   \n")
+          #:name "and the trailing whitespace went with it")))
+
+    (test "a client that asks for quickfixes gets quickfixes and nothing else"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open unclean)
+                                    (code-action-only-request 2 1 4 '("quickfix")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (kinds (delete-duplicates
+                     (map (lambda (action) (json-ref action "kind")) actions))))
+        (assert-true (pair? kinds) #:name "something was offered")
+        (assert-equal #:expect '("quickfix") #:got kinds
+          #:name "no rewrite and no fix-all were mixed in")))
+
+    (test "the definition under the cursor can be reformatted on its own"
+      (let* ((text "(define (f x)\n    (* x x))\n\n(define (g) 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 6
+                                                              '("refactor.rewrite")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result"))
+             (action (vector-ref actions 0))
+             (changes (json-ref (json-ref action "edit") "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits"))
+             (edit (vector-ref edits 0))
+             (replacement (json-ref edit "newText")))
+        (assert-equal #:expect "refactor.rewrite" #:got (json-ref action "kind"))
+        (assert-contains #:expect replacement #:got "  (* x x))"
+          #:name "the body was indented")
+        (assert-equal #:expect 0
+          #:got (json-ref (json-ref (json-ref edit "range") "start") "line")
+          #:name "the edit starts at the definition")
+        (assert-equal #:expect 1
+          #:got (json-ref (json-ref (json-ref edit "range") "end") "line")
+          #:name "and ends with it, leaving the next definition alone")))
+
     (test "formatting answers with the text sift would write"
       (let* ((result (session (list (initialize-request 1)
                                     (open unclean)
@@ -328,7 +460,7 @@ bug; the server has to survive it."
     (test "an unknown request is refused, and the server keeps talking"
       (let* ((result (session (list (initialize-request 1)
                                     (open unclean)
-                                    (request 5 "textDocument/completion"
+                                    (request 5 "textDocument/signatureHelp"
                                              (json-object))
                                     (formatting-request 6))))
              (refusal (answer-to (cdr result) 5))
@@ -422,7 +554,7 @@ bug; the server has to survive it."
 
     (test "an unknown method is refused and the server keeps its answers"
       (let* ((result (session (list (initialize-request 1)
-                                    (request 2 "textDocument/rename" (json-object))
+                                    (request 2 "textDocument/typeDefinition" (json-object))
                                     (shutdown-request 3)
                                     (exit-message))))
              (refusal (answer-to (cdr result) 2)))
@@ -479,4 +611,212 @@ bug; the server has to survive it."
                               #:arguments '("--severity=error")))
              (diagnostics (published (cdr result) buffer-uri)))
         (assert-equal #:expect 0 #:got (vector-length diagnostics)
-          #:name "a warning is below the severity the server was given")))))
+          #:name "a warning is below the severity the server was given")))
+
+    ;; --- what the editor can navigate to --------------------------------
+
+    (test "initialize advertises the navigation requests"
+      (let* ((result (session (list (initialize-request 1))))
+             (capabilities (json-ref (json-ref (answer-to (cdr result) 1) "result")
+                                     "capabilities")))
+        (assert-equal #:expect 'true #:got (json-ref capabilities "definitionProvider")
+          #:name "definitions")
+        (assert-equal #:expect 'true #:got (json-ref capabilities "referencesProvider")
+          #:name "references")
+        (assert-equal #:expect 'true #:got (json-ref capabilities "documentHighlightProvider")
+          #:name "highlights")
+        (assert-equal #:expect 'true #:got (json-ref capabilities "documentSymbolProvider")
+          #:name "an outline")
+        (assert-equal #:expect 'true #:got (json-ref capabilities "workspaceSymbolProvider")
+          #:name "a workspace search")
+        (assert-equal #:expect 'true
+          #:got (json-ref (json-ref capabilities "renameProvider") "prepareProvider")
+          #:name "a rename, with a pre-flight check")))
+
+    (test "a symbol jumps to the definition that names it"
+      (let* ((text "(define (square x)\n  (* x x))\n\n(define (area r)\n  (square r))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (definition-request 2 buffer-uri 4 4))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 1 #:got (vector-length locations)
+          #:name "one definition, not every `square' in the file")
+        (assert-equal #:expect 0 #:got (json-ref start "line"))
+        (assert-equal #:expect 9 #:got (json-ref start "character"))))
+
+    (test "a reference inside a let jumps to the binding, not the outer name"
+      ;; Both `x's are named `x'; only one of them is the one the reference
+      ;; means, and the answer that ignores scope is wrong in every file that
+      ;; uses a name twice.
+      (let* ((text "(define (f x)\n  (let ((x 1))\n    x))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (definition-request 2 buffer-uri 2 4))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 1 #:got (json-ref start "line")
+          #:name "the `let' binding, on the second line")
+        (assert-equal #:expect 9 #:got (json-ref start "character"))))
+
+    (test "the name of a parameter is its own definition"
+      (let* ((text "(define (f x)\n  x)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (definition-request 2 buffer-uri 0 11))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 1 #:got (vector-length locations)
+          #:name "a request on the binding answers with the binding")
+        (assert-equal #:expect 11 #:got (json-ref start "character"))))
+
+    (test "an Emacs Lisp defun is a definition"
+      (let* ((text "(defun greet (name)\n  (greet name))\n")
+             (result (session (list (initialize-request 1)
+                                    (open-at buffer-uri text #:language "emacs-lisp")
+                                    (definition-request 2 buffer-uri 1 3))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 0 #:got (json-ref start "line"))
+        (assert-equal #:expect 7 #:got (json-ref start "character")
+          #:name "`greet' behind the `defun'")))
+
+    (test "a Common Lisp defparameter is a definition"
+      (let* ((text "(defparameter *limit* 10)\n\n(defun clamp (x)\n  (min *limit* x))\n")
+             (result (session (list (initialize-request 1)
+                                    (open-at buffer-uri text #:language "lisp")
+                                    (definition-request 2 buffer-uri 3 9))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 0 #:got (json-ref start "line"))
+        (assert-equal #:expect 14 #:got (json-ref start "character"))))
+
+    (test "a symbol with no definition answers with nothing at all"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open "(define (f) 1)\n(f)\n")
+                                    (definition-request 2 buffer-uri 1 1))))
+             (locations (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 1 #:got (vector-length locations)
+          #:name "`f' is defined, so this is the definition")
+        (let* ((unknown (session (list (initialize-request 1)
+                                       (open "(define (f) 1)\n(nowhere 2)\n")
+                                       (definition-request 2 buffer-uri 1 2))))
+               (none (json-ref (answer-to (cdr unknown) 2) "result")))
+          (assert-equal #:expect 0 #:got (vector-length none)
+            #:name "a name nothing defines is an empty answer, not an error"))))
+
+    (test "a definition in another buffer is found"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at lib-uri lib-source)
+                                    (open "(define (area r)\n  (square r))\n")
+                                    (definition-request 2 buffer-uri 1 4))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (start (start-of (vector-ref locations 0))))
+        (assert-equal #:expect 1 #:got (vector-length locations))
+        (assert-equal #:expect lib-uri
+          #:got (json-ref (vector-ref locations 0) "uri")
+          #:name "the jump leaves the buffer it started in")
+        (assert-equal #:expect 9 #:got (json-ref start "character"))))
+
+    (test "references list every mention in the project"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at lib-uri lib-source)
+                                    (open "(define (area r)\n  (square r))\n")
+                                    (references-request 2 buffer-uri 1 4))))
+             (locations (json-ref (answer-to (cdr result) 2) "result"))
+             (uris (map (lambda (location) (json-ref location "uri"))
+                        (vector->list locations))))
+        (assert-equal #:expect 2 #:got (vector-length locations)
+          #:name "the definition and the use")
+        (assert-equal #:expect (list buffer-uri lib-uri) #:got uris
+          #:name "this buffer's mention first, then the other one's")))
+
+    (test "the highlights mark the declaration apart from the uses"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open "(define (f x)\n  (+ f 1))\n")
+                                    (highlight-request 2 buffer-uri 1 5))))
+             (highlights (vector->list
+                          (json-ref (answer-to (cdr result) 2) "result"))))
+        (assert-equal #:expect 2 #:got (length highlights))
+        (assert-equal #:expect 3 #:got (json-ref (car highlights) "kind")
+          #:name "the declaration is a write")
+        (assert-equal #:expect 2 #:got (json-ref (cadr highlights) "kind")
+          #:name "the use is a read")))
+
+    (test "the outline nests a definition inside the one that holds it"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open "(define (f)\n  (define (g) 1)\n  (g))\n")
+                                    (symbols-request 2 buffer-uri))))
+             (symbols (json-ref (answer-to (cdr result) 2) "result"))
+             (outer (vector-ref symbols 0))
+             (children (json-ref outer "children")))
+        (assert-equal #:expect 1 #:got (vector-length symbols))
+        (assert-equal #:expect "f" #:got (json-ref outer "name"))
+        (assert-equal #:expect 1 #:got (vector-length children)
+          #:name "`g' is inside `f', not beside it")
+        (assert-equal #:expect "g"
+          #:got (json-ref (vector-ref children 0) "name"))))
+
+    (test "the hover describes the symbol rather than the line"
+      (let* ((text "(define (square x)\n  \"Square X.\"\n  (* x x))\n\n(define (area r)\n  (square r))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (hover-at-request 2 buffer-uri 5 4))))
+             (value (json-ref (json-ref (answer-to (cdr result) 2) "result")
+                              "contents")))
+        (assert-contains #:expect (json-ref value "value") #:got "**square**")
+        (assert-contains #:expect (json-ref value "value") #:got "function")
+        (assert-contains #:expect (json-ref value "value") #:got "Square X."
+          #:name "the definition's own docstring, not the rule's")))
+
+    (test "completion offers the names the project defines"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at lib-uri lib-source)
+                                    (open "(define (area r)\n  (square r))\n")
+                                    (completion-at-request 2 buffer-uri 1 0))))
+             (items (json-ref (answer-to (cdr result) 2) "result"))
+             (labels (map (lambda (item) (json-ref item "label"))
+                          (vector->list items))))
+        (assert-true (and (member "area" labels) #t)
+          #:name "from this buffer")
+        (assert-true (and (member "square" labels) #t)
+          #:name "from the one next to it")))
+
+    (test "prepareRename says what would be renamed, and rename edits every mention"
+      (let* ((text "(define (f x) x)\n(f 1)\n")
+             (prepared (session (list (initialize-request 1)
+                                      (open text)
+                                      (prepare-rename-request 2 buffer-uri 1 1))))
+             (range (json-ref (answer-to (cdr prepared) 2) "result"))
+             (renamed (session (list (initialize-request 1)
+                                     (open text)
+                                     (rename-request 2 buffer-uri 1 1 "g"))))
+             (edit (json-ref (answer-to (cdr renamed) 2) "result"))
+             (changes (json-ref edit "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits")))
+        (assert-equal #:expect "f" #:got (json-ref range "placeholder"))
+        (assert-equal #:expect 1 #:got (vector-length changes))
+        (assert-equal #:expect 2 #:got (vector-length edits)
+          #:name "the definition and the call")
+        (assert-equal #:expect "g"
+          #:got (json-ref (vector-ref edits 1) "newText"))
+        (assert-equal #:expect 1
+          #:got (json-ref (json-ref (vector-ref changes 0) "textDocument")
+                          "version")
+          #:name "the edit is pinned to the version it was computed from")))
+
+    (test "a rename that is not a symbol name is refused, not written"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open "(define (f x) x)\n(f 1)\n")
+                                    (rename-request 2 buffer-uri 1 1 "(bad)"))))
+             (answer (answer-to (cdr result) 2)))
+        (assert-equal #:expect -32602 #:got (json-ref (json-ref answer "error") "code"))))
+
+    (test "workspace/symbol searches the buffers the editor has open"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at lib-uri lib-source)
+                                    (workspace-symbol-request 2 "squ"))))
+             (symbols (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 1 #:got (vector-length symbols))
+        (assert-equal #:expect "square"
+          #:got (json-ref (vector-ref symbols 0) "name"))))))

@@ -91,8 +91,9 @@ eat a comment, this is for you.
   every fix of a run is thrown away if together they would introduce a parse
   error.  Nothing invents a missing delimiter, and nothing renames your code.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
-  input and output: diagnostics, quickfixes, formatting and a hover that says
-  what the rule wants.
+  input and output: diagnostics, quickfixes and formatting, go to definition
+  and references for all three dialects, an outline, completion, and a hover
+  that describes a symbol or the rule under it.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and
@@ -818,6 +819,64 @@ recipes, and the ready-made ones live in the repository:
 The human format is ~file:line:column: severity: [rule] message~, which Vim's
 ~:make~, Emacs's ~compilation-mode~ and most CI log viewers already understand.
 
+* What the language server answers
+:PROPERTIES:
+:CUSTOM_ID: lsp-coverage
+:END:
+
+~sift lsp~ answers what sift can answer truthfully and refuses the rest with
+the protocol's own "method not found", because a server that answered every
+request an editor can make would be lying about half of them.  This table is
+the whole of it, so a missing feature is a line here rather than a guess made
+from the editor's side.
+
+| Request                                              | Status  | What sift does                                                                    |
+|------------------------------------------------------+---------+-----------------------------------------------------------------------------------|
+| ~initialize~, ~shutdown~, ~exit~                     | yes     | the capabilities below, and the exit status the protocol asks for                 |
+| ~textDocument/didOpen~, ~didChange~, ~didClose~       | yes     | full synchronisation: the buffer is linted on every change                        |
+| ~textDocument/didSave~                               | accepted| nothing to do; the findings are already published                                  |
+| ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page                    |
+| ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; honours ~context.only~ |
+| ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
+| ~textDocument/formatting~                            | yes     | one edit for the buffer, or a message saying why it refuses                       |
+| ~textDocument/hover~                                 | yes     | a symbol's definition and docstring; a finding's rule otherwise                   |
+| ~textDocument/definition~                            | yes     | Scheme, Emacs Lisp and Common Lisp: scope first, then the file, then the project   |
+| ~textDocument/references~                            | yes     | every mention in the project, by name, within one dialect                         |
+| ~textDocument/documentHighlight~                     | yes     | the mentions in this buffer, the declaration marked apart from the uses           |
+| ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
+| ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
+| ~textDocument/completion~                            | yes     | the names the buffer and the project define; no snippets, no arithmetic           |
+| ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
+| ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
+| ~$/cancelRequest~, ~$/setTrace~                      | ignored | there is nothing to cancel and nothing to trace                                   |
+| ~textDocument/signatureHelp~                         | no      | sift does not know a macro's argument list                                        |
+| ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
+| ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
+| ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
+| ~textDocument/inlayHint~, ~codeLens~                 | no      | nothing is inferred that a reader of the file could not see                        |
+| ~textDocument/foldingRange~                          | no      | the formatter has no opinion about what to fold                                   |
+| ~textDocument/rangeFormatting~, ~onTypeFormatting~   | no      | sift formats a whole buffer or nothing                                            |
+| ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
+| ~workspace/didChangeConfiguration~                   | no      | a setting belongs in ~sift.yaml~; restart the server after changing one            |
+| ~workspace/didChangeWorkspaceFolders~                | no      | the root is read once, at ~initialize~                                            |
+
+Two limits belong next to the table rather than in an issue.  A reference is
+matched *by name, within one dialect*: sift expands no macro, follows no
+~define-module~ import and reads no ~defpackage~, so a name a macro invents is
+invisible to ~references~ and to ~rename~.  And the project is read once per
+session, on the first request that needs it, so a file changed outside the
+editor without a ~didSave~ is seen when the server is restarted.
+
+The code actions are the three things sift can do without being told what to
+call anything: fix the finding under the cursor (~quickfix~), fix every safe
+finding in the buffer at once (~source.fixAll.sift~, the same all-or-nothing
+deal ~sift fix~ makes, as one edit), and reformat the definition the cursor is
+inside (~refactor.rewrite~, offered only for a top-level form, because the
+formatter indents from column zero and a fragment would land at the margin).
+A rename is a refactor too, but it needs a new name, so it is the protocol's
+own ~textDocument/rename~ rather than an action that would have to invent one
+-- which is the same line ~sift fix~ draws everywhere else.
+
 * In a pipeline
 :PROPERTIES:
 :CUSTOM_ID: ci
@@ -1045,7 +1104,8 @@ src/sift/
   config.scm        <config>, discovery, merging, provenance, trust
   yaml.scm          the data-only YAML subset the configuration needs
   json.scm          the JSON the language server speaks
-  lsp.scm           diagnostics, code actions, formatting, hover
+  definitions.scm   what defines a name, what binds one, and where it is used
+  lsp.scm           diagnostics, actions, formatting, hover, and navigation
   catalogue.scm     the rule catalogue, generated from the records
   cli.scm           args-fold, dispatch, exit codes
 emacs/              the Emacs package and its ERT suite
@@ -1137,9 +1197,9 @@ means what it meant.
 sift does not resolve macros, does not type-check, and does not know your
 project's conventions.  It reports; you decide.  Where it can be wrong it says
 so: ~wrap-in-let~ is a suggestion, ~keyword-arguments~ counts, and the
-thresholds are settings.  The language server answers the four requests its
-job needs and refuses the rest with "method not found", because a server that
-answered every request an editor can make would be lying about half of them.
+thresholds are settings.  The language server answers the requests
+[[#lsp-coverage][the table above]] lists, and refuses the rest with "method not
+found" rather than guessing.
 
 * Contributing
 :PROPERTIES:

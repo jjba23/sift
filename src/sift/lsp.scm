@@ -15,14 +15,29 @@
 ;; it:
 ;;
 ;;   textDocument/didOpen, didChange   lint the buffer, publish the findings
-;;   textDocument/codeAction           offer each finding's fix as a quickfix
+;;   textDocument/codeAction           each finding's fix, fix-all, format this definition
 ;;   textDocument/formatting           format the buffer
-;;   textDocument/hover                say what the rule under the cursor wants
+;;   textDocument/hover                a symbol's definition, or the rule under it
+;;   textDocument/definition           the definition a symbol names
+;;   textDocument/references           every mention of it in the project
+;;   textDocument/documentHighlight    the mentions in this buffer
+;;   textDocument/documentSymbol       the outline of the buffer
+;;   workspace/symbol                  search those outlines
+;;   textDocument/completion           the names the project defines
+;;   textDocument/prepareRename        whether a symbol can be renamed here
+;;   textDocument/rename               rename it, by name, in the project
 ;;
-;; What it does not do is as deliberate: there is no completion, no rename, no
-;; workspace symbol search.  sift is a formatter and a linter, and a server
-;; that answered every request an editor can make would be a server that lies
-;; about half of them.
+;; The navigation requests are answered from the same tree the linter reads,
+;; with `(sift definitions)' resolving what is in scope at the cursor: a
+;; parameter, a `let' variable, an internal definition, and then the file and
+;; the rest of the workspace, in that order.  A name is matched as a name, per
+;; dialect -- no macro is expanded, no module import is followed -- which is
+;; the same promise the linter makes, and the manual says so where it lists
+;; what the server answers.
+;;
+;; What it does not do is as deliberate: no signature help, no type hierarchy,
+;; no inlay hints.  A server that answered every request an editor can make
+;; would be a server that lies about half of them.
 ;;
 ;; Documents are kept whole and replaced whole (`textDocumentSync' 1).  An
 ;; incremental edit would mean patching a string by character offsets that the
@@ -31,24 +46,32 @@
 ;; editor has.
 
 (define-module (sift lsp)
-  #:declarative? #t
+  ;; The server is not declarative: it hands the definition accessors to
+  ;; `map' and keeps them beside the documents they describe, and a record
+  ;; accessor from a declarative neighbour is only inlinable, not a value.
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 ftw)
+  #:use-module (ice-9 textual-ports)
   #:use-module (rnrs bytevectors)
   #:use-module (sift records)
   #:use-module (sift reader)
   #:use-module (sift lint)
   #:use-module (sift format)
   #:use-module (sift config)
+  #:use-module (sift definitions)
   #:use-module (sift json)
   #:use-module (sift render)
   #:export (lsp-serve
             lsp-diagnostics
             lsp-code-actions
-            lsp-formatting))
+            lsp-formatting
+            lsp-definition
+            lsp-references
+            lsp-document-symbols))
 
 ;;; ===== The wire =====
 ;;;
@@ -248,6 +271,468 @@ a URI is."
               (loop (+ i 3)))
             (begin (display c out) (loop (+ i 1)))))))))
 
+;;; ===== The workspace =====
+;;;
+;;; Go to definition is a question about more than one file: a function used
+;;; in a buffer is usually defined in a file that is not open, and a server
+;;; that only looked at the buffer would answer "not here" to half the
+;;; questions an editor asks.  So the files under the workspace root are read
+;;; once, lazily, on the first request that needs them: their definitions are
+;;; what a jump, an outline and a rename all need, and keeping them out of the
+;;; buffer being typed keeps the cost at one read per file per session.
+;;;
+;;; A buffer the editor holds is the authority on its own text, so the index is
+;;; only asked about files the editor is not showing -- which is what makes a
+;;; jump from an unsaved buffer to an unsaved buffer work.
+
+(define lisp-extensions
+  '(".scm" ".ss" ".sld" ".sls" ".el" ".lisp" ".cl" ".asd" ".lsp" ".system"))
+
+(define skipped-directories
+  '(".git" ".hg" ".svn" ".darcs" "node_modules" "build" "dist" ".cache"
+    "_build" "target" "vendor" ".venv"))
+
+(define index-file-limit 2000)
+(define index-byte-limit 500000)
+
+(define-record-type <workspace>
+  (make-workspace root files scanned?)
+  workspace?
+  (root workspace-root set-workspace-root!)
+  (files workspace-files)
+  (scanned? workspace-scanned? set-workspace-scanned!))
+
+(define (new-workspace)
+  (make-workspace #f (make-hash-table) #f))
+
+(define-record-type <indexed-file>
+  (make-indexed-file text dialect definitions)
+  indexed-file?
+  (text indexed-file-text)
+  (dialect indexed-file-dialect)
+  (definitions indexed-file-definitions))
+
+(define (path->uri path)
+  "Return the @code{file:} URI that names @var{path}."
+  (format #f "file://~a" (percent-encode path)))
+
+(define (percent-encode text)
+  "Return @var{text} with everything outside the URI path alphabet escaped."
+  (call-with-output-string
+    (lambda (out)
+      (string-for-each
+       (lambda (character)
+         (if (or (char-alphabetic? character) (char-numeric? character)
+               (memv character '(#\/ #\- #\_ #\. #\~ #\+)))
+           (display character out)
+           (let ((hex (string-upcase (number->string (char->integer character) 16))))
+             (display #\% out)
+             (when (< (string-length hex) 2) (display #\0 out))
+             (display hex out))))
+       text))))
+
+(define (lisp-path? path)
+  (let ((dot (string-rindex path #\.)))
+    (and dot (member (string-downcase (substring path dot)) lisp-extensions) #t)))
+
+(define (directory? path)
+  (eq? 'directory (false-if-exception (stat:type (stat path)))))
+
+(define (files-under root)
+  "Return the Lisp files under @var{root}, at most `index-file-limit' of them.
+
+Directories a build leaves behind are skipped rather than walked: `.git'
+alone holds more files than most source trees, and reading it would make the
+first definition request slower than finding the file by hand."
+  (let loop ((pending (list root)) (found '()) (count 0))
+    (cond
+      [(or (null? pending) (>= count index-file-limit)) (reverse found)]
+      [else
+        (let* ((dir (car pending))
+               (entries (or (false-if-exception (scandir dir)) '()))
+               (subdirectories '())
+               (files '()))
+          (for-each
+           (lambda (name)
+             (unless (or (member name skipped-directories)
+                       (string-prefix? "." name))
+               (let ((path (string-append dir "/" name)))
+                 (cond
+                   [(directory? path) (set! subdirectories (cons path subdirectories))]
+                   [(lisp-path? path) (set! files (cons path files))]))))
+           entries)
+          (loop (append subdirectories (cdr pending))
+                (append files found)
+                (+ count (length files))))])))
+
+(define (index-file path)
+  "Return @var{path} as an `indexed-file', or @code{#f} when it is not one.
+
+A file that cannot be read, is too large, or whose dialect the reader cannot
+name is left out: an editor asking for a definition should not wait while the
+server reads a generated file nobody edits."
+  (let ((dialect (detect-dialect #:file path)))
+    (and dialect
+      (let ((text (false-if-exception (call-with-input-file path get-string-all))))
+        (and (string? text) (< (string-length text) index-byte-limit)
+          (make-indexed-file text dialect
+                             (parse-definitions
+                              (call-with-values
+                                (lambda ()
+                                  (read-source #:source text #:dialect dialect #:file path))
+                                (lambda (ast errors) ast)))))))))
+
+(define (workspace-index workspace)
+  "Return the workspace's index, reading the tree the first time it is asked."
+  (unless (workspace-scanned? workspace)
+    (let ((root (workspace-root workspace)))
+      (when root
+        (for-each (lambda (path)
+                    (let ((entry (index-file path)))
+                      (when entry
+                        (hash-set! (workspace-files workspace) path entry))))
+                  (files-under root))))
+    (set-workspace-scanned! workspace #t))
+  (workspace-files workspace))
+
+(define (workspace-definition-sites workspace name dialect)
+  "Return @code{(uri text definition)} for every file-level definition of @var{name}."
+  (let ((sites '()))
+    (hash-for-each
+     (lambda (path entry)
+       (when (eq? (indexed-file-dialect entry) dialect)
+         (for-each
+          (lambda (definition)
+            (when (and (not (definition-scope definition))
+                    (string=? (definition-name definition) name))
+              (set! sites
+                    (cons (list (path->uri path) (indexed-file-text entry) definition)
+                          sites))))
+          (indexed-file-definitions entry))))
+     (workspace-index workspace))
+    (reverse sites)))
+
+(define (workspace-names workspace dialect)
+  "Return the names the workspace defines in @var{dialect}, without repeats."
+  (let ((names '()))
+    (hash-for-each
+     (lambda (path entry)
+       (when (eq? (indexed-file-dialect entry) dialect)
+         (for-each
+          (lambda (definition)
+            (unless (definition-scope definition)
+              (set! names (cons (definition-name definition) names))))
+          (indexed-file-definitions entry))))
+     (workspace-index workspace))
+    (delete-duplicates (reverse names))))
+
+(define (document-definition-sites documents name dialect except-uri)
+  "Return open buffers that define @var{name}, skipping @var{except-uri}."
+  (let ((sites '()))
+    (hash-for-each
+     (lambda (uri document)
+       (when (and (not (string=? uri except-uri))
+               (eq? (document-dialect document) dialect))
+         (for-each
+          (lambda (definition)
+            (set! sites
+                  (cons (list uri (document-text document) definition) sites)))
+          (filter (lambda (definition)
+                    (not (definition-scope definition)))
+                  (definitions-by-name
+                   (ast-of-text (document-text document) dialect) name)))))
+     documents)
+    (reverse sites)))
+
+(define (ast-of-text text dialect)
+  "Return the AST of @var{text}, read as @var{dialect}."
+  (call-with-values
+    (lambda () (read-source #:source text #:dialect dialect))
+    (lambda (ast errors) ast)))
+
+(define (form-start node) (source-location-index (node-start node)))
+(define (form-end node) (source-location-index (node-end node)))
+
+;;; ===== Navigation =====
+;;;
+;;; Each answer is a function of the text, the cursor and the project, and none
+;;; of them is cached: a jump computed from the buffer the editor has is right
+;;; even when the buffer is unsaved, which is the state a jump is asked for
+;;; most often.  The order is always the same, and it is the order a reader
+;;; would look in: what is in scope here, then this file, then the project.
+
+(define (definition-location uri text definition)
+  (json-object
+   (field "uri" uri)
+   (field "range" (json-range text (definition-index definition)
+                              (definition-end definition)))))
+
+(define (definition-sites workspace documents uri text dialect index)
+  "Return every place the symbol at @var{index} is defined, in the project."
+  (let* ((ast (ast-of-text text dialect))
+         (local (resolve-definition ast index)))
+    (cond
+      [local (list (list uri text local))]
+      [else
+        (let ((name (resolve-name ast index)))
+          (if (not name)
+            '()
+            (append (document-definition-sites documents name dialect uri)
+                    (workspace-definition-sites workspace name dialect))))])))
+
+(define* (lsp-definition workspace documents uri text dialect index)
+  "Return the locations the symbol at @var{index} is defined at, as an array."
+  (list->vector
+   (map (lambda (site)
+          (definition-location (car site) (cadr site) (caddr site)))
+        (definition-sites workspace documents uri text dialect index))))
+
+(define (project-texts workspace documents uri text dialect)
+  "Return @code{(uri text)} for the buffer, the other buffers and the project."
+  (let ((sites (list (list uri text))))
+    (hash-for-each
+     (lambda (other-uri document)
+       (when (and (not (string=? other-uri uri))
+               (eq? (document-dialect document) dialect))
+         (set! sites (cons (list other-uri (document-text document)) sites))))
+     documents)
+    (hash-for-each
+     (lambda (path entry)
+       (let ((other (path->uri path)))
+         (when (and (eq? (indexed-file-dialect entry) dialect)
+                 (not (string=? other uri)))
+           (set! sites (cons (list other (indexed-file-text entry)) sites)))))
+     (workspace-index workspace))
+    (reverse sites)))
+
+(define* (lsp-references workspace documents uri text dialect index
+                         #:key (include-declaration #t))
+  "Return every location in the project that mentions the symbol at @var{index}."
+  (let* ((ast (ast-of-text text dialect))
+         (name (resolve-name ast index)))
+    (if (not name)
+      (vector)
+      (let ((locations '()))
+        (for-each
+         (lambda (site)
+           (let* ((site-uri (car site))
+                  (site-text (cadr site))
+                  (site-ast (ast-of-text site-text dialect))
+                  (declarations
+                   (map (lambda (definition) (definition-index definition))
+                        (definitions-by-name site-ast name))))
+             (for-each
+              (lambda (node)
+                (unless (and (not include-declaration)
+                          (memv (form-start node) declarations))
+                  (set! locations
+                        (cons (json-object
+                               (field "uri" site-uri)
+                               (field "range" (json-range site-text
+                                                          (form-start node)
+                                                          (form-end node))))
+                              locations))))
+              (occurrences-of site-ast name))))
+         (project-texts workspace documents uri text dialect))
+        (list->vector (reverse locations))))))
+
+(define (lsp-document-highlights text dialect index)
+  "Return every mention of the symbol at @var{index} in @var{text}."
+  (let* ((ast (ast-of-text text dialect))
+         (name (resolve-name ast index)))
+    (if (not name)
+      (vector)
+      (let ((declarations
+             (map (lambda (definition) (definition-index definition))
+                  (definitions-by-name ast name))))
+        (list->vector
+         (map (lambda (node)
+                (json-object
+                 (field "range" (json-range text (form-start node) (form-end node)))
+                 ;; 2 is a read, 3 a write: the declaration is where the name
+                 ;; is written, and its mentions are where it is read.
+                 (field "kind" (if (memv (form-start node) declarations) 3 2))))
+              (occurrences-of ast name)))))))
+
+(define (symbol-detail definition text)
+  "Return the first line of a definition's form, as an outline shows it."
+  (let* ((form (definition-form definition))
+         (start (form-start form))
+         (end (min (form-end form) (string-length text)))
+         (snippet (substring text start end))
+         (first-line (string-trim-both (car (string-split snippet #\newline)))))
+    (if (> (string-length first-line) 120)
+      (string-append (substring first-line 0 119) "…")
+      first-line)))
+
+(define (document-symbol-of entry text)
+  "Return one outline entry, with the definitions nested inside it."
+  (let ((definition (car entry))
+        (children (cdr entry)))
+    (json-object
+     (field "name" (definition-name definition))
+     (field "detail" (symbol-detail definition text))
+     (field "kind" (symbol-kind (definition-kind definition)))
+     (field "range" (json-range text (form-start (definition-form definition))
+                                (form-end (definition-form definition))))
+     (field "selectionRange" (json-range text (definition-index definition)
+                                         (definition-end definition)))
+     (field "children"
+            (list->vector
+             (map (lambda (child) (document-symbol-of child text)) children))))))
+
+(define* (lsp-document-symbols text #:key (dialect 'scheme))
+  "Return the outline of @var{text}: every definition, nested."
+  (list->vector
+   (map (lambda (entry) (document-symbol-of entry text))
+        (document-symbol-tree (ast-of-text text dialect)))))
+
+(define (completion-items workspace documents uri text dialect)
+  "Return the names the buffer and the project define, as completion items."
+  (let* ((local (filter (lambda (definition) (not (definition-scope definition)))
+                        (parse-definitions (ast-of-text text dialect))))
+         (names (delete-duplicates
+                 (append
+                  (map (lambda (definition) (definition-name definition)) local)
+                  (workspace-names workspace dialect)
+                  (let ((found '()))
+                    (hash-for-each
+                     (lambda (other-uri document)
+                       (when (and (not (string=? other-uri uri))
+                               (eq? (document-dialect document) dialect))
+                         (set! found
+                               (append
+                                (map (lambda (definition)
+                                       (definition-name definition))
+                                     (filter (lambda (definition)
+                                               (not (definition-scope definition)))
+                                             (parse-definitions
+                                              (ast-of-text (document-text document)
+                                                           dialect))))
+                                found))))
+                     documents)
+                    found))))
+         (kinds (make-hash-table)))
+    (for-each (lambda (definition)
+                (unless (hash-ref kinds (definition-name definition))
+                  (hash-set! kinds (definition-name definition)
+                             (completion-kind (definition-kind definition)))))
+              local)
+    (list->vector
+     (map (lambda (name)
+            (json-object (field "label" name)
+                         (field "kind" (or (hash-ref kinds name) 6))))
+          (sort names string<?)))))
+
+(define (workspace-symbols workspace documents query dialect)
+  "Return the definitions whose name contains @var{query}, as `workspace/symbol'.
+
+@var{dialect} @code{#f} means every dialect, which is what the request means:
+`workspace/symbol' names no buffer to take a language from."
+  (let ((needle (string-downcase query))
+        (entries '()))
+    (define (consider uri text definition)
+      (let ((name (definition-name definition)))
+        (when (string-contains (string-downcase name) needle)
+          (set! entries
+                (cons (json-object
+                       (field "name" name)
+                       (field "kind" (symbol-kind (definition-kind definition)))
+                       (field "location" (definition-location uri text definition)))
+                      entries)))))
+    (hash-for-each
+     (lambda (uri document)
+       (when (or (not dialect) (eq? (document-dialect document) dialect))
+         (let ((document-dialect (document-dialect document)))
+           (for-each (lambda (definition)
+                       (unless (definition-scope definition)
+                         (consider uri (document-text document) definition)))
+                     (parse-definitions
+                      (ast-of-text (document-text document) document-dialect))))))
+     documents)
+    (hash-for-each
+     (lambda (path entry)
+       (when (or (not dialect) (eq? (indexed-file-dialect entry) dialect))
+         (for-each (lambda (definition)
+                     (unless (definition-scope definition)
+                       (consider (path->uri path) (indexed-file-text entry) definition)))
+                   (indexed-file-definitions entry))))
+     (workspace-index workspace))
+    (list->vector (reverse entries))))
+
+(define (valid-symbol-name? name)
+  "Return @code{#t} when @var{name} can be written as a Lisp symbol."
+  (and (string? name)
+    (not (string-null? name))
+    (not (string-any (lambda (character)
+                       (or (char-whitespace? character)
+                         (memv character
+                               '(#\( #\) #\[ #\] #\{ #\} #\" #\' #\` #\, #\; #\| #\#))))
+                     name))))
+
+(define* (rename-edit workspace documents uri text dialect index new-name
+                      #:key (version #f))
+  "Return a @code{WorkspaceEdit} renaming the symbol at @var{index} everywhere.
+
+The buffer the rename started in carries the version it was computed from, so
+an editor will not apply the edit over typing that arrived in the meantime."
+  (let ((name (resolve-name (ast-of-text text dialect) index))
+        (changes '()))
+    (for-each
+     (lambda (site)
+       (let* ((site-uri (car site))
+              (site-text (cadr site))
+              (nodes (occurrences-of (ast-of-text site-text dialect) name)))
+         (when (pair? nodes)
+           (set! changes
+                 (cons (json-object
+                        (field "textDocument"
+                               (text-document-of site-uri
+                                                 (and version
+                                                   (string=? site-uri uri)
+                                                   version)))
+                        (field "edits"
+                               (list->vector
+                                (map (lambda (node)
+                                       (json-object
+                                        (field "range"
+                                               (json-range site-text
+                                                           (form-start node)
+                                                           (form-end node)))
+                                        (field "newText" new-name)))
+                                     nodes))))
+                       changes)))))
+     (project-texts workspace documents uri text dialect))
+    (json-object (field "documentChanges" (list->vector (reverse changes))))))
+
+(define (symbol-hover text dialect definition)
+  "Return the hover that describes a definition rather than a rule."
+  (let ((dialect (symbol->string dialect)))
+    (json-object
+     (field "contents"
+            (json-object
+             (field "kind" "markdown")
+             (field "value"
+                    (format #f "**~a** — ~a~%~%```~a~%~a~%```~@[~%~%~a~]"
+                            (definition-name definition)
+                            (definition-kind definition)
+                            dialect
+                            (symbol-detail definition text)
+                            (definition-docstring definition))))))))
+
+(define (workspace-root-of params)
+  "Return the directory an `initialize' request says the workspace is under."
+  (let* ((folders (json-ref params "workspaceFolders" #f))
+         (first (and (vector? folders) (> (vector-length folders) 0)
+                  (vector-ref folders 0)))
+         (uri (or (and first (json-ref first "uri" #f))
+                (json-ref params "rootUri" #f))))
+    (cond
+      [(and (string? uri) (string-prefix? "file://" uri)) (strip-uri uri)]
+      [else
+        (let ((path (json-ref params "rootPath" #f)))
+          (and (string? path) (not (string-null? path)) path))])))
+
 ;;; ===== Findings =====
 ;;;
 ;;; Everything the editor sees is computed from the buffer the editor has, at
@@ -349,6 +834,41 @@ asking about the line the cursor is on, which is what a person means by
         (filter (lambda (warning) (= (warning-line warning text) line))
                 warnings)))))
 
+(define code-action-kinds
+  ;; What `initialize' advertises, and the complete list of what this server
+  ;; offers an editor: two kinds of finding fix, and the one rewrite that does
+  ;; not need to be told what to call anything.
+  '("quickfix" "refactor.rewrite" "source.fixAll" "source.fixAll.sift"))
+
+(define (text-document-of uri version)
+  "Return the `textDocument' of a workspace edit, with a version when known.
+
+An edit that names the version it was computed from is applied only while the
+buffer still is that version, which is the difference between renaming a
+symbol and renaming whatever is in that spot now."
+  (if (and version (number? version))
+    (json-object (field "uri" uri) (field "version" version))
+    (json-object (field "uri" uri))))
+
+(define (kind-matches? requested kind)
+  "Return @code{#t} when offering @var{kind} satisfies a request for
+@var{requested}.
+
+The protocol's rule is a prefix on a whole segment: `source' asks for both
+`source.fixAll' actions, and `ref' asks for nothing, because no kind begins
+with those three letters and then a dot."
+  (or (string=? requested kind)
+    (and (string-prefix? requested kind)
+      (< (string-length requested) (string-length kind))
+      (char=? (string-ref kind (string-length requested)) #\.))))
+
+(define (only-accepts? only kind)
+  "Return @code{#t} when a request for @var{only} wants an action of @var{kind}.
+
+No `context.only' means the client has no preference and takes everything."
+  (or (not (pair? only))
+    (any (lambda (requested) (kind-matches? requested kind)) only)))
+
 (define (code-action-of warning text uri version)
   "Return @var{warning} as a quickfix code action about @var{text}."
   (let* ((span (warning-span warning text))
@@ -376,17 +896,116 @@ asking about the line the cursor is on, which is what a person means by
                                (field "range" (json-range text (car span) (cdr span)))
                                (field "newText" replacement))))))))))))
 
+(define (workspace-edit uri version text start end replacement)
+  "Return a `WorkspaceEdit' replacing @var{start}..@var{end} of @var{text}."
+  (json-object
+   (field "documentChanges"
+          (vector
+           (json-object
+            (field "textDocument" (text-document-of uri version))
+            (field "edits"
+                   (vector
+                    (json-object
+                     (field "range" (json-range text start end))
+                     (field "newText" replacement)))))))))
+
+(define* (fix-all-action config text #:key (dialect 'scheme) (uri #f) (version #f))
+  "Return the action that applies every safe fix in the buffer, or @code{#f}.
+
+The fixes are applied the way `sift fix' applies them -- all of them, from the
+highest offset down, and none at all if together they would not read -- and
+the answer is one edit for the whole buffer, because a result the buffer can
+be reconciled with in one step is the only kind worth offering."
+  (let* ((warnings (warnings-for config text #:dialect dialect #:uri uri))
+         (fixed (apply-fixes text warnings)))
+    (and (not (string=? fixed text))
+      (json-object
+       (field "title" "sift: fix every safe finding in this buffer")
+       (field "kind" "source.fixAll.sift")
+       (field "edit"
+              (workspace-edit (or uri "") version text 0 (string-length text)
+                              fixed))))))
+
+(define (top-level-form-at ast index)
+  "Return the form of @var{ast} that contains @var{index}, or @code{#f}."
+  (find (lambda (node)
+          (and (node-data? node)
+            (<= (form-start node) index)
+            (< index (max (form-start node) (form-end node)))))
+        ast))
+
+(define* (format-form-action config text ast index #:key (dialect 'scheme)
+                             (uri #f) (version #f))
+  "Return the action that formats the definition the cursor is inside, or #f.
+
+Only a top-level form is offered, because the formatter indents from column
+zero: formatting a fragment of a form would move the fragment to the margin
+and leave the file worse than it found it.  A whole definition is exactly the
+span an author reformats by hand, and it is what \"format this\" means when the
+cursor is inside it."
+  (let* ((node (top-level-form-at ast index)))
+    (and node
+      (let* ((start (form-start node))
+             (end (form-end node))
+             (fragment (substring text start end)))
+        (call-with-values
+          (lambda ()
+            (format-source fragment #:dialect dialect
+                           #:file (and uri (strip-uri uri))
+                           #:style (config-ref config 'style)
+                           #:indent (config-ref config 'indent)
+                           #:comment-align (config-ref config 'comment-align)
+                           #:brackets (config-ref config 'brackets)
+                           #:blank-lines (config-ref config 'blank-lines)
+                           #:indent-rules (config-ref config 'indent-rules)))
+          (lambda (formatted errors)
+            (and (null? errors)
+              (not (string=? formatted fragment))
+              (json-object
+               (field "title" "sift: format this definition")
+               (field "kind" "refactor.rewrite")
+               (field "edit"
+                      (workspace-edit (or uri "") version text start end
+                                      formatted))))))))))
+
 (define* (lsp-code-actions config text start end #:key (dialect 'scheme)
-                           (uri #f) (version #f))
-  "Return the code actions that apply to @var{start}..@var{end} of @var{text}."
-  (let ((warnings (warnings-for config text #:dialect dialect #:uri uri)))
+                           (uri #f) (version #f) (only '()))
+  "Return the code actions that apply to @var{start}..@var{end} of @var{text}.
+
+Three answers, in the order an editor should show them: the fixes for the
+findings under the cursor, the one rewrite sift can make without being told
+what to call anything, and the two source actions -- fix everything, and
+format the definition the cursor is in.  @var{only} is the request's
+`context.only', so a client that asked for `source' gets the source actions
+and nothing else."
+  (let* ((warnings (warnings-for config text #:dialect dialect #:uri uri))
+         (quickfixes
+          (filter-map
+           (lambda (warning)
+             (and (lint-warning-fix warning)
+               (lint-warning-range warning)
+               (code-action-of warning text (or uri "") version)))
+           (select-warnings warnings start end text)))
+         (rewrite
+          (and (only-accepts? only "refactor.rewrite")
+            (format-form-action config text (ast-of-text text dialect) start
+                                #:dialect dialect #:uri uri #:version version)))
+         (fix-all
+          (and (only-accepts? only "source.fixAll")
+            (fix-all-action config text #:dialect dialect #:uri uri
+                            #:version version))))
     (list->vector
-     (filter-map
-      (lambda (warning)
-        (and (lint-warning-fix warning)
-          (lint-warning-range warning)
-          (code-action-of warning text (or uri "") version)))
-      (select-warnings warnings start end text)))))
+     (append
+      (if (only-accepts? only "quickfix") quickfixes '())
+      (if rewrite (list rewrite) '())
+      (if fix-all (list fix-all) '())))))
+
+(define (action-only params)
+  "Return the action kinds a `codeAction' request asked for, as strings."
+  (let ((only (json-ref (json-ref params "context" (json-object)) "only" #f)))
+    (if (vector? only)
+      (filter string? (vector->list only))
+      '())))
 
 ;;; ===== Formatting =====
 ;;;
@@ -491,9 +1110,20 @@ typed, and the findings for the part that could be read are still reported."
            (field "documentFormattingProvider" #t)
            (field "codeActionProvider"
                   (json-object
-                   (field "codeActionKinds" (list->vector (list "quickfix")))
+                   (field "codeActionKinds" (list->vector code-action-kinds))
                    (field "resolveProvider" #f)))
            (field "hoverProvider" #t)
+           (field "definitionProvider" #t)
+           (field "referencesProvider" #t)
+           (field "documentHighlightProvider" #t)
+           (field "documentSymbolProvider" #t)
+           (field "workspaceSymbolProvider" #t)
+           (field "renameProvider"
+                  (json-object (field "prepareProvider" #t)))
+           (field "completionProvider"
+                  (json-object (field "resolveProvider" #f)
+                               (field "triggerCharacters"
+                                      (list->vector (list "#" ":")))))
            (field "positionEncoding" "utf-16")))
    (field "serverInfo"
           (json-object
@@ -614,7 +1244,7 @@ whether the text is a program or half of one."
 
 ;;; --- the handlers -------------------------------------------------------
 
-(define* (handle config session documents message out)
+(define* (handle config session workspace documents message out)
   "Answer one message, and return @code{'exit} or @code{'continue}.
 
 Notifications -- messages without an id -- are answered with nothing at all:
@@ -631,6 +1261,9 @@ dead server."
     (cond
       [(string=? method "initialize")
        (set-session-started! session #t)
+       ;; The root is where a question about \"the project\" is answered from;
+       ;; an editor that names none still gets its open buffers searched.
+       (set-workspace-root! workspace (workspace-root-of (params)))
        (reply! out id (initialize-result))
        'continue]
 
@@ -698,7 +1331,8 @@ dead server."
                                        (document-text document) (car span) (cdr span)
                                        #:dialect (document-dialect document)
                                        #:uri (document-uri document)
-                                       #:version (document-version document)))
+                                       #:version (document-version document)
+                                       #:only (action-only (params))))
                    (vector)))
          'continue)]
 
@@ -723,13 +1357,141 @@ dead server."
          (reply! out id
                  (if document
                    (let* ((text (document-text document))
+                          (dialect (document-dialect document))
                           (position (json-ref (params) "position" (json-object)))
-                          (index (index-of-text-position text position)))
-                     (or (lsp-hover config text index
-                                    #:dialect (document-dialect document)
-                                    #:uri (document-uri document))
+                          (index (index-of-text-position text position))
+                          ;; The definition may be in another file, so the hover
+                          ;; asks the same question a jump does and describes
+                          ;; the definition it finds there.
+                          (sites (definition-sites workspace documents
+                                                   (document-uri document)
+                                                   text dialect index))
+                          (site (and (pair? sites) (car sites))))
+                     ;; A symbol is the question an editor's hover usually asks;
+                     ;; the rule under the cursor is the one sift alone can
+                     ;; answer, so it is the fallback rather than the first
+                     ;; answer.
+                     (or (and site (symbol-hover (cadr site) dialect (caddr site)))
+                       (lsp-hover config text index
+                                  #:dialect dialect
+                                  #:uri (document-uri document))
                        json-null))
                    json-null))
+         'continue)]
+
+      [(string=? method "textDocument/definition")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (lsp-definition workspace documents
+                                   (document-uri document)
+                                   (document-text document)
+                                   (document-dialect document)
+                                   (index-of-text-position
+                                    (document-text document)
+                                    (json-ref (params) "position" (json-object))))
+                   (vector)))
+         'continue)]
+
+      [(string=? method "textDocument/references")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (lsp-references workspace documents
+                                   (document-uri document)
+                                   (document-text document)
+                                   (document-dialect document)
+                                   (index-of-text-position
+                                    (document-text document)
+                                    (json-ref (params) "position" (json-object)))
+                                   #:include-declaration
+                                   (json-ref (json-ref (params) "context" (json-object))
+                                             "includeDeclaration" #t))
+                   (vector)))
+         'continue)]
+
+      [(string=? method "textDocument/documentHighlight")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (lsp-document-highlights
+                    (document-text document)
+                    (document-dialect document)
+                    (index-of-text-position
+                     (document-text document)
+                     (json-ref (params) "position" (json-object))))
+                   (vector)))
+         'continue)]
+
+      [(string=? method "textDocument/documentSymbol")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (lsp-document-symbols (document-text document)
+                                         #:dialect (document-dialect document))
+                   (vector)))
+         'continue)]
+
+      [(string=? method "workspace/symbol")
+       ;; No buffer is named by this request, so the search is over every
+       ;; dialect: the editor has already decided what it is looking for.
+       (reply! out id
+               (workspace-symbols workspace documents
+                                  (json-ref (params) "query" "")
+                                  #f))
+       'continue]
+
+      [(string=? method "textDocument/completion")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (completion-items workspace documents
+                                     (document-uri document)
+                                     (document-text document)
+                                     (document-dialect document))
+                   (vector)))
+         'continue)]
+
+      [(string=? method "textDocument/prepareRename")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (let* ((text (document-text document))
+                          (dialect (document-dialect document))
+                          (ast (ast-of-text text dialect))
+                          (index (index-of-text-position
+                                  text (json-ref (params) "position" (json-object))))
+                          (name (resolve-name ast index))
+                          (node (symbol-node-at ast index)))
+                     (if (and name node)
+                       (json-object
+                        (field "range" (json-range text (form-start node)
+                                                   (form-end node)))
+                        (field "placeholder" name))
+                       json-null))
+                   json-null))
+         'continue)]
+
+      [(string=? method "textDocument/rename")
+       (let ((document (document-of)))
+         (if (not document)
+           (reply! out id json-null)
+           (let* ((text (document-text document))
+                  (dialect (document-dialect document))
+                  (index (index-of-text-position
+                          text (json-ref (params) "position" (json-object))))
+                  (name (resolve-name (ast-of-text text dialect) index))
+                  (new-name (json-ref (params) "newName" "")))
+             (cond
+               [(not name) (reply! out id json-null)]
+               [(not (valid-symbol-name? new-name))
+                (reply-error! out id -32602
+                              (format #f "sift: `~a' is not a name a symbol can have"
+                                      new-name))]
+               [else (reply! out id
+                             (rename-edit workspace documents (document-uri document)
+                                          text dialect index new-name
+                                          #:version (document-version document)))])))
          'continue)]
 
       [(string-prefix? "$/" method)
@@ -754,11 +1516,11 @@ dead server."
 ;;; go on.  That is the difference between a server that loses one request and
 ;;; one that loses the session.
 
-(define (serve-one config session documents message out)
+(define (serve-one config session workspace documents message out)
   "Answer @var{message}, turning a raised condition into an error response."
   (let ((id (json-ref message "id" *no-id*)))
     (catch #t
-           (lambda () (handle config session documents message out))
+           (lambda () (handle config session workspace documents message out))
            (lambda (key . arguments)
              (let ((reason (format #f "sift: internal error (~a)~@[: ~a~]"
                                    key (and (pair? arguments) (car arguments)))))
@@ -790,6 +1552,7 @@ should show a finding."
   (let ((port-in (or in (current-input-port)))
         (port-out (or out (current-output-port)))
         (documents (make-hash-table))
+        (workspace (new-workspace))
         (session (new-session)))
     (let loop ((status 0))
       (let ((frame (read-message port-in)))
@@ -801,8 +1564,8 @@ should show a finding."
            (reply-error! port-out json-null -32700 (cdr frame))
            (loop status)]
           [else
-            (let ((outcome (serve-one config session documents (cdr frame)
-                                      port-out)))
+            (let ((outcome (serve-one config session workspace documents
+                                      (cdr frame) port-out)))
               (if (eq? outcome 'exit)
                 (if (session-shutdown? session) 0 1)
                 (loop status)))])))))

@@ -6,7 +6,7 @@
 ;; Copyright (C) 2025, 2026  Josep Bigorra
 
 ;; Author: Josep Bigorra <jjbigorra@gmail.com>
-;; Version: 1.5.0
+;; Version: 1.6.0
 ;; Package-Requires: ((emacs "28.1"))
 ;; Keywords: languages, lisp, tools
 ;; URL: https://github.com/jjba23/sift
@@ -324,8 +324,9 @@ the buffer is left alone."
 (defun sift--fix-string (text &optional checkers)
   "Return TEXT with sift's fixes applied, or TEXT itself when there are none.
 
-A run sift could not finish is a `user-error', for the reason `sift--format-string'
-gives: saying nothing to fix about a file that does not parse is a lie.
+A run sift could not finish is a `user-error', for the reason
+`sift--format-string' gives: saying nothing to fix about a file that does not
+parse is a lie.
 
 CHECKERS, when given, restricts the fixes to those rules, which is what
 makes a per-diagnostic code action possible."
