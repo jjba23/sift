@@ -117,9 +117,18 @@
 ;; The forms that bind a name in a scope rather than define one in a file.
 ;; They are a separate list because the answer is a jump to a parameter or a
 ;; `let' variable, not to a definition the outline should list.
+;;
+;; `let-syntax' and `letrec-syntax' are here because their binding list binds
+;; *keywords*: the `swap' of `(let-syntax ((swap (syntax-rules ...))) ...)' is
+;; a name a use site refers to, and an editor that answered "not here" would
+;; be wrong about the one place the name is written.  `define-syntax' is here
+;; for its patterns rather than for the macro it defines: a pattern variable
+;; is a binding, and the template that uses it is the clearest "go to
+;; definition" a macro body has.
 (define binding-forms
   '(let let* letrec letrec* do lambda lambda* cl-lambda
-     dolist dotimes multiple-value-bind))
+     dolist dotimes multiple-value-bind
+     define-syntax let-syntax letrec-syntax syntax-rules syntax-case))
 
 (define (form-kind operator)
   "Return what a form headed by @var{operator} defines, or @code{#f}."
@@ -358,6 +367,101 @@ the body onwards."
            '())))
      (elements node))))
 
+;;; ===== Macro patterns =====
+;;;
+;;; A `syntax-rules' transformer is a list of clauses, and a clause is a
+;;; pattern and a template that refers to what the pattern binds.  That is a
+;;; binding like any other, and the one place in a Scheme file where a name
+;;; has no definition to jump to except the pattern that introduced it: an
+;;; editor asked about the `x' of a template has nowhere else to go.
+;;;
+;;; What binds is every symbol in the pattern except the four that do not:
+;;; `_', the ellipsis (which a transformer may rename), the literals the
+;;; transformer matches rather than binds, and the pattern's first element,
+;;; which names the macro being expanded.  Only the top-level pattern has that
+;;; last position: inside a nested list, a first element is a pattern variable
+;;; like any other.
+
+(define (pattern-datum-names node)
+  "Return the names a list node spells, as strings, skipping no element."
+  (if (and node (node-list? node))
+    (filter-map symbol-name (filter node-data? (node-children node)))
+    '()))
+
+(define (ellipsis-name args)
+  "Return the ellipsis identifier of a transformer, `...' when it has none.
+
+`(syntax-rules ::: () ...)' renames the ellipsis, and the renamed one is no
+more a pattern variable than `...' is."
+  (let ((first (and (pair? args) (car args))))
+    (or (and first (node-atom? first) (symbol-name first)) "...")))
+
+(define* (pattern-variables pattern literals ellipsis
+                            #:optional (keyword-position? #t))
+  "Return the atoms a `syntax-rules' pattern binds.
+
+@var{keyword-position?} says the pattern is the whole pattern of a clause, so
+its first element is the macro's name rather than a variable."
+  (cond
+    [(not pattern) '()]
+    [(node-list? pattern)
+     (let* ((children (filter node-data? (node-children pattern)))
+            (bound (if (and keyword-position? (pair? children))
+                     (cdr children)
+                     children)))
+       (append-map (lambda (child)
+                     (pattern-variables child literals ellipsis #f))
+                   bound))]
+    [(node-atom? pattern)
+     (let ((name (symbol-name pattern)))
+       (if (or (not name)
+             (string=? name "_")
+             (string=? name ".")
+             (string=? name ellipsis)
+             (member name literals))
+         '()
+         (list pattern)))]
+    [else '()]))
+
+(define (clause-bindings clause literals ellipsis keyword-position?)
+  "Return the pattern variables of one transformer clause, as bindings.
+
+Each is visible in the whole clause -- the fender and the template both see
+it -- so the range is the clause's own."
+  (if (not (and clause (node-list? clause)))
+    '()
+    (let ((span (cons (node-index clause) (node-end-index clause))))
+      (map (lambda (node)
+             (make-binding node 'variable (car span) (cdr span)))
+           (pattern-variables (car (filter node-data? (node-children clause)))
+                              literals ellipsis keyword-position?)))))
+
+(define (transformer-bindings transformer)
+  "Return the pattern variables a `syntax-rules' or `syntax-case' binds."
+  (let ((operator (head-name transformer)))
+    (case operator
+      [(syntax-rules)
+       (let* ((args (arguments-of transformer))
+              (ellipsis (ellipsis-name args))
+              (rest (if (and (pair? args) (node-atom? (car args)))
+                      (cdr args)
+                      args))
+              (literals (pattern-datum-names (and (pair? rest) (car rest))))
+              (clauses (if (pair? rest) (cdr rest) '())))
+         (append-map (lambda (clause)
+                       (clause-bindings clause literals ellipsis #t))
+                     clauses))]
+      [(syntax-case)
+       ;; A `syntax-case' clause has no keyword position: `((a b) #'...)' binds
+       ;; `a' and `b', and neither is a macro name.
+       (let* ((args (arguments-of transformer))
+              (literals (pattern-datum-names (nth-or args 1)))
+              (clauses (if (>= (length args) 2) (cddr args) '())))
+         (append-map (lambda (clause)
+                       (clause-bindings clause literals "..." #f))
+                     clauses))]
+      [else '()])))
+
 (define (form-bindings form)
   "Return the bindings @var{form} introduces, with the range each is visible in."
   (let* ((operator (head-name form))
@@ -365,7 +469,13 @@ the body onwards."
          (end (node-end-index form))
          (at (lambda (k) (nth-or args k)))
          (span-from (lambda (node)
-                      (if node (cons (node-index node) end) (cons end end)))))
+                      (if node (cons (node-index node) end) (cons end end))))
+         (syntax-specs
+          (lambda ()
+            (let ((specs (at 0)))
+              (if (and specs (node-list? specs))
+                (elements specs)
+                '())))))
     (case operator
       [(let let* letrec letrec*)
        ;; A named `let' is a loop: the name is a binding of the body, and the
@@ -404,6 +514,28 @@ the body onwards."
        (let* ((spec (at 0))
               (atoms (if (and spec (node-list? spec)) (elements spec) '())))
          (bindings-of-atoms atoms (span-from (at 2)) 'variable))]
+      [(define-syntax)
+       ;; The keyword is a definition; what binds here is what its patterns
+       ;; bind, and each is visible over its own clause.
+       (append-map transformer-bindings (cdr args))]
+      [(let-syntax letrec-syntax)
+       (let ((body (span-from (at 1))))
+         (append
+          (append-map (lambda (spec)
+                        (let ((keyword (and spec (node-list? spec)
+                                         (node-head spec))))
+                          (if (and keyword (symbol-name keyword))
+                            (list (make-binding keyword 'macro (car body)
+                                                (cdr body)))
+                            '())))
+                      (syntax-specs))
+          (append-map (lambda (spec)
+                        (let ((transformer (and spec (node-list? spec)
+                                             (nth-or (elements spec) 1))))
+                          (if transformer (transformer-bindings transformer) '())))
+                      (syntax-specs))))]
+      [(syntax-rules syntax-case)
+       (transformer-bindings form)]
       [else '()])))
 
 (define (internal-bindings form)
