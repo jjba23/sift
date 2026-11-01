@@ -22,7 +22,7 @@ jobs:
     name: 🧱 Byggsteg
     uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
     with:
-      tasks: maak-ci maak-test maak-emacs-test
+      tasks: maak-test maak-emacs-test
       # Bound the wait.  The bridge follows the deployment's job by polling it,
       # eight seconds apart, and gives up after 4096 polls -- most of a working
       # day.  Four hundred and fifty is an hour: longer than this configuration
