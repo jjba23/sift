@@ -24,6 +24,7 @@
        guile-3.0
        guile-fibers
        guile-json-4
+       guile-veritas
        ;; the Emacs package is developed and tested here too; a minimal
        ;; Emacs has ERT, Flymake and `json', which is all it needs
        emacs-minimal))

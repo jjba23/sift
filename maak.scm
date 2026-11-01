@@ -15,7 +15,7 @@
 ;; rest) stay helpers, and `maak' lists the commands rather than the plumbing.
 ;;
 ;; A *command* is run with `run', which starts a program with the words it was
-;; given and never sees a shell; a *line* is run with `manifest-shell' or `$',
+;; given and never sees a shell; a *line* is run with `time-machine-manifest-shell' or `$',
 ;; which join their words into one command line, so anything that must survive
 ;; as one word -- a Scheme expression, a script -- is quoted with
 ;; `shell-quote'.  Which of the two a call needs is the difference between a
@@ -110,12 +110,12 @@ framework under development is the one the suite ran against."
 (define (run-guile code)
   "Run CODE, one Scheme expression, under the manifest's Guile.
 
-`manifest-shell' joins its words into one command line, so the expression is
+`time-machine-manifest-shell' joins its words into one command line, so the expression is
 quoted as one word: without that, the first space in it would end the argument
 and the rest would be read as more of the command."
-  (manifest-shell (append (list "guile") (guile-load-flags)
-                          (list "-c" (shell-quote code)))
-                  #:verbose? #t))
+  (time-machine-manifest-shell (append (list "guile") (guile-load-flags)
+                                       (list "-c" (shell-quote code)))
+                               #:verbose? #t))
 
 (define (run-script script)
   "Run SCRIPT with `sh -c' inside the manifest shell.
@@ -123,13 +123,13 @@ and the rest would be read as more of the command."
 Same reason as `run-guile': the shell is handed the script as one word, so the
 script keeps its pipes, its `;' and its quoting instead of being split on
 them."
-  (manifest-shell (list "sh" "-c" (shell-quote script)) #:verbose? #t))
+  (time-machine-manifest-shell (list "sh" "-c" (shell-quote script)) #:verbose? #t))
 
 ;; ====== Maak file tasks ======
 
 (define (help)
   "Display maak's help screen."
-  (program-shell (list "maak" "--help")))
+  (time-machine-program-shell (list "maak" "--help")))
 
 (define (show-version)
   "Print the version this checkout states, and where it is quoted.
@@ -246,7 +246,7 @@ tests' ranks the test suite instead; `SIFT_COMPLEXITY_PATHS' does the same
 from the environment.  `SIFT_COMPLEXITY_BUDGET' and `SIFT_COMPLEXITY_LIMIT'
 move the budget and the length of the table, because a task's arguments are
 its operands and a flag cannot be passed through this way."
-  (manifest-shell
+  (time-machine-manifest-shell
    (append (list "guile" "-L" "./src" "-L" "." "etc/complexity.scm")
            (if (null? args) (list "src") args))
    #:verbose? #t))
@@ -275,7 +275,7 @@ ERT is the test framework Emacs ships, and it is the right one here: the
 package is a thin wrapper around the executable, so the tests run the
 executable and read what came back, the way a user would.  The Guile suite is
 Veritas; this one never runs the two together."
-  (manifest-shell
+  (time-machine-manifest-shell
    (list "emacs" "-Q" "--batch" "-L" "emacs" "-l" "ert"
          "-l" "emacs/sift-test.el" "-f" "ert-run-tests-batch-and-exit")
    #:verbose? #t))
@@ -292,7 +292,7 @@ source under test."
 
 (define (repl)
   "A REPL with the library and the tests on the load path."
-  (manifest-shell (append (list "guile") (guile-load-flags)) #:verbose? #t))
+  (time-machine-manifest-shell (append (list "guile") (guile-load-flags)) #:verbose? #t))
 
 ;;; --- installing ---
 ;;;
