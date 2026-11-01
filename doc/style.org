@@ -536,6 +536,15 @@ only in a margin comment, where the semicolon is a gesture rather than a
 level.  A margin comment is never reported: it belongs to the line of code it
 ends, and its level is not a claim about anything.
 
+The rule carries a fix, and it is the mechanical half of it.  How many
+semicolons a comment takes is decided by the position it sits in, and that is
+something the reader knows, so ~sift fix~ re-levels every comment it reports --
+one at the end of a line, two inside a form, three at top level, a heading of
+four left alone -- and puts a space after the semicolons.  The sentence of the
+comment is untouched.  Whether the comment is about the right thing, and
+whether it is in the right place at all, is still a question only the author
+can answer.
+
 ** One blank line, and not one more
 :PROPERTIES:
 :CUSTOM_ID: riastradh-blank-lines

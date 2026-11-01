@@ -16,8 +16,15 @@
 ;; count, and a comment inside a "#;" datum comment is part of code the
 ;; reader was told not to read, so neither is reported.
 ;;
-;; The rule has no fix.  Changing the number of semicolons in a comment is
-;; deciding what the comment is for, and that is the author's.
+;; The rule carries a fix, and it is the mechanical half of the rule: how many
+;; semicolons a comment takes is decided by the position it sits in -- one at
+;; the end of a line, two inside a form, three at top level, four for a
+;; heading -- and the position is something the reader knows, not something the
+;; author has to be asked about.  What the fix does not decide is *what the
+;; comment says*: a comment that is about the next form and one that is about
+;; the form it sits in are both rewritten to the level of the place they are
+;; in, and if that place is the wrong one for the sentence, moving the comment
+;; is still the author's work.
 
 (define-module (sift checkers comments)
   #:declarative? #t
@@ -27,7 +34,9 @@
   #:use-module (sift records)
   #:use-module (sift check base)
   #:export (comments-checkers
-            comment-semicolons-checker))
+            comment-semicolons-checker
+            comment-level
+            normalise-comment))
 
 ;;; ===== Walking the comments =====
 
@@ -75,29 +84,65 @@ not a top-level comment."
 
 ;;; ===== comment-semicolons =====
 
+(define (comment-level inside?)
+  "Return the number of semicolons a line comment takes at this position.
+
+One at the end of a line, two inside a form, three at top level.  A heading --
+four -- is not a level this answers: it is a level the rule accepts and never
+asks for, because deciding that a comment is a heading is deciding what the
+comment is for."
+  (if inside? 2 3))
+
+(define (normalise-comment text level)
+  "Return @var{text} with @var{level} semicolons and a space after them.
+
+@var{text} is a comment as the reader kept it, leading semicolons included.
+The sentence of the comment is left exactly as it was -- only the number of
+semicolons and the space between them and the sentence are rewritten -- so a
+fix run over a buffer changes nothing a person wrote."
+  (let ((body (string-trim (comment-text text) (char-set #\space #\tab))))
+    (if (string-null? body)
+      (make-string level #\;)
+      (string-append (make-string level #\;) " " body))))
+
 (define (comment-semicolons-warnings ast source dialect)
   (let ((warnings '()))
-    (define (report node message)
-      (set! warnings
-            (cons (make-lint-warning 'comment-semicolons 'info message
-                                     (node-start node))
-                  warnings)))
+    (define (report node message level)
+      (let* ((text (node-value node))
+             (start (node-index node))
+             (end (node-end-index node))
+             (fixed (normalise-comment text level)))
+        (unless (string=? fixed text)
+          (set! warnings
+                (cons (make-lint-warning/range
+                       'comment-semicolons 'info message
+                       (node-start node)
+                       start end
+                       (lambda (source s e) fixed))
+                      warnings)))))
     (walk-comments
      (lambda (node inside?)
-       (let ((text (node-value node))
-             (semicolons (semicolon-count (node-value node))))
+       (let* ((text (node-value node))
+              (semicolons (semicolon-count text))
+              (required (comment-level inside?))
+              ;; a heading is four semicolons at top level, and the rule has
+              ;; no business demoting one: three or more is where a top-level
+              ;; comment belongs
+              (right-level? (if inside? (= semicolons required)
+                              (>= semicolons required))))
          ;; A margin comment is the one position where the semicolons are a
          ;; gesture rather than a level: it belongs to the line of code it
          ;; ends, and one is enough.
          (unless (node-inline? node)
            (cond
              [(not (space-after-semicolons? text))
-              (report node "write a space between the semicolons and the text")]
-             [inside?
-               (when (not (= semicolons 2))
-                 (report node "a comment inside a form takes two semicolons"))]
-             [(< semicolons 3)
-              (report node "a top-level comment takes three semicolons")]
+              (report node "write a space between the semicolons and the text"
+                      (if right-level? semicolons required))]
+             [(not right-level?)
+              (report node (if inside?
+                             "a comment inside a form takes two semicolons"
+                             "a top-level comment takes three semicolons")
+                      required)]
              [else #f]))))
      ast)
     (reverse warnings)))

@@ -63,4 +63,56 @@
 
     (test "says nothing about a block comment, which has no semicolons"
       (assert-warnings #:source "#| a block comment |#\n(define x 1)\n"
-                       #:checker 'comment-semicolons #:expect '()))))
+                       #:checker 'comment-semicolons #:expect '()))
+
+    ;; The fix is the mechanical half of the rule: the level a comment takes is
+    ;; decided by where it sits, which the reader knows.  What the comment says,
+    ;; and whether it sits in the right place at all, is still the author's.
+    (test "the fix raises a top-level comment to three semicolons"
+      (assert-fix #:source ";; about the program\n(define x 1)\n"
+                  #:checker 'comment-semicolons
+                  #:expected ";;; about the program\n(define x 1)\n"))
+
+    (test "the fix lowers a comment inside a form to two semicolons"
+      (assert-fix #:source "(define (f x)\n  ;;;; a heading in a body\n  x)\n"
+                  #:checker 'comment-semicolons
+                  #:expected "(define (f x)\n  ;; a heading in a body\n  x)\n"))
+
+    (test "the fix adds the space after the semicolons and nothing else"
+      (assert-fix #:source ";;;tight\n(define x 1)\n"
+                  #:checker 'comment-semicolons
+                  #:expected ";;; tight\n(define x 1)\n"))
+
+    (test "the fix leaves a heading at four semicolons"
+      (assert-fix #:source ";;;; Frob Grovel\n(define x 1)\n"
+                  #:checker 'comment-semicolons
+                  #:expected ";;;; Frob Grovel\n(define x 1)\n"))
+
+    (test "the fix leaves a margin comment alone"
+      (assert-fix #:source "(a b) ;Zibblefrotz.\n"
+                  #:checker 'comment-semicolons
+                  #:expected "(a b) ;Zibblefrotz.\n"))
+
+    (test "the fix leaves the sentence of the comment exactly as it was"
+      ;; two spaces after the semicolons become one, and nothing else moves
+      (assert-fix #:source ";;  spaced  out  \n(define x 1)\n"
+                  #:checker 'comment-semicolons
+                  #:expected ";;; spaced  out  \n(define x 1)\n"))
+
+    (test "the fixed buffer is clean, so a second run has nothing to do"
+      (assert-fixes-to-nothing
+       #:source ";; one\n(define (f x)\n  ;;;; two\n  ;;tight\n  x)\n;; four\n"
+       #:checker 'comment-semicolons))
+
+    (test "one pass fixes every comment in the buffer"
+      (assert-fix #:source (string-append ";; first\n"
+                                          "(define (f x)\n"
+                                          "  ;;; second\n"
+                                          "  x)\n"
+                                          ";;;third\n")
+                  #:checker 'comment-semicolons
+                  #:expected (string-append ";;; first\n"
+                                            "(define (f x)\n"
+                                            "  ;; second\n"
+                                            "  x)\n"
+                                            ";;; third\n")))))
