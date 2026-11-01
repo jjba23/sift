@@ -448,11 +448,11 @@ in a `do' or a `let' that only declares."
 ;; which is every plain `(import (some lib))' from a library sift cannot see,
 ;; is left alone: a rule that guessed there would fire on every file that
 ;; imports more than it uses, which is most of them.
-
-(define (source-file-of ast)
-  "Return the file @var{ast} was read from, or @code{#f} when it was a string."
-  (let ((nodes (filter node-data? ast)))
-    (and (pair? nodes) (source-location-file (node-start (car nodes))))))
+;;
+;; What the fix deletes it deletes for a reason.  A name goes and the space
+;; before it goes, a spec goes and the space before it goes, and when every
+;; spec of a form is unused the *form* goes -- because a fix that removed the
+;; last spec would leave `(import)', which no Scheme reads.
 
 (define (import-name-string node)
   "Return the name an atom in an import spec spells."
@@ -497,30 +497,85 @@ after the form on that line is the author's and stops the deletion."
   "Return @var{node} as it is written, on one line."
   (single-line (substring source (node-index node) (node-end-index node))))
 
+(define (source-file-of ast)
+  "Return the file @var{ast} was read from, or @code{#f} when it was a string."
+  (let ((nodes (filter node-data? ast)))
+    (and (pair? nodes) (source-location-file (node-start (car nodes))))))
+
 (define (library-exports-of key ast project)
   "Return what @var{key} exports, from this file first and the project second."
   (or (assoc-ref (declared-libraries ast) key)
     (assoc-ref project key)))
 
-(define (report-unused-spec form specs spec source warnings)
-  "Report @var{spec} as unused, cutting the form when it is the only spec.
+(define (unused-import-finding source node span message)
+  "Return a finding about @var{node} whose fix deletes @var{span}."
+  (make-lint-warning/range
+   'unused-import 'info
+   (format #f "`~a` ~a" (source-text source node) message)
+   (node-start node) (car span) (cdr span)
+   (lambda (text from to) "")))
 
-A form left with no spec would be `(import)', which no Scheme reads, so the
-last spec takes the form with it -- one finding, one deletion, and a file that
-still parses."
-  (let* ((alone? (= 1 (length specs)))
-         (node (if alone? form spec))
-         (span (if alone?
-                 (cons (node-index form) (line-end-of source (node-end-index form)))
-                 (or (deletion-range specs spec)
-                   (cons (node-index spec) (node-end-index spec))))))
-    (cons (make-lint-warning/range
-           'unused-import 'info
-           (format #f "`~a` imports nothing this file uses"
-                   (source-text source node))
-           (node-start node) (car span) (cdr span)
-           (lambda (text from to) ""))
-          warnings)))
+(define (unused-name-findings source used spec at warnings)
+  "Return the findings about the unused names of one @code{only} clause."
+  (let* ((names (spec-name-nodes spec))
+         (unused (remove (lambda (node) (used? used (import-name-string node)))
+                         names)))
+    (if (or (null? unused) (= (length unused) (length names)))
+      warnings
+      (fold
+       (lambda (node warnings)
+         (let ((span (deletion-range (cddr (data-elements spec)) node)))
+           (if span
+             (cons (make-lint-warning/range
+                    'unused-import 'info
+                    (format #f "`~a` is imported from `~a` and never used"
+                            (import-name-string node) (import-label spec))
+                    (node-start node) (car span) (cdr span)
+                    (lambda (text from to) ""))
+                   warnings)
+             warnings)))
+       warnings
+       unused))))
+
+(define (unused-rename-findings source used spec warnings)
+  "Return the findings about the unused pairs of one @code{rename} clause."
+  (fold
+   (lambda (pair warnings)
+     (let* ((elements (data-elements pair))
+            (fresh (and (>= (length elements) 2) (list-ref elements 1)))
+            (name (and fresh (import-name-string fresh)))
+            (span (deletion-range (cddr (data-elements spec)) pair)))
+       (if (or (used? used name) (not span))
+         warnings
+         (cons (make-lint-warning/range
+                'unused-import 'info
+                (format #f "`~a` is imported from `~a` under a new name and never used"
+                        name (import-label spec))
+                (node-start pair) (car span) (cdr span)
+                (lambda (text from to) ""))
+               warnings))))
+   warnings
+   (rename-pair-nodes spec)))
+
+(define (spec-unused? used spec ast project)
+  "Return @code{#t} when nothing @var{spec} brings in is used by the file.
+
+The two shapes that can be answered are the ones where sift can see the names:
+an `only' clause whose names are all unused, and a library whose own exports
+are all unused.  A `prefix', an `except' or a plain library spec from a library
+sift cannot read says nothing about its names, so it is never unused as a
+whole."
+  (case [spec-kind spec]
+    [(only)
+     (let ((names (spec-name-nodes spec)))
+       (and (pair? names)
+         (not (any (lambda (node) (used? used (import-name-string node))) names))))]
+    [(library)
+     (let* ((key (library-key (spec-library spec)))
+            (exports (library-exports-of key ast project)))
+       (and (pair? exports)
+         (not (any (lambda (name) (used? used name)) exports))))]
+    [else #f]))
 
 (define (unused-import-warnings ast source dialect)
   (let* ((used (referenced-names ast))
@@ -529,64 +584,45 @@ still parses."
          (warnings '()))
     (for-each
      (lambda (form)
-       (let ((specs (import-specs form)))
-         (for-each
-          (lambda (spec)
-            (case [spec-kind spec]
-              [(only)
-               (let* ((names (spec-name-nodes spec))
-                      (unused (remove (lambda (node)
-                                        (used? used (import-name-string node)))
-                                      names)))
-                 (cond
-                   [(null? unused) #f]
-                   ;; every name unused: the clause itself is the finding, and
-                   ;; the fix deletes it rather than leaving `(only lib)'.
-                   [(= (length unused) (length names))
-                    (set! warnings (report-unused-spec form specs spec source warnings))]
-                   [else
-                     (for-each
-                      (lambda (node)
-                        (let ((range (deletion-range (cddr (data-elements spec)) node)))
-                          (when range
-                            (set! warnings
-                                  (cons (make-lint-warning/range
-                                         'unused-import 'info
-                                         (format #f "`~a` is imported from `~a` and never used"
-                                                 (import-name-string node)
-                                                 (import-label spec))
-                                         (node-start node) (car range) (cdr range)
-                                         (lambda (source from to) ""))
-                                        warnings)))))
-                      unused)]))]
-              [(rename)
-               (for-each
-                (lambda (pair)
-                  (let* ((elements (data-elements pair))
-                         (fresh (and (>= (length elements) 2) (list-ref elements 1)))
-                         (name (and fresh (import-name-string fresh))))
-                    (unless (used? used name)
-                      (let ((range (deletion-range (cddr (data-elements spec)) pair)))
-                        (when range
-                          (set! warnings
-                                (cons (make-lint-warning/range
-                                       'unused-import 'info
-                                       (format #f "`~a` is imported from `~a` under a new name and never used"
-                                               name (import-label spec))
-                                       (node-start pair) (car range) (cdr range)
-                                       (lambda (source from to) ""))
-                                      warnings)))))))
-                (rename-pair-nodes spec))]
-              [(library)
-               (let* ((key (library-key (spec-library spec)))
-                      (exports (library-exports-of key ast project)))
-                 ;; only a library whose exports sift can read can be called
-                 ;; unused as a whole, and only when none of them is used
-                 (when (and (pair? exports)
-                         (not (any (lambda (name) (used? used name)) exports)))
-                   (set! warnings (report-unused-spec form specs spec source warnings))))]
-              [else #f]))
-          specs)))
+       (let* ((specs (import-specs form))
+              (unused (filter (lambda (spec) (spec-unused? used spec ast project))
+                              specs)))
+         (cond
+           ;; every spec unused: one finding, on the form, whose fix removes it
+           [(and (pair? specs) (= (length unused) (length specs)))
+            (set! warnings
+                  (cons (make-lint-warning/range
+                         'unused-import 'info
+                         (format #f "`~a` imports nothing this file uses"
+                                 (source-text source form))
+                         (node-start form) (node-index form)
+                         (line-end-of source (node-end-index form))
+                         (lambda (text from to) ""))
+                        warnings))]
+           [else
+             ;; a spec of two is deleted with the space before it
+             (for-each
+              (lambda (spec)
+                (let ((span (deletion-range specs spec)))
+                  (when span
+                    (set! warnings
+                          (cons (make-lint-warning/range
+                                 'unused-import 'info
+                                 (format #f "`~a` imports nothing this file uses"
+                                         (source-text source spec))
+                                 (node-start spec) (car span) (cdr span)
+                                 (lambda (text from to) ""))
+                                warnings)))))
+              unused)
+             (for-each
+              (lambda (spec)
+                (case [spec-kind spec]
+                  [(only)
+                   (set! warnings (unused-name-findings source used spec 0 warnings))]
+                  [(rename)
+                   (set! warnings (unused-rename-findings source used spec warnings))]
+                  [else #f]))
+              specs)])))
      (import-forms ast))
     (reverse warnings)))
 
@@ -596,7 +632,8 @@ still parses."
            '(scheme)
            unused-import-warnings
            #:severity 'info
-           #:example '((input . "(import (only (srfi 1) fold car))\n(display (fold + 0 '(1 2)))")
+           #:example '((input . "(import (only (srfi 1) fold car))
+(display (fold + 0 '(1 2)))")
                        (fix . "delete `car` from the `only` clause"))))
 
 ;;; ===== library-not-found =====

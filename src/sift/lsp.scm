@@ -63,6 +63,8 @@
   #:use-module (sift format)
   #:use-module (sift config)
   #:use-module (sift definitions)
+  #:use-module (sift imports)
+  #:use-module (sift check base)
   #:use-module (sift json)
   #:use-module (sift render)
   #:export (lsp-serve
@@ -836,9 +838,10 @@ asking about the line the cursor is on, which is what a person means by
 
 (define code-action-kinds
   ;; What `initialize' advertises, and the complete list of what this server
-  ;; offers an editor: two kinds of finding fix, and the one rewrite that does
-  ;; not need to be told what to call anything.
-  '("quickfix" "refactor.rewrite" "source.fixAll" "source.fixAll.sift"))
+  ;; offers an editor: two kinds of finding fix, the one rewrite that does not
+  ;; need to be told what to call anything, and the two source actions.
+  '("quickfix" "refactor.rewrite" "source.fixAll" "source.fixAll.sift"
+    "source.organizeImports"))
 
 (define (text-document-of uri version)
   "Return the `textDocument' of a workspace edit, with a version when known.
@@ -968,16 +971,122 @@ cursor is inside it."
                       (workspace-edit (or uri "") version text start end
                                       formatted))))))))))
 
+(define (import-spec-text text spec)
+  "Return @var{spec} as it is written in @var{text}."
+  (substring text (form-start spec) (form-end spec)))
+
+(define (import-spec-key spec)
+  "Return the name a spec is sorted by: the library it imports."
+  (let ((library (spec-library spec)))
+    (or (and library (library-key library)) "")))
+
+(define (import-line-end text index)
+  "Return the index a deletion that removes a whole line stops at."
+  (let loop ((at index))
+    (cond
+      [(>= at (string-length text)) at]
+      [(char=? (string-ref text at) #\newline) (+ at 1)]
+      [(memv (string-ref text at) '(#\space #\tab)) (loop (+ at 1))]
+      [else index])))
+
+(define (sorted-import-specs specs)
+  "Return @var{specs} in the order a reader looks for them: by library name."
+  (sort (list-copy specs)
+        (lambda (a b) (string<? (import-spec-key a) (import-spec-key b)))))
+
+(define (organize-import-form text form specs)
+  "Return @var{form} with its specs put in order, and the layout it had.
+
+The specs are permuted in place -- each one written into the span another one
+held -- so a form written on one line stays on one line and a form written one
+spec per line keeps its indentation.  Organizing imports is not an invitation
+to reflow a file."
+  (let ((sorted (sorted-import-specs specs)))
+    (if (equal? sorted specs)
+      (substring text (form-start form) (form-end form))
+      (call-with-output-string
+        (lambda (out)
+          (let loop ((position (form-start form))
+                     (remaining specs)
+                     (texts (map (lambda (spec) (import-spec-text text spec)) sorted)))
+            (if (null? remaining)
+              (display (substring text position (form-end form)) out)
+              (begin
+                (display (substring text position (form-start (car remaining))) out)
+                (display (car texts) out)
+                (loop (form-end (car remaining)) (cdr remaining) (cdr texts))))))))))
+
+(define (organize-imports-text text dialect)
+  "Return @var{text} with the specs of every import form sorted.
+
+Only a top-level import is organized: one written inside a `library' body
+belongs to that body, and rewriting it would mean rewriting the library."
+  (let* ((ast (ast-of-text text dialect))
+         (top (filter node-data? ast))
+         (forms (filter (lambda (form) (memq form top)) (import-forms ast))))
+    (if (null? forms)
+      text
+      (call-with-output-string
+        (lambda (out)
+          (let loop ((position 0) (remaining forms))
+            (if (null? remaining)
+              (display (substring text position) out)
+              (let* ((form (car remaining))
+                     (start (form-start form))
+                     (end (form-end form))
+                     (specs (form-arguments form)))
+                (display (substring text position start) out)
+                (cond
+                  ;; an import left with nothing in it is removed rather than
+                  ;; written as `(import)', which no Scheme reads
+                  [(null? specs) (loop (import-line-end text end) (cdr remaining))]
+                  [else
+                    (display (organize-import-form text form specs) out)
+                    (loop end (cdr remaining))])))))))))
+
+(define (unused-import-warnings-of config text dialect uri)
+  "Return the unused-import findings of @var{text}, at every severity.
+
+The action is asked for by hand, so it works from what the rule knows rather
+than from what the project chose to display: a project that keeps
+informational findings out of its problem list still wants its unused imports
+gone when it says so."
+  (filter (lambda (warning)
+            (eq? (lint-warning-checker warning) 'unused-import))
+          (lint-source text #:dialect dialect #:file (and uri (strip-uri uri))
+                       #:checkers '(unused-import)
+                       #:severity 'info
+                       #:options (lint-options-of config))))
+
+(define* (organize-imports-action config text #:key (dialect 'scheme) (uri #f)
+                                  (version #f))
+  "Return the action that removes unused imports and sorts the rest, or #f.
+
+Two steps, both of them deletions and reorderings of what the author wrote:
+the fixes `unused-import' already computes are applied first, then the specs
+of every import form are put in order.  Nothing is renamed and nothing is
+added, which is what makes this an action and not a guess."
+  (let* ((warnings (unused-import-warnings-of config text dialect uri))
+         (pruned (apply-fixes text warnings))
+         (organized (organize-imports-text pruned dialect)))
+    (and (not (string=? organized text))
+      (json-object
+       (field "title" "sift: organize imports")
+       (field "kind" "source.organizeImports")
+       (field "edit"
+              (workspace-edit (or uri "") version text 0 (string-length text)
+                              organized))))))
+
 (define* (lsp-code-actions config text start end #:key (dialect 'scheme)
                            (uri #f) (version #f) (only '()))
   "Return the code actions that apply to @var{start}..@var{end} of @var{text}.
 
 Three answers, in the order an editor should show them: the fixes for the
 findings under the cursor, the one rewrite sift can make without being told
-what to call anything, and the two source actions -- fix everything, and
-format the definition the cursor is in.  @var{only} is the request's
-`context.only', so a client that asked for `source' gets the source actions
-and nothing else."
+what to call anything, and the source actions -- fix everything, format the
+definition the cursor is in, and organize the imports.  @var{only} is the
+request's `context.only', so a client that asked for `source' gets the source
+actions and nothing else."
   (let* ((warnings (warnings-for config text #:dialect dialect #:uri uri))
          (quickfixes
           (filter-map
@@ -993,11 +1102,16 @@ and nothing else."
          (fix-all
           (and (only-accepts? only "source.fixAll")
             (fix-all-action config text #:dialect dialect #:uri uri
-                            #:version version))))
+                            #:version version)))
+         (organize
+          (and (only-accepts? only "source.organizeImports")
+            (organize-imports-action config text #:dialect dialect #:uri uri
+                                     #:version version))))
     (list->vector
      (append
       (if (only-accepts? only "quickfix") quickfixes '())
       (if rewrite (list rewrite) '())
+      (if organize (list organize) '())
       (if fix-all (list fix-all) '())))))
 
 (define (action-only params)

@@ -311,10 +311,11 @@ bug; the server has to survive it."
           #:got (json-ref capabilities "documentFormattingProvider")
           #:name "the server formats")
         (assert-equal #:expect #("quickfix" "refactor.rewrite"
-                                 "source.fixAll" "source.fixAll.sift")
+                                 "source.fixAll" "source.fixAll.sift"
+                                 "source.organizeImports")
           #:got (json-ref (json-ref capabilities "codeActionProvider")
                           "codeActionKinds")
-          #:name "the server offers fixes and the one rewrite it can make")
+          #:name "the server offers fixes, the one rewrite it can make, and import sorting")
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "hoverProvider")
           #:name "the server answers a hover")))
@@ -435,6 +436,47 @@ bug; the server has to survive it."
         (assert-equal #:expect 1
           #:got (json-ref (json-ref (json-ref edit "range") "end") "line")
           #:name "and ends with it, leaving the next definition alone")))
+
+    (test "organizing imports puts the specs in order"
+      (let* ((text "(import (srfi 1) (scheme base))\n(display 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 0
+                                                              '("source.organizeImports")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result"))
+             (action (and (> (vector-length actions) 0) (vector-ref actions 0)))
+             (changes (json-ref (json-ref action "edit") "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits"))
+             (replacement (json-ref (vector-ref edits 0) "newText")))
+        (assert-equal #:expect "source.organizeImports" #:got (json-ref action "kind"))
+        (assert-same-text #:expect "(import (scheme base) (srfi 1))\n(display 1)\n"
+                          #:got replacement
+                          #:name "the library that sorts first is written first")))
+
+    (test "organizing imports removes the ones nothing uses"
+      (let* ((text "(import (scheme base) (only (srfi 1) car))\n(display 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 0
+                                                              '("source.organizeImports")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result"))
+             (action (and (> (vector-length actions) 0) (vector-ref actions 0)))
+             (changes (json-ref (json-ref action "edit") "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits"))
+             (replacement (json-ref (vector-ref edits 0) "newText")))
+        (assert-same-text #:expect "(import (scheme base))\n(display 1)\n"
+                          #:got replacement
+                          #:name "the unused import went, and the file still reads")))
+
+    (test "an import that is already organized has no action"
+      (let* ((text "(import (scheme base) (srfi 1))\n(display 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 0
+                                                              '("source.organizeImports")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 0 #:got (vector-length actions)
+          #:name "nothing to offer, and nothing offered")))
 
     (test "formatting answers with the text sift would write"
       (let* ((result (session (list (initialize-request 1)

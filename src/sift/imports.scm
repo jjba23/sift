@@ -310,10 +310,15 @@ first name is removed rather than as a form with a double space in it."
       (cond
         [(null? rest) #f]
         [(eq? (car rest) node)
-         (cons (if previous
-                 (source-location-index (node-end previous))
-                 (source-location-index (node-start node)))
-               (source-location-index (node-end node)))]
+         ;; the first element has nothing before it, so it takes the space
+         ;; *after* it instead -- otherwise removing it leaves a double space
+         (if previous
+           (cons (source-location-index (node-end previous))
+                 (source-location-index (node-end node)))
+           (cons (source-location-index (node-start node))
+                 (if (pair? (cdr rest))
+                   (source-location-index (node-start (cadr rest)))
+                   (source-location-index (node-end node)))))]
         [else (loop (cdr rest) (car rest))]))))
 
 ;;; ===== Libraries sift knows without seeing them =====
