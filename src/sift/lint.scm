@@ -27,6 +27,7 @@
   #:use-module (sift reader)
   #:use-module (sift check base)
   #:use-module (sift checkers whitespace)
+  #:use-module (sift checkers comments)
   #:use-module (sift checkers parens)
   #:use-module (sift checkers bodies)
   #:use-module (sift checkers scheme)
@@ -59,6 +60,7 @@
 The order is sorted rather than written down, so `list-checkers' and any
 other report over the whole set cannot drift from the set itself."
   (sort (append whitespace-checkers
+                comments-checkers
                 parens-checkers
                 bodies-checkers
                 scheme-checkers

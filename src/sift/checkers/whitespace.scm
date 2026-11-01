@@ -25,7 +25,8 @@
             trailing-whitespace-checker
             tabs-checker
             line-length-checker
-            trailing-blank-lines-checker))
+            trailing-blank-lines-checker
+            blank-line-in-body-checker))
 
 ;;; ===== trailing-whitespace =====
 
@@ -184,10 +185,94 @@
            #:example '((input . "(define x 1)\n\n\n\n\n")
                        (fix . "trim the end of the file to one blank line"))))
 
+;;; ===== blank-line-in-body =====
+;;
+;; A blank line is a paragraph break, and the body of one form is one
+;; paragraph.  Riastradh's rule allows blank lines in a body only to separate
+;; internal definitions -- where there really are two paragraphs -- so this
+;; rule counts the gaps between the forms of a body and accepts a gap when
+;; the definition on either side of it is a definition of its own.
+
+;; The forms whose body is a sequence of expressions, and how many elements
+;; come before that body: `(define (f x) body ...)' has two, `(lambda (x)
+;; body ...)' has two, `(defun f (x) body ...)' has three.
+(define body-form-skips
+  '((define . 2) (define* . 2) (define-public . 2) (define-inlinable . 2)
+    (lambda . 2) (lambda* . 2) (case-lambda . 2)
+    (defun . 3) (defmacro . 3) (defsubst . 3) (cl-defun . 3)
+    (cl-defmacro . 3) (cl-defsubst . 3) (defmethod . 3) (defgeneric . 3)
+    (let . 2) (let* . 2) (letrec . 2) (letrec* . 2)))
+
+(define (internal-definition? node)
+  "Return @code{#t} when @var{node} is a definition inside a body.
+
+A blank line between two of these is the one a body is allowed to have: the
+rule exists so that a reader can see where one internal definition stops and
+the next starts."
+  (memq (and (node-list? node) (node-head-name node))
+        '(define define* define-public define-inlinable define-syntax
+           define-record-type define-class defun defmacro defsubst
+           defvar defconst defcustom defparameter defconstant)))
+
+(define (blank-line-in-body-warnings ast source dialect)
+  (let ((warnings '()))
+    (define (report element)
+      (set! warnings
+            (cons (make-lint-warning
+                   'blank-line-in-body 'info
+                   "blank line inside a body; the body of a form is one paragraph"
+                   (node-start element))
+                  warnings)))
+    (for-each-node
+     (lambda (node)
+       (let* ((head (and (node-list? node) (node-head-name node)))
+              (skip (and head (assq-ref body-form-skips head))))
+         (when skip
+           (let loop ((rest (node-children node))
+                      (index -1)
+                      (previous #f)
+                      (blank? #f))
+             (unless (null? rest)
+               (let ((child (car rest)))
+                 (cond
+                   [(node-whitespace? child)
+                    (loop (cdr rest) index previous
+                          (or blank? (>= (node-newlines child) 2)))]
+                   ;; A comment starts the next paragraph, and a comment above a
+                   ;; form is that form's heading: a blank line before it is
+                   ;; the author's, and is not a gap in the body.
+                   [(node-comment? child) (loop (cdr rest) index previous #f)]
+                   [(node-data? child)
+                    (let ((next (+ index 1)))
+                      (when (and blank? previous
+                              (>= index skip)
+                              (>= next skip)
+                              (not (internal-definition? previous))
+                              (not (internal-definition? child)))
+                        (report child))
+                      (loop (cdr rest) next child #f))]
+                   [else (loop (cdr rest) index previous blank?)])))))))
+     ast)
+    (reverse warnings)))
+
+(define blank-line-in-body-checker
+  (checker 'blank-line-in-body
+           "A blank line in the middle of a body, where one paragraph belongs"
+           'all
+           blank-line-in-body-warnings
+           #:severity 'info
+           #:example '((input . "(define (f x)
+  (first x)
+
+  (second x))
+")
+                       (fix . "delete the blank line, or split the form in two"))))
+
 ;;; ===== The list =====
 
 (define whitespace-checkers
   (list trailing-whitespace-checker
         tabs-checker
         line-length-checker
-        trailing-blank-lines-checker))
+        trailing-blank-lines-checker
+        blank-line-in-body-checker))

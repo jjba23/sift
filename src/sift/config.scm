@@ -140,6 +140,11 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . #f)
      (flag . "--brackets")
      (description . "Bracket style for clause lists: square, parens or preserve."))
+    (blank-lines
+     (type . blank-lines)
+     (default . preserve)
+     (flag . "--blank-lines")
+     (description . "Blank lines: preserve the author's, or one between top-level forms."))
     (max-depth
      (type . integer)
      (default . 6)
@@ -160,6 +165,11 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . 5)
      (flag . #f)
      (description . "Positional arguments before keyword-arguments suggests :key. Config-only."))
+    (single-letter-names
+     (type . names)
+     (default . (i j))
+     (flag . #f)
+     (description . "Single-letter names single-letter-name accepts, such as index variables."))
     (comment-align
      (type . boolean)
      (default . #f)
@@ -332,6 +342,13 @@ would be the wrong thing to say to a user who typed `--checker=a'."
                      [else #f])))
     (if (or (not value) style) style (bad "square, parens or preserve"))))
 
+(define (blank-lines-setting value bad)
+  (let ((style (cond [(not value) #f]
+                     [(symbol? value) value]
+                     [(string? value) (string->blank-lines value)]
+                     [else #f])))
+    (if (or (not value) style) style (bad "preserve or one"))))
+
 (define (loop-style-setting value bad)
   (let ((value (if (string? value) (string->symbol value) value)))
     (if (memq value '(either literal symbolic)) value
@@ -378,6 +395,7 @@ setting that does not exist."
     (output-format . ,output-format-setting)
     (color . ,color-setting)
     (brackets . ,brackets-setting)
+    (blank-lines . ,blank-lines-setting)
     (loop-style . ,loop-style-setting)
     (rules . ,rules-setting)))
 
@@ -694,6 +712,8 @@ expect."
         (cons 'loop-keywords (config-ref config 'loop-keywords))
         (cons 'indent-rules (config-ref config 'indent-rules))
         (cons 'brackets (config-ref config 'brackets))
+        (cons 'blank-lines (config-ref config 'blank-lines))
+        (cons 'single-letter-names (config-ref config 'single-letter-names))
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))

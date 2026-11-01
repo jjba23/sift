@@ -78,6 +78,37 @@
        #:expect "(a)\n\n(b)\n"
        #:got (format-string "(a)\n\n\n\n(b)\n")))
 
+    (test "preserve adds no blank line the author did not write"
+      (assert-same-text
+       #:expect "(a)\n(b)\n"
+       #:got (format-string "(a)\n(b)\n")))
+
+    (test "one blank line separates adjacent top-level forms when asked"
+      (assert-same-text
+       #:expect "(a)\n\n(b)\n"
+       #:got (format-string "(a)\n(b)\n" #:blank-lines 'one)))
+
+    (test "two forms on one line are separated when asked"
+      (assert-same-text
+       #:expect "(a)\n\n(b)\n"
+       #:got (format-string "(a) (b)\n" #:blank-lines 'one)))
+
+    (test "a heading comment stays with the form it heads"
+      (assert-same-text
+       #:expect "(a)\n\n;;; b\n(b)\n"
+       #:got (format-string "(a)\n;;; b\n(b)\n" #:blank-lines 'one)))
+
+    (test "one blank line is the most a body keeps when asked"
+      (assert-same-text
+       #:expect "(a\n\n b)\n"
+       #:got (format-string "(a\n\n\n b)\n" #:blank-lines 'one)))
+
+    (test "the one-blank-line style is a fixed point"
+      (assert-same-text
+       #:expect "(a)\n\n(b)\n"
+       #:got (format-string (format-string "(a) (b)\n" #:blank-lines 'one)
+                            #:blank-lines 'one)))
+
     (test "a reader prefix is never separated from its datum"
       (assert-same-text
        #:expect "'a\n"

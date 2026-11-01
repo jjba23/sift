@@ -61,8 +61,9 @@
   sift config show|explain|trust ...
   sift version
 
-Options common to the commands: --dialect, --brackets, --line-length,
---style, --severity, --format, --color/--no-color, --verbose, --config.
+Options common to the commands: --dialect, --brackets, --blank-lines,
+--line-length, --style, --severity, --format, --color/--no-color,
+--verbose, --config.
 
 Run `sift COMMAND --help' for the options of a command.
 ")
@@ -92,6 +93,8 @@ Run `sift COMMAND --help' for the options of a command.
            (lambda (opt name arg state) (acons 'label arg state)))
    (option '("brackets") #t #f
            (lambda (opt name arg state) (acons 'brackets arg state)))
+   (option '("blank-lines") #t #f
+           (lambda (opt name arg state) (acons 'blank-lines arg state)))
    (option '(#\V "version") #f #f
            (lambda (opt name arg state) (acons 'version #t state)))
    (option '("comment-align") #f #f
@@ -261,6 +264,11 @@ this program refuses to tell."
     (usage-error "unknown bracket style `~a'; sift knows square, parens and preserve"
                  value)))
 
+(define (blank-lines-option value)
+  (or (string->blank-lines value)
+    (usage-error "unknown blank-line style `~a'; sift knows preserve and one"
+                 value)))
+
 (define (format-option value)
   (let ((format (string->symbol value)))
     (if (memq format '(human json null github sarif))
@@ -283,6 +291,7 @@ this program refuses to tell."
     (severity . ,severity-option)
     (format . ,format-option)
     (brackets . ,brackets-option)
+    (blank-lines . ,blank-lines-option)
     (line-length . ,(positive-integer-option "--line-length"))
     (indent . ,(positive-integer-option "--indent"))))
 
@@ -529,6 +538,7 @@ text means."
                  #:indent (config-ref config 'indent)
                  #:comment-align (config-ref config 'comment-align)
                  #:brackets (config-ref config 'brackets)
+                 #:blank-lines (config-ref config 'blank-lines)
                  #:indent-rules (config-ref config 'indent-rules)))
 
 (define* (format-one config path source #:key (write? #f) (check? #f)
@@ -811,6 +821,8 @@ makes `ci --format=sarif' one document that holds both answers."
         (cons 'indent (config-ref config 'indent))
         (cons 'loop-keywords (config-ref config 'loop-keywords))
         (cons 'brackets (config-ref config 'brackets))
+        (cons 'blank-lines (config-ref config 'blank-lines))
+        (cons 'single-letter-names (config-ref config 'single-letter-names))
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))

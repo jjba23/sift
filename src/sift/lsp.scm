@@ -260,6 +260,8 @@ a URI is."
         (cons 'indent (config-ref config 'indent))
         (cons 'loop-keywords (config-ref config 'loop-keywords))
         (cons 'brackets (config-ref config 'brackets))
+        (cons 'blank-lines (config-ref config 'blank-lines))
+        (cons 'single-letter-names (config-ref config 'single-letter-names))
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
@@ -398,6 +400,7 @@ asking about the line the cursor is on, which is what a person means by
                  #:indent (config-ref config 'indent)
                  #:comment-align (config-ref config 'comment-align)
                  #:brackets (config-ref config 'brackets)
+                 #:blank-lines (config-ref config 'blank-lines)
                  #:indent-rules (config-ref config 'indent-rules)))
 
 (define* (lsp-formatting config text #:key (dialect 'scheme) (uri #f))

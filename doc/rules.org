@@ -12,15 +12,17 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 50 rules in sift 1.2.3.
+There are 53 rules in sift 1.2.3.
 
 * Summary
 
 | Name | Code | Dialects | Severity | What it says |
 |------+------+----------+----------+--------------|
 | beta-reduction | SIFT046 | scheme, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
+| blank-line-in-body | SIFT052 | all | info | A blank line in the middle of a body, where one paragraph belongs |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
 | clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
+| comment-semicolons | SIFT051 | all | info | A comment's semicolon level does not say where it belongs |
 | composition | SIFT047 | scheme | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
@@ -56,6 +58,7 @@ There are 50 rules in sift 1.2.3.
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
+| single-letter-name | SIFT053 | all | info | A variable named with a single letter |
 | special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
 | sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
 | sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
@@ -88,6 +91,30 @@ A lambda applied in place, where a ~let~ would say the same thing once
 
 #+begin_quote
 Run ~sift explain beta-reduction~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT052 blank-line-in-body
+:PROPERTIES:
+:CUSTOM_ID: blank-line-in-body
+:END:
+
+A blank line in the middle of a body, where one paragraph belongs
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* delete the blank line, or split the form in two
+
+#+begin_src scheme
+(define (f x)
+  (first x)
+
+  (second x))
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain blank-line-in-body~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -132,6 +159,30 @@ A ~cond~ or ~case~ clause written with the other kind of bracket
 
 #+begin_quote
 Run ~sift explain clause-brackets~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT051 comment-semicolons
+:PROPERTIES:
+:CUSTOM_ID: comment-semicolons
+:END:
+
+A comment's semicolon level does not say where it belongs
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* use three at top level, two inside a form, one at the end of a line
+
+#+begin_src scheme
+(define (f x)
+  ;; two semicolons, in a body
+  x)
+;; one semicolon, at top level
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain comment-semicolons~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -859,6 +910,26 @@ Run ~sift explain redundant-identity~ at the command line, or ~M-x sift-explain-
 
 #+begin_quote
 Run ~sift explain redundant-progn~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT053 single-letter-name
+:PROPERTIES:
+:CUSTOM_ID: single-letter-name
+:END:
+
+A variable named with a single letter
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* no automatic fix; rename the parameter to a word
+
+#+begin_src scheme
+(define (area w h) (* w h))
+#+end_src
+
+#+begin_quote
+Run ~sift explain single-letter-name~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

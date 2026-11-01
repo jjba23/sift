@@ -346,7 +346,11 @@ cannot move when the list is re-sorted."
     (let-simplification . "SIFT048")
     ;; the shape of an SXML document
     (sxml-attributes . "SIFT049")
-    (sxml-child . "SIFT050")))
+    (sxml-child . "SIFT050")
+    ;; the layout rules of Riastradh's style guide
+    (comment-semicolons . "SIFT051")
+    (blank-line-in-body . "SIFT052")
+    (single-letter-name . "SIFT053")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

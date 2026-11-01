@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.1.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-50-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.1.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-53-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
@@ -204,7 +204,7 @@ $ sift doctor
 sift 1.2.3
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       50
+  rules       53
   dialects    scheme, elisp, cl
 
 Configuration
@@ -401,6 +401,7 @@ command line wins.
 | ~--format~                 | lint, check, ci                 | human, json, null, github or sarif (default ~human~)                  |
 | ~--style~                  | format                          | community (trailing closers) or dangling (own line)                   |
 | ~--brackets~               | format                          | square, parens or preserve, for clause lists                          |
+| ~--blank-lines~            | format                          | preserve, or one blank line between top-level forms                   |
 | ~--line-length N~          | format, lint                    | Soft line limit (96, or 80 for Emacs Lisp)                            |
 | ~--indent N~               | format                          | Indentation width (default 2)                                         |
 | ~--comment-align~          | format                          | Line up contiguous inline comments                                    |
@@ -574,7 +575,7 @@ a default severity, a procedure, and an example.  The driver reads the file
 once, runs the applicable rules, folds in what the reader found, applies the
 suppression comments, sorts by file, line, column and rule, and reports.
 
-There are 50 rules.  They are listed one by one, with their codes and their
+There are 53 rules.  They are listed one by one, with their codes and their
 reasoning, in [[file:doc/rules.org][doc/rules.org]] — a document generated from those records, so it
 cannot describe a rule that does not exist, and a test fails when it falls
 behind.  The style the rules belong to, and why each choice is idiomatic Lisp,
@@ -584,7 +585,7 @@ The short version:
 
 | Where it applies | What it is about                                                                                                                                                  |
 |------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| all three        | whitespace, line length, delimiters, empty bodies, ~progn~, prefixes, blank lines at EOF, the ~if~ / ~when~ / ~unless~ family, big expressions, keyword arguments |
+| all three        | whitespace, line length, delimiters, empty bodies, ~progn~, prefixes, blank lines at EOF and in a body, comment levels, single-letter names, the ~if~ / ~when~ / ~unless~ family, big expressions, keyword arguments |
 | Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification   |
 | Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation         |
 | Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~                                                                 |
@@ -623,9 +624,10 @@ otherwise.
 
 A few rules deliberately have no fix.  SIFT004 (~unmatched-parens~) will not
 guess where a missing ~)~ belongs, SIFT031 (~wrap-in-let~) will not invent the
-name of the binding it suggests, and the naming rules (SIFT040–042) will not
-rename anything: deciding how to split or name a piece of code is the author's
-work.
+name of the binding it suggests, the naming rules (SIFT040–042 and SIFT053)
+will not rename anything, and the layout rules (SIFT051 and SIFT052) will not
+re-level a comment or delete a line: deciding how to split or name a piece of
+code is the author's work.
 
 ** Silencing a rule
 :PROPERTIES:
@@ -908,6 +910,8 @@ dialect: elisp
 style: community
 line-length: 90
 brackets: square
+blank-lines: one
+single-letter-names: [i, j, k]
 max-positional: 4
 severity: warning
 checkers:

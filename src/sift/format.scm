@@ -52,6 +52,10 @@
             valid-brackets?
             string->brackets
             default-brackets
+            blank-lines-styles
+            valid-blank-lines?
+            string->blank-lines
+            default-blank-lines
             indent-rule
             indent-rules
             default-line-length
@@ -98,6 +102,17 @@ such convention, so they keep whatever the author wrote."
 (define (string->brackets string)
   (let ((style (string->symbol (string-downcase string))))
     (and (memq style brackets-styles) style)))
+
+(define blank-lines-styles '(preserve one))
+
+(define (valid-blank-lines? style)
+  (and (symbol? style) (memq style blank-lines-styles) #t))
+
+(define (string->blank-lines string)
+  (let ((style (string->symbol (string-downcase string))))
+    (and (memq style blank-lines-styles) style)))
+
+(define default-blank-lines 'preserve)
 
 (define* (default-indent dialect)
   "Return the indentation width sift uses by default: two, for every dialect."
@@ -249,7 +264,8 @@ written across several lines."
 ;;; ===== Rendering context =====
 
 (define-record-type <ctx>
-  (%make-ctx dialect style indent-width top? alignment marks brackets rules)
+  (%make-ctx dialect style indent-width top? alignment marks brackets rules
+             blank-lines)
   ctx?
   (dialect ctx-dialect)
   (style ctx-style)
@@ -258,20 +274,22 @@ written across several lines."
   (alignment ctx-alignment) ; alist of comment index -> column
   (marks ctx-marks) ; mutable box of measurement triples
   (brackets ctx-brackets) ; square, parens or preserve
-  (rules ctx-rules)) ; the project's own (symbol . columns) rules
+  (rules ctx-rules) ; the project's own (symbol . columns) rules
+  (blank-lines ctx-blank-lines)) ; preserve or one
 
 (define* (make-ctx #:key (dialect 'scheme) (style 'community)
                    (indent-width 2) (alignment '()) (marks #f) (brackets #f)
-                   (rules '()))
+                   (rules '()) (blank-lines 'preserve))
   (%make-ctx dialect style indent-width #t alignment
              (or marks (cons '() '()))
              (or brackets (default-brackets dialect))
-             rules))
+             rules
+             (or blank-lines default-blank-lines)))
 
 (define (ctx-inside ctx)
   (%make-ctx (ctx-dialect ctx) (ctx-style ctx) (ctx-indent-width ctx)
              #f (ctx-alignment ctx) (ctx-marks ctx) (ctx-brackets ctx)
-             (ctx-rules ctx)))
+             (ctx-rules ctx) (ctx-blank-lines ctx)))
 
 (define (ctx-rule ctx head-name)
   "Return the project's own rule for @var{head-name}, or @code{#f}.
@@ -282,13 +300,31 @@ the name."
   (let ((entry (assq head-name (ctx-rules ctx))))
     (and entry (cdr entry))))
 
+(define (separate-top-level? ctx seen last)
+  "Return @code{#t} when a top-level node must follow one blank line.
+
+`blank-lines: one' is Riastradh's rule: adjacent top-level forms are
+separated by exactly one blank line.  A heading comment belongs to the form
+under it, so the gap after a form gets its blank line whether the next thing
+is a form or the comment that heads it; a gap that follows a comment is the
+author's grouping, and is left alone."
+  (and (ctx-top? ctx)
+    (eq? (ctx-blank-lines ctx) 'one)
+    seen last
+    (node-data? last)))
+
 (define (newline-cap ctx)
   "Return the largest number of newlines a gap may keep.
 
 At top level a run of blank lines is collapsed to one blank line; inside a
 form two are allowed, because a blank line between two `let' bindings can be
-the clearest comment there is."
-  (if (ctx-top? ctx) 2 3))
+the clearest comment there is.  A project that sets `blank-lines: one' gets
+one blank line wherever it happens, which is the limit Riastradh's rules
+argue for: two blank lines mean the same as one, at twice the cost."
+  (cond
+    [(ctx-top? ctx) 2]
+    [(eq? (ctx-blank-lines ctx) 'one) 2]
+    [else 3]))
 
 (define (notes-box-push! box item)
   (set-cdr! box (cons item (cdr box))))
@@ -337,14 +373,18 @@ A comment is never moved to another line than the one it was on."
              (emit! out (node-value node))
              (loop tail 0 #t node)]
             [else
-              (cond
-                [(> pending 0)
-                 (emit-newlines! out (min (max pending 1) (newline-cap ctx)))
-                 (emit-spaces! out indent)]
-                [seen
-                  ;; A standalone comment has to start a line of its own.
-                  (emit-newlines! out 1)
-                  (emit-spaces! out indent)])
+              (let ((separate? (separate-top-level? ctx seen last)))
+                (cond
+                  [(> pending 0)
+                   (emit-newlines! out
+                                   (if separate?
+                                     2
+                                     (min (max pending 1) (newline-cap ctx))))
+                   (emit-spaces! out indent)]
+                  [seen
+                    ;; A standalone comment has to start a line of its own.
+                    (emit-newlines! out (if separate? 2 1))
+                    (emit-spaces! out indent)]))
               (emit! out (node-value node))
               (loop tail 0 #t node)])]
 
@@ -355,11 +395,19 @@ A comment is never moved to another line than the one it was on."
           (loop tail 0 #t node)]
 
          [else
-           (cond
-             [(> pending 0)
-              (emit-newlines! out (min pending (newline-cap ctx)))
-              (emit-spaces! out indent)]
-             [seen (emit-spaces! out 1)])
+           ;; `blank-lines: one' is the one thing a formatter is allowed to
+           ;; add: two adjacent top-level forms are separated by exactly one
+           ;; blank line, whether or not the author wrote one.  A heading
+           ;; comment above a form belongs to that form, so a gap that follows
+           ;; a comment is left as it was.
+           (let ((separate? (separate-top-level? ctx seen last)))
+             (cond
+               [(> pending 0)
+                (emit-newlines! out
+                                (if separate? 2 (min pending (newline-cap ctx))))
+                (emit-spaces! out indent)]
+               [separate? (emit-newlines! out 2)]
+               [seen (emit-spaces! out 1)]))
            (render-node node out ctx clause-style)
            (loop tail 0 #t node)])))))
 
@@ -646,20 +694,21 @@ aligned one column past the longest line of code in it."
   (let* ((out (make-out))
          (top (%make-ctx (ctx-dialect ctx) (ctx-style ctx)
                          (ctx-indent-width ctx) #t (ctx-alignment ctx)
-                         (ctx-marks ctx) (ctx-brackets ctx) (ctx-rules ctx))))
+                         (ctx-marks ctx) (ctx-brackets ctx) (ctx-rules ctx)
+                         (ctx-blank-lines ctx))))
     (render-sequence ast 0 out top)
     (values (out-text out) (reverse (cdr (ctx-marks top))))))
 
 (define* (format-ast ast #:key (dialect 'scheme) (style 'community)
                      (indent-width 2) (comment-align #f) (brackets #f)
-                     (indent-rules '()))
+                     (indent-rules '()) (blank-lines 'preserve))
   "Render @var{ast} as source text.
 
 The result is deterministic: nothing here depends on a hash table's order or
 on any state outside the arguments."
   (let* ((base (make-ctx #:dialect dialect #:style style
                          #:indent-width indent-width #:brackets brackets
-                         #:rules indent-rules)))
+                         #:rules indent-rules #:blank-lines blank-lines)))
     (if comment-align
       (call-with-values
         (lambda () (render-document ast base))
@@ -667,7 +716,7 @@ on any state outside the arguments."
           (let* ((table (compute-alignment marks))
                  (aligned (%make-ctx dialect style indent-width #t table
                                      (cons '() '()) (ctx-brackets base)
-                                     (ctx-rules base))))
+                                     (ctx-rules base) (ctx-blank-lines base))))
             (call-with-values
               (lambda () (render-document ast aligned))
               (lambda (aligned-text ignored) aligned-text)))))
@@ -678,7 +727,8 @@ on any state outside the arguments."
 
 (define* (format-source source #:key (dialect 'scheme) (file #f)
                         (style 'community) (indent #f) (comment-align #f)
-                        (line-length #f) (force #f) (brackets #f) (indent-rules '()))
+                        (line-length #f) (force #f) (brackets #f)
+                        (indent-rules '()) (blank-lines 'preserve))
   "Format @var{source}, returning two values: the text and the parse errors.
 
 No file is read from or written to here, and no error is swallowed: the
@@ -690,21 +740,25 @@ caller decides whether an error is fatal (see @code{format/file})."
                           #:indent-width (or indent (default-indent dialect))
                           #:comment-align comment-align
                           #:brackets brackets
-                          #:indent-rules indent-rules)
+                          #:indent-rules indent-rules
+                          #:blank-lines blank-lines)
               errors))))
 
 (define* (format-string source #:key (dialect 'scheme) (style 'community)
-                        (indent 2) (comment-align #f) (brackets #f) (indent-rules '()))
+                        (indent 2) (comment-align #f) (brackets #f)
+                        (indent-rules '()) (blank-lines 'preserve))
   "Format @var{source} and return just the text."
   (call-with-values
     (lambda () (read-source #:source source #:dialect dialect))
     (lambda (ast errors)
       (format-ast ast #:dialect dialect #:style style
                   #:indent-width indent #:comment-align comment-align
-                  #:brackets brackets #:indent-rules indent-rules))))
+                  #:brackets brackets #:indent-rules indent-rules
+                  #:blank-lines blank-lines))))
 
 (define* (format/file path #:key (dialect #f) (style 'community) (indent 2)
-                      (comment-align #f) (force #f) (brackets #f) (indent-rules '()))
+                      (comment-align #f) (force #f) (brackets #f)
+                      (indent-rules '()) (blank-lines 'preserve))
   "Format the file at @var{path}, returning the text and the parse errors.
 
 The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
@@ -714,17 +768,20 @@ The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
                      'scheme)))
     (format-source source #:dialect dialect* #:file path #:style style
                    #:indent indent #:comment-align comment-align
-                   #:force force #:brackets brackets #:indent-rules indent-rules)))
+                   #:force force #:brackets brackets #:indent-rules indent-rules
+                   #:blank-lines blank-lines)))
 
 (define* (format-check source #:key (dialect 'scheme) (style 'community)
-                       (indent 2) (comment-align #f) (brackets #f))
+                       (indent 2) (comment-align #f) (brackets #f)
+                       (blank-lines 'preserve))
   "Return @code{#t} when formatting @var{source} would change it.
 
 This is what `sift check' asks: not \"is the file ugly?\" but \"would running
 the formatter change a single byte?\"."
   (call-with-values
     (lambda () (format-source source #:dialect dialect #:style style
-                              #:indent indent #:comment-align comment-align))
+                              #:indent indent #:comment-align comment-align
+                              #:blank-lines blank-lines))
     (lambda (formatted errors)
       (not (string=? formatted source)))))
 

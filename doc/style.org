@@ -394,6 +394,157 @@ production.  SIFT025 and SIFT026 say so, because a file that uses
 file that uses `run` unqualified depends on whatever `*package*` happens to
 be at read time.
 
+* Riastradh's rules, and which of them sift keeps
+:PROPERTIES:
+:CUSTOM_ID: riastradh
+:END:
+
+Taylor R. Campbell's *Lisp Style Rules* -- cited everywhere as Riastradh's
+style guide -- is the sharpest short argument for the choices above.  sift
+agrees with it more often than not, and where it does not the difference is a
+setting rather than an opinion baked into the program.
+
+** Alignment: the same rule, already implemented
+:PROPERTIES:
+:CUSTOM_ID: riastradh-alignment
+:END:
+
+Campbell's alignment rule is the one this formatter was built on.  When the
+first argument is on the operator's line, everything after it lines up under
+that argument; when the operator stands alone, what follows lines up under the
+operator; and a list of literal data lines up in one column, whatever its
+first element is.
+
+#+begin_src scheme
+(+ (sqrt -1)
+   (* x y))
+
+(+
+ (sqrt -1)
+ (* x y))
+
+((car x)
+ (cdr x)
+ foo)
+
+("foo" "bar" "baz"
+ "quux")
+#+end_src
+
+The third form is the one editors disagree about: GNU Emacs indents a list
+whose operator is itself a list under the first *operand*, and Campbell
+argues -- correctly, and sift agrees -- that the operands of a call should
+share a column whatever the operator looks like, because an operand that is
+indented differently from its siblings hides from the reader.
+
+That rule is why keyword arguments need no rule of their own: `:width' is
+just the second argument, and it lines up where every second argument does.
+
+** Comment levels
+:PROPERTIES:
+:CUSTOM_ID: riastradh-comments
+:END:
+
+The number of semicolons says what a comment is *for*, before its sentence is
+read: four for a heading, three for a comment about the code that follows at
+top level, two for a comment inside a form, one for a comment at the end of a
+line.
+
+#+begin_src scheme
+;;;; Frob Grovel
+
+;;; This section of the code has some important implications.
+(define (fnord zarquon)
+  ;; If zob, then veeblefitz.
+  (quux zot
+        mumble                        ;Zibblefrotz.
+        frotz))
+#+end_src
+
+*SIFT051* (`comment-semicolons`) reports a comment whose level is wrong, and a
+comment whose text starts hard against its semicolons -- which Campbell allows
+only in a margin comment, where the semicolon is a gesture rather than a
+level.  A margin comment is never reported: it belongs to the line of code it
+ends, and its level is not a claim about anything.
+
+** One blank line, and not one more
+:PROPERTIES:
+:CUSTOM_ID: riastradh-blank-lines
+:END:
+
+Two blank lines mean the same as one, at twice the cost, and a blank line in
+the middle of a body is a paragraph break inside a paragraph.  Campbell's rule
+is one blank line between top-level forms, and none inside a body except to
+separate internal definitions.
+
+Half of that is a setting and half of it is a warning, because the two halves
+are different jobs:
+
+- `blank-lines: one' makes the formatter *separate adjacent top-level forms
+  with exactly one blank line*, inserting one where the author wrote none.  It
+  is opt-in, because it is the only thing sift adds to a file; `preserve', the
+  default, keeps the author's grouping and only collapses runs that are longer
+  than the limit.
+
+  #+begin_src yaml
+  blank-lines: one
+  #+end_src
+
+- *SIFT052* (`blank-line-in-body`) reports a blank line between two forms of
+  one body, and says nothing when the forms on either side are internal
+  definitions -- where there really are two paragraphs to separate.
+
+A heading comment belongs to the form below it, so `blank-lines: one' puts the
+blank line before the comment as well; a gap that follows a comment is the
+author's grouping and is left alone.
+
+** Names
+:PROPERTIES:
+:CUSTOM_ID: riastradh-names
+:END:
+
+Campbell's naming rules are already the three in [[#rules][the catalogue]]:
+hyphenated lower-case words (SIFT040), `?` for a predicate (SIFT041), and
+earmuffs and plus-quotes in Common Lisp (SIFT042).  What was missing is the
+first rule of the lot: *do not write single-letter variable names*.
+
+*SIFT053* (`single-letter-name`) looks where a reader reads a variable -- the
+parameters of a procedure and the names of a binding list -- and reports a
+name of one letter.  Index variables are the exception Campbell allows, and
+which letters a project reads that way is not something a rule can decide, so
+the list is a setting:
+
+#+begin_src yaml
+single-letter-names: [i, j, k]
+#+end_src
+
+It never looks at a *use*, only at a binding: a use is whatever the binding
+said it was, and a definition whose name is one letter names a program rather
+than a variable.
+
+** What sift does not take from the guide
+:PROPERTIES:
+:CUSTOM_ID: riastradh-not
+:END:
+
+- *Line length of 72 or 80.*  The limit is a setting (`line-length`), and the
+  default is 96 for Scheme and Common Lisp, because a modern screen holds two
+  such files side by side.  A project that wants Campbell's 80 columns sets
+  `line-length: 80`; Emacs Lisp already gets 80.
+- *Pages and form feeds.*  Paging a file rewrites the line number of every
+  line below the break, so a formatter that paginates makes every diff in a
+  version-controlled file a diff about pagination.  The line numbers in a
+  diagnostic, a patch and a `git blame` all depend on the file staying the
+  shape it is.
+- *Top-level forms of at most twenty-one lines.*  That is a judgement about
+  how a program is split into procedures, and it is the author's.  SIFT031
+  says when a form is too deep or too long to read at once, which is the part
+  a tool can see.
+- *`with-' and `call-with-' prefixes.*  Telling those two apart needs to know
+  whether a procedure argument is *called* and what it means for dynamic
+  state, which is a guess about a program's intent rather than a fact about
+  its text.
+
 * The rule catalogue
 :PROPERTIES:
 :CUSTOM_ID: rules
@@ -431,6 +582,9 @@ grouped by dialect, with the case for each one.
 | SIFT009 | duplicate-keyword       | warning  | a keyword argument given twice in one call                  |
 | SIFT031 | wrap-in-let             | info     | a body form is too deep or too long to read at once        |
 | SIFT032 | keyword-arguments       | info     | a call has too many positional arguments                   |
+| SIFT051 | comment-semicolons      | info     | a comment's semicolon level does not say where it belongs  |
+| SIFT052 | blank-line-in-body      | info     | a blank line in the middle of a body                       |
+| SIFT053 | single-letter-name      | info     | a variable named with a single letter                      |
 
 Why these are cross-dialect: they are about the *text* (whitespace, length,
 delimiters) or about a form all three dialects share (`if`, `when`,
@@ -454,6 +608,12 @@ stops.
 
 *Why SIFT006 exists:* `(define (f) (progn (a) (b)))` says "a progn" twice —
 the body of a definition is already a sequence.
+
+*SIFT051, SIFT052 and SIFT053* are the three layout rules borrowed from
+[[#riastradh][Riastradh's rules]]: a comment's number of semicolons, a blank
+line in the middle of a body, and a variable whose name is one letter.  All
+three are `info`: they are about how a file reads rather than about what it
+means, and a project that has decided otherwise excludes them by name.
 
 ** Scheme rules
 
@@ -665,7 +825,8 @@ form of the body, so a string after `(interactive)` documents nothing and
    list in `sift.yaml`.
 
 3. *Change a threshold:* `line-length`, `max-depth`, `max-elements`,
-   `max-positional`, `indent`, `brackets`, `loop-keywords`.
+   `max-positional`, `indent`, `brackets`, `blank-lines`, `loop-keywords`,
+   `single-letter-names`.
 
 4. *Ask why:* `sift explain RULE` prints the rule's code, description,
    dialects, severity, a failing example and the fix it expects; and

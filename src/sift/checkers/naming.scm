@@ -24,7 +24,8 @@
   #:export (naming-checkers
             naming-convention-checker
             predicate-name-checker
-            special-variable-name-checker))
+            special-variable-name-checker
+            single-letter-name-checker))
 
 ;;; ===== Reading a definition =====
 
@@ -256,9 +257,106 @@ is a predicate, and one whose last form is `(list x)' is not."
            #:example '((input . "(defparameter port 8080)")
                        (fix . "no automatic fix; rename it to `*port*`"))))
 
+;;; ===== single-letter-name =====
+;;
+;; A name is how a reader remembers a value without re-deriving it, and one
+;; letter is not a name.  Riastradh allows index variables such as `i' when
+;; their scope is a single vector; which letters a project is willing to read
+;; that way is not something a linter can decide, so the list is a setting.
+
+(define (single-letter? name)
+  (and (= 1 (string-length name))
+    (char-alphabetic? (string-ref name 0))
+    (not (char=? (string-ref name 0) #\_))))
+
+(define (allowed-single-letter-names)
+  "Return the names @code{single-letter-name} accepts, as strings."
+  (map (lambda (name)
+         (cond [(symbol? name) (symbol->string name)]
+               [(string? name) name]
+               [else ""]))
+       (or (option 'single-letter-names '(i j)) '())))
+
+(define (plain-formals nodes)
+  "Return the parameters of a formal list, without rest markers or keywords."
+  (filter (lambda (node)
+            (and (node-atom? node)
+              (eq? (node-atom-type node) 'symbol)
+              (not (string-prefix? "&" (node-value node)))
+              (not (string-prefix? "#:" (node-value node)))))
+          nodes))
+
+(define (binding-name-atom binding)
+  "Return the atom that names @var{binding}, or @code{#f}."
+  (cond
+    [(and (node-atom? binding) (eq? (node-atom-type binding) 'symbol)) binding]
+    [(node-list? binding)
+     (let ((first (and (pair? (node-elements binding))
+                    (car (node-elements binding)))))
+       (and first
+         (node-atom? first)
+         (eq? (node-atom-type first) 'symbol)
+         first))]
+    [else #f]))
+
+(define (bound-names node)
+  "Return the atoms that bind a variable in @var{node}, when it binds any.
+
+Only the places a reader reads as a variable are here: the parameters of a
+procedure and the names of a binding list.  A top-level `define' names a
+program, not a variable, and renaming it is not this rule's business."
+  (let* ((head (and (node-list? node) (node-head-name node)))
+         (arguments (form-arguments node))
+         (first (and (pair? arguments) (car arguments)))
+         (second (and (pair? arguments) (pair? (cdr arguments)) (cadr arguments))))
+    (cond
+      [(memq head '(let let* letrec letrec* let-values let*-values))
+       (filter-map binding-name-atom (form-elements first))]
+      [(memq head '(lambda lambda*))
+       (plain-formals (form-elements first))]
+      [(memq head '(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
+                          defmethod defgeneric))
+       (plain-formals (form-elements second))]
+      [(memq head '(define define* define-public define-inlinable))
+       ;; (define (f x) ...) binds x; (define f 1) binds a name of its own
+       (if (and (node-list? first) (pair? (form-elements first)))
+         (plain-formals (cdr (form-elements first)))
+         '())]
+      [else '()])))
+
+(define (single-letter-name-warnings ast source dialect)
+  (let ((warnings '())
+        (allowed (allowed-single-letter-names)))
+    (for-each-form
+     (lambda (node)
+       (for-each
+        (lambda (name-node)
+          (let ((name (node-value name-node)))
+            (when (and (single-letter? name) (not (member name allowed)))
+              (set! warnings
+                    (cons (make-lint-warning
+                           'single-letter-name 'info
+                           (format #f "`~a` is a single-letter name; give it a word, or list it in `single-letter-names`"
+                                   name)
+                           (node-start name-node))
+                          warnings)))))
+        (bound-names node)))
+     ast)
+    (reverse warnings)))
+
+(define single-letter-name-checker
+  (checker 'single-letter-name
+           "A variable named with a single letter"
+           'all
+           single-letter-name-warnings
+           #:severity 'info
+           #:example '((input . "(define (area w h) (* w h))")
+                       (fix . "no automatic fix; rename the parameter to a word"))))
+
 ;;; ===== The list =====
 
 (define naming-checkers
   (list naming-convention-checker
         predicate-name-checker
-        special-variable-name-checker))
+        special-variable-name-checker
+        single-letter-name-checker))
