@@ -175,6 +175,11 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . #f)
      (flag . "--comment-align")
      (description . "Align inline comments in contiguous runs."))
+    (file-filter
+     (type . patterns)
+     (default . #f)
+     (flag . "--file-filter")
+     (description . "Glob patterns a file must match to be read (`*' stops at a directory, `**' crosses one, a leading `!' excludes); #f means the built-in extensions."))
     (checkers
      (type . names)
      (default . #f)
@@ -379,6 +384,29 @@ setting that does not exist."
       (map as-symbol pairs)
       (bad "a list of (symbol . columns) pairs"))))
 
+(define (patterns-setting value bad)
+  "Return @var{value} as a list of glob patterns.
+
+A single pattern is a filter with one rule, and a comma separated list is
+several, so both are read: `file-filter: *.scm' is what a project with one
+rule writes, and an error about brackets would be the wrong thing to say."
+  (define (as-pattern item)
+    (cond
+      [(string? item) item]
+      [(symbol? item) (symbol->string item)]
+      [else #f]))
+  (let ((items (cond
+                 [(not value) '()]
+                 [(string? value) (map string-trim-both (string-split value #\,))]
+                 [(symbol? value) (list (symbol->string value))]
+                 [(list? value) value]
+                 [else (bad "a list of glob patterns")])))
+    (let ((patterns (filter (lambda (pattern) (not (string-null? pattern)))
+                            (map as-pattern items))))
+      (if (every identity (map as-pattern items))
+        patterns
+        (bad "a list of glob patterns")))))
+
 ;;; The procedure that reads each kind of setting, keyed by the key's type.
 ;;;
 ;;; A new kind of setting is a procedure here and an entry in this table, not
@@ -397,7 +425,8 @@ setting that does not exist."
     (brackets . ,brackets-setting)
     (blank-lines . ,blank-lines-setting)
     (loop-style . ,loop-style-setting)
-    (rules . ,rules-setting)))
+    (rules . ,rules-setting)
+    (patterns . ,patterns-setting)))
 
 (define* (validate-setting key value #:key path line column)
   "Return @var{value} in its canonical form, or raise a configuration error."

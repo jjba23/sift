@@ -879,7 +879,11 @@ that gets @code{#f} must ask for `--dialect' rather than guess."
 (define (extension-dialect file)
   (let ((ext (extension-of file)))
     (cond
-      [(and ext (member ext '(".scm" ".ss" ".sld" ".sls"))) 'scheme]
+      ;; `.sld' and `.sls' are R7RS and R6RS libraries, `.sps' an R6RS
+      ;; program: all three are Scheme, and a project that keeps them apart
+      ;; from its `.scm' files would otherwise have to pass `--dialect' for
+      ;; every one of them.
+      [(and ext (member ext '(".scm" ".ss" ".sld" ".sls" ".sps"))) 'scheme]
       [(and ext (string=? ext ".el")) 'elisp]
       [(and ext (member ext '(".lisp" ".cl" ".asd" ".lsp" ".system"))) 'cl]
       [else #f])))

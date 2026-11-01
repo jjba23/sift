@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 59 rules in sift 1.7.0.
+There are 61 rules in sift 1.7.0.
 
 * Summary
 
@@ -50,6 +50,7 @@ There are 59 rules in sift 1.7.0.
 | let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
 | letrec-single-binding | SIFT015 | scheme | info | ~letrec~ with a single binding that does not need recursive scope |
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
+| library-not-found | SIFT061 | scheme | warning | An ~import~ of a library that neither the file nor the project declares |
 | line-length | SIFT003 | all | warning | Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp) |
 | loop-keyword-style | SIFT029 | cl | info | Symbolic LOOP keywords where the project style asks for literal ~:keywords~ |
 | naming-convention | SIFT040 | all | warning | An underscore or camelCase in the name of a definition |
@@ -75,6 +76,7 @@ There are 59 rules in sift 1.7.0.
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
 | unused-argument | SIFT043 | all | info | A parameter that the definition never refers to |
 | unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
+| unused-import | SIFT060 | scheme | info | A name or a library an ~import~ brings in that the file never uses |
 | when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
 
@@ -753,6 +755,27 @@ Run ~sift explain lexical-binding-missing~ at the command line, or ~M-x sift-exp
 #+end_quote
 
 
+** SIFT061 library-not-found
+:PROPERTIES:
+:CUSTOM_ID: library-not-found
+:END:
+
+An ~import~ of a library that neither the file nor the project declares
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* no automatic fix; name the library the project declares, or add it
+
+#+begin_src scheme
+(import (my helpers))
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain library-not-found~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT003 line-length
 :PROPERTIES:
 :CUSTOM_ID: line-length
@@ -1264,6 +1287,27 @@ A binding whose name is never referenced in the form that binds it
 
 #+begin_quote
 Run ~sift explain unused-binding~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT060 unused-import
+:PROPERTIES:
+:CUSTOM_ID: unused-import
+:END:
+
+A name or a library an ~import~ brings in that the file never uses
+
+- *Dialects:* scheme
+- *Severity:* info
+- *Fix:* delete ~car~ from the ~only~ clause
+
+#+begin_src scheme
+(import (only (srfi 1) fold car))
+(display (fold + 0 '(1 2)))
+#+end_src
+
+#+begin_quote
+Run ~sift explain unused-import~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

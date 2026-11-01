@@ -38,13 +38,15 @@
   #:use-module (sift lsp)
   #:use-module (sift render)
   #:use-module (sift config)
+  #:use-module (sift files)
   ;; `sift-version' lives in (sift records); re-exporting it is how the
   ;; executable and the library agree about which version this is
   #:re-export (sift-version)
   #:export (sift-main
             usage-text
             parse-options
-            build-overrides))
+            build-overrides
+            expand-operands))
 
 (define usage-text
   "Usage:
@@ -63,7 +65,7 @@
 
 Options common to the commands: --dialect, --brackets, --blank-lines,
 --line-length, --style, --severity, --format, --color/--no-color,
---verbose, --config.
+--file-filter/-p, --verbose, --config.
 
 Run `sift COMMAND --help' for the options of a command.
 ")
@@ -132,6 +134,10 @@ Run `sift COMMAND --help' for the options of a command.
            (lambda (opt name arg state)
              (acons 'exclude-checkers
                     (cons arg (or (assq-ref state 'exclude-checkers) '()))
+                    state)))
+   (option '(#\p "file-filter") #t #f
+           (lambda (opt name arg state)
+             (acons 'file-filter (cons arg (or (assq-ref state 'file-filter) '()))
                     state)))))
 
 (define (long-names option)
@@ -314,6 +320,25 @@ setting."
              (append-map (lambda (item) (checker-name-list item what))
                          (reverse given)))))))
 
+(define (file-filter-override state)
+  "Return the `--file-filter' patterns written on the command line, or #f.
+
+The option may be given more than once, and one giving may hold several
+patterns separated by commas, so the state holds a list of spellings that has
+to be flattened before it is a setting.  Patterns are kept in the order they
+were written, because the last one that matches a file is the one that
+decides."
+  (let ((given (assq-ref state 'file-filter)))
+    (and given
+      (cons 'file-filter
+            (delete-duplicates
+             (append-map (lambda (item)
+                           (filter (lambda (pattern)
+                                     (not (string-null? pattern)))
+                                   (map string-trim-both (string-split item #\,))))
+                         (reverse given))
+             string=?)))))
+
 (define* (build-overrides state)
   "Return the alist of settings the command line overrides.
 
@@ -329,14 +354,8 @@ Invalid values are usage errors, not silent fallbacks: a `--line-length' of
            (map (lambda (key) (and (assq key state) (cons key #t))) option-flags)
            (list (read-option 'color string->symbol)
                  (checker-override state 'checkers "--checker")
-                 (checker-override state 'exclude-checkers "--exclude-checker")))))
-
-(define lisp-file-extensions
-  '(".scm" ".ss" ".sld" ".sls" ".el" ".lisp" ".cl" ".asd" ".lsp" ".system"))
-
-(define (lisp-file? path)
-  (let ((dot (string-rindex path #\.)))
-    (and dot (member (substring path dot) lisp-file-extensions) #t)))
+                 (checker-override state 'exclude-checkers "--exclude-checker")
+                 (file-filter-override state)))))
 
 (define (entry-type path)
   "Return the type of @var{path}, or @code{#f} when it cannot be asked.
@@ -361,11 +380,13 @@ it skipped."
              '()))
          (lambda (key . args) '())))
 
-(define (directory-files* directory)
-  "Return the Lisp files under @var{directory}, sorted.
+(define* (directory-files* directory patterns #:optional (root directory))
+  "Return the files of @var{directory} that @var{patterns} keep, sorted.
 
 Hidden directories and the usual build droppings are skipped, so
-`sift ci .` in a project does what the person typing it meant."
+`sift ci .` in a project does what the person typing it meant.  With no
+patterns the extension list decides; with them, a file with an extension sift
+has never heard of can still be one of the project's."
   (append-map
    (lambda (name)
      (cond
@@ -378,22 +399,27 @@ Hidden directories and the usual build droppings are skipped, so
                 (type (entry-type path)))
            (cond
              [(not type) '()]
-             [(eq? type 'directory) (directory-files* path)]
-             [(lisp-file? name) (list path)]
+             [(eq? type 'directory) (directory-files* path patterns root)]
+             [(file-included? patterns path root) (list path)]
              [else '()]))]))
    (sort (directory-names directory) string<?)))
 
-(define (expand-operands files)
+(define* (expand-operands files #:optional (patterns #f))
   "Turn directory operands into the Lisp files they hold, in sorted order.
 
 A linter is pointed at a project, not at a list: `sift ci .` and
 `sift format --write src/` are what people type, so a directory is read as
-\"every Lisp file under here\"."
+\"every Lisp file under here\".
+
+@var{patterns} is the project's `file-filter'.  It decides what a *directory*
+holds and never what a person named: `sift lint notes.txt' reads the file it
+was given, because naming a file is the most specific thing anyone can say."
   (append-map
    (lambda (path)
      (cond
        [(not (file-exists? path)) (list path)]
-       [(eq? (stat:type (stat path)) 'directory) (directory-files* path)]
+       [(eq? (stat:type (stat path)) 'directory)
+        (directory-files* path patterns)]
        [else (list path)]))
    files))
 
@@ -603,25 +629,24 @@ text means."
                 0])))))))
 
 (define (command-format args)
-  (let* ((state (parse-options args))
-         (files (expand-operands (operands state))))
+  (let* ((state (parse-options args)))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
     (when (and (assq 'write state) (assq 'stdout state))
       (usage-error "--write and --stdout cannot be used together"))
     (let ((overrides (build-overrides state)))
-      (with-config overrides state
-                   (lambda (config)
-                     (if (and (assq 'check state)
-                           (machine-format? (config-ref config 'format)))
-                       (document-status config files
-                                        #:stdin? (reads-stdin? state files)
-                                        #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
-                                        #:formatting? #t #:lint? #f)
-                       (if (assq 'check state)
-                         (run-check config files)
-                         (run-format config files state))))))))
+      (with-config-and-files overrides state
+                             (lambda (config files)
+                               (if (and (assq 'check state)
+                                     (machine-format? (config-ref config 'format)))
+                                 (document-status config files
+                                                  #:stdin? (reads-stdin? state files)
+                                                  #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
+                                                  #:formatting? #t #:lint? #f)
+                                 (if (assq 'check state)
+                                   (run-check config files)
+                                   (run-format config files state))))))))
 
 (define (load-effective-config overrides state)
   "Return the effective <config>, or #f when a configuration file is wrong.
@@ -636,6 +661,17 @@ only has to answer with the usage status."
                       #:config-file (assq-ref state 'config)
                       #:trust (and (assq 'trust-config state) #t)))
        (lambda (config layers) config)))))
+
+(define* (with-config-and-files overrides state thunk)
+  "Run @var{thunk} on the configuration and the files its filter keeps.
+
+The files are expanded *after* the configuration is read, because
+`file-filter' lives there: a walk that decided before reading the project's
+own settings would be a filter nobody could set."
+  (with-config overrides state
+               (lambda (config)
+                 (thunk config (expand-operands (operands state)
+                                                (config-ref config 'file-filter))))))
 
 (define* (with-config overrides state thunk)
   "Run @var{thunk} on the effective configuration, or answer the status 2."
@@ -788,21 +824,20 @@ makes `ci --format=sarif' one document that holds both answers."
           0 files)))
 
 (define (command-check args)
-  (let* ((state (parse-options args))
-         (files (expand-operands (operands state))))
+  (let* ((state (parse-options args)))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
     (let ((overrides (build-overrides state)))
-      (with-config overrides state
-                   (lambda (config)
-                     (let ((stdin? (and (assq 'stdin state) #t))
-                           (label (assq-ref state 'label)))
-                       (if (machine-format? (config-ref config 'format))
-                         (document-status config files
-                                          #:stdin? (or stdin? (null? files)) #:label label
-                                          #:formatting? #t #:lint? #f)
-                         (run-check config files #:stdin? stdin? #:label label))))))))
+      (with-config-and-files overrides state
+                             (lambda (config files)
+                               (let ((stdin? (and (assq 'stdin state) #t))
+                                     (label (assq-ref state 'label)))
+                                 (if (machine-format? (config-ref config 'format))
+                                   (document-status config files
+                                                    #:stdin? (or stdin? (null? files)) #:label label
+                                                    #:formatting? #t #:lint? #f)
+                                   (run-check config files #:stdin? stdin? #:label label))))))))
 
 ;;; ===== lint =====
 
@@ -956,28 +991,27 @@ at where it goes -- which is the one thing sift does not do."
           (if (findings? remaining) 1 0))))))
 
 (define (command-lint args)
-  (let* ((state (parse-options args))
-         (files (expand-operands (operands state))))
+  (let* ((state (parse-options args)))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
     (let ((overrides (build-overrides state)))
-      (with-config overrides state
-                   (lambda (config)
-                     (validate-checker-names!
-                      (list (cons 'checkers (config-ref config 'checkers))
-                            (cons 'exclude-checkers
-                                  (config-ref config 'exclude-checkers))))
-                     ;; `--fix' writes to the files it judges, so it stays on the path
-                     ;; that reports as it goes; a format that is one document per run
-                     ;; would have to hold what it found before the second pass.
-                     (if (and (machine-format? (config-ref config 'format))
-                           (not (assq 'fix state)))
-                       (document-status config files
-                                        #:stdin? (reads-stdin? state files)
-                                        #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
-                                        #:lint? #t #:formatting? #f)
-                       (run-lint config files state)))))))
+      (with-config-and-files overrides state
+                             (lambda (config files)
+                               (validate-checker-names!
+                                (list (cons 'checkers (config-ref config 'checkers))
+                                      (cons 'exclude-checkers
+                                            (config-ref config 'exclude-checkers))))
+                               ;; `--fix' writes to the files it judges, so it stays on the path
+                               ;; that reports as it goes; a format that is one document per run
+                               ;; would have to hold what it found before the second pass.
+                               (if (and (machine-format? (config-ref config 'format))
+                                     (not (assq 'fix state)))
+                                 (document-status config files
+                                                  #:stdin? (reads-stdin? state files)
+                                                  #:label (or (assq-ref state 'label) (and (pair? files) (car files)))
+                                                  #:lint? #t #:formatting? #f)
+                                 (run-lint config files state)))))))
 
 ;;; ===== ci =====
 
@@ -988,8 +1022,7 @@ This is the one command a pipeline needs: it asks both questions, prints
 both answers in the chosen format and exits 1 if either of them found
 something.  It never writes and never fixes, because a CI job that edits
 the tree it is judging is a CI job nobody trusts."
-  (let* ((state (parse-options args))
-         (files (expand-operands (operands state))))
+  (let* ((state (parse-options args)))
     (when (assq 'help state)
       (display usage-text)
       (exit 0))
@@ -998,28 +1031,28 @@ the tree it is judging is a CI job nobody trusts."
     (when (assq 'write state)
       (usage-error "ci never writes; run `sift format --write' and commit the result"))
     (let ((overrides (build-overrides state)))
-      (with-config overrides state
-                   (lambda (config)
-                     (let* ((stdin? (and (assq 'stdin state) #t))
-                            (label (assq-ref state 'label))
-                            (status
-                             (if (machine-format? (config-ref config 'format))
-                               (document-status config files
-                                                #:stdin? (or stdin? (null? files)) #:label label
-                                                #:lint? #t #:formatting? #t)
-                               (let ((check-status (run-check config files #:stdin? stdin?
-                                                              #:label label))
-                                     (lint-status (run-lint config files state)))
-                                 (cond
-                                   [(or (= check-status 2) (= lint-status 2)) 2]
-                                   [(or (= check-status 1) (= lint-status 1)) 1]
-                                   [else
-                                     (when (and (not (config-ref config 'quiet))
-                                             (eq? (config-ref config 'format) 'human))
-                                       (format (current-error-port)
-                                               "sift: formatting and lint are clean~%"))
-                                     0])))))
-                       status))))))
+      (with-config-and-files overrides state
+                             (lambda (config files)
+                               (let* ((stdin? (and (assq 'stdin state) #t))
+                                      (label (assq-ref state 'label))
+                                      (status
+                                       (if (machine-format? (config-ref config 'format))
+                                         (document-status config files
+                                                          #:stdin? (or stdin? (null? files)) #:label label
+                                                          #:lint? #t #:formatting? #t)
+                                         (let ((check-status (run-check config files #:stdin? stdin?
+                                                                        #:label label))
+                                               (lint-status (run-lint config files state)))
+                                           (cond
+                                             [(or (= check-status 2) (= lint-status 2)) 2]
+                                             [(or (= check-status 1) (= lint-status 1)) 1]
+                                             [else
+                                               (when (and (not (config-ref config 'quiet))
+                                                       (eq? (config-ref config 'format) 'human))
+                                                 (format (current-error-port)
+                                                         "sift: formatting and lint are clean~%"))
+                                               0])))))
+                                 status))))))
 
 ;;; ===== lsp =====
 

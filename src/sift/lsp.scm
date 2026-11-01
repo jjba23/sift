@@ -62,6 +62,7 @@
   #:use-module (sift lint)
   #:use-module (sift format)
   #:use-module (sift config)
+  #:use-module (sift files)
   #:use-module (sift definitions)
   #:use-module (sift imports)
   #:use-module (sift check base)
@@ -287,32 +288,53 @@ a URI is."
 ;;; only asked about files the editor is not showing -- which is what makes a
 ;;; jump from an unsaved buffer to an unsaved buffer work.
 
-(define lisp-extensions
-  '(".scm" ".ss" ".sld" ".sls" ".el" ".lisp" ".cl" ".asd" ".lsp" ".system"))
-
-(define skipped-directories
-  '(".git" ".hg" ".svn" ".darcs" "node_modules" "build" "dist" ".cache"
-    "_build" "target" "vendor" ".venv"))
-
 (define index-file-limit 2000)
 (define index-byte-limit 500000)
 
 (define-record-type <workspace>
-  (make-workspace root files scanned?)
+  (make-workspace root files scanned? filter)
   workspace?
   (root workspace-root set-workspace-root!)
   (files workspace-files)
-  (scanned? workspace-scanned? set-workspace-scanned!))
+  (scanned? workspace-scanned? set-workspace-scanned!)
+  (filter workspace-filter set-workspace-filter!))
 
-(define (new-workspace)
-  (make-workspace #f (make-hash-table) #f))
+(define* (new-workspace #:optional (config #f))
+  (make-workspace #f (make-hash-table) #f
+                  (and config (config-ref config 'file-filter))))
 
 (define-record-type <indexed-file>
-  (make-indexed-file text dialect definitions)
+  (make-indexed-file path text dialect definitions names)
   indexed-file?
-  (text indexed-file-text)
+  (path indexed-file-path)
+  (text indexed-file-text set-indexed-file-text!)
   (dialect indexed-file-dialect)
-  (definitions indexed-file-definitions))
+  (definitions indexed-file-definitions set-indexed-file-definitions!)
+  (names indexed-file-names))
+
+;; A file is indexed lazily: the scan reads nothing but its name and its
+;; metadata, and the text and the definitions arrive the first time a request
+;; needs them.  That is what makes the cache worth having -- a session that
+;; only asks for completion reads one small file per workspace, not the
+;; workspace -- and what keeps a jump honest, because the file it needs is
+;; parsed from the text on disk at the moment it is asked for.
+
+(define (indexed-file-text-of entry)
+  "Return the text of @var{entry}, reading the file when it is not loaded."
+  (or (indexed-file-text entry)
+    (let ((text (read-file-text (indexed-file-path entry))))
+      (when text (set-indexed-file-text! entry text))
+      text)))
+
+(define (indexed-file-definitions-of entry)
+  "Return the definitions of @var{entry}, parsing them when they are not read."
+  (or (indexed-file-definitions entry)
+    (let ((text (indexed-file-text-of entry)))
+      (and text
+        (let ((definitions (parse-file-text text (indexed-file-dialect entry)
+                                            (indexed-file-path entry))))
+          (set-indexed-file-definitions! entry definitions)
+          definitions)))))
 
 (define (path->uri path)
   "Return the @code{file:} URI that names @var{path}."
@@ -333,14 +355,10 @@ a URI is."
              (display hex out))))
        text))))
 
-(define (lisp-path? path)
-  (let ((dot (string-rindex path #\.)))
-    (and dot (member (string-downcase (substring path dot)) lisp-extensions) #t)))
-
 (define (directory? path)
   (eq? 'directory (false-if-exception (stat:type (stat path)))))
 
-(define (files-under root)
+(define* (files-under root #:optional (filter #f))
   "Return the Lisp files under @var{root}, at most `index-file-limit' of them.
 
 Directories a build leaves behind are skipped rather than walked: `.git'
@@ -361,56 +379,213 @@ first definition request slower than finding the file by hand."
                (let ((path (string-append dir "/" name)))
                  (cond
                    [(directory? path) (set! subdirectories (cons path subdirectories))]
-                   [(lisp-path? path) (set! files (cons path files))]))))
+                   [(file-included? filter path root)
+                    (set! files (cons path files))]))))
            entries)
           (loop (append subdirectories (cdr pending))
                 (append files found)
                 (+ count (length files))))])))
 
-(define (index-file path)
-  "Return @var{path} as an `indexed-file', or @code{#f} when it is not one.
+(define (read-file-text path)
+  "Return the text of @var{path}, or @code{#f} when it is not a file to read.
 
-A file that cannot be read, is too large, or whose dialect the reader cannot
-name is left out: an editor asking for a definition should not wait while the
-server reads a generated file nobody edits."
-  (let ((dialect (detect-dialect #:file path)))
-    (and dialect
-      (let ((text (false-if-exception (call-with-input-file path get-string-all))))
-        (and (string? text) (< (string-length text) index-byte-limit)
-          (make-indexed-file text dialect
-                             (parse-definitions
-                              (call-with-values
-                                (lambda ()
-                                  (read-source #:source text #:dialect dialect #:file path))
-                                (lambda (ast errors) ast)))))))))
+A file that cannot be read, or is larger than a file anyone edits by hand, is
+left out: an editor asking for a definition should not wait while the server
+reads a generated file nobody edits."
+  (let ((text (false-if-exception (call-with-input-file path get-string-all))))
+    (and (string? text) (< (string-length text) index-byte-limit) text)))
+
+(define (parse-file-text text dialect path)
+  "Return the definitions of @var{text}, read as @var{dialect}."
+  (parse-definitions
+   (call-with-values
+     (lambda () (read-source #:source text #:dialect dialect #:file path))
+     (lambda (ast errors) ast))))
+
+(define (top-level-names definitions)
+  "Return the names @var{definitions} define at the top level, without repeats."
+  (delete-duplicates
+   (map definition-name
+        (filter (lambda (definition) (not (definition-scope definition)))
+                definitions))))
+
+(define (index-file path)
+  "Return @var{path} as a fully read `indexed-file', or @code{#f}.
+
+Used for a file the editor just saved or a watcher just reported: the answer
+has to be right now, and a lazy entry would only defer the work by a moment."
+  (let ((dialect (detect-dialect #:file path))
+        (text (read-file-text path)))
+    (and dialect text
+      (let ((definitions (parse-file-text text dialect path)))
+        (make-indexed-file path text dialect definitions
+                           (top-level-names definitions))))))
+
+(define cache-version 1)
+
+(define (cache-home)
+  "Return the directory sift keeps its caches in, or @code{#f} when it has none."
+  (let ((xdg (getenv "XDG_CACHE_HOME"))
+        (home (getenv "HOME")))
+    (cond
+      [(and xdg (not (string-null? xdg))) (string-append xdg "/sift")]
+      [(and home (not (string-null? home))) (string-append home "/.cache/sift")]
+      [else #f])))
+
+(define (path-hash text)
+  "Return a short, deterministic name for @var{text}, for a cache file.
+
+FNV-1a, because a cache file's name has to be the same on the next run and a
+hash table's order is not a promise about anything; the path is also stored
+inside the file, so a collision costs a reread and never a wrong answer."
+  (let loop ((characters (string->list text)) (hash 14695981039346656037))
+    (if (null? characters)
+      (number->string hash 16)
+      (loop (cdr characters)
+            (modulo (* (bitwise-xor hash (char->integer (car characters)))
+                       1099511628211)
+                    18446744073709551616)))))
+
+(define (cache-file root)
+  (let ((directory (cache-home)))
+    (and directory (format #f "~a/index-~a.json" directory (path-hash root)))))
+
+(define (read-cache root)
+  "Return the cached entries for @var{root}, as a hash of path to metadata.
+
+Each entry is @code{(mtime size dialect names)}.  A cache that cannot be read
+-- an older layout, a truncated file, a value that is not an object -- is no
+cache at all: the workspace is read again, which is slower and never wrong."
+  (let ((path (cache-file root))
+        (entries (make-hash-table)))
+    (when (and path (file-exists? path))
+      (let ((document (false-if-exception
+                       (call-with-input-file path
+                                             (lambda (port) (json-read (get-string-all port)))))))
+        (when (and (json-object? document)
+                (equal? (json-ref document "version") cache-version)
+                (equal? (json-ref document "root") root))
+          (for-each
+           (lambda (entry)
+             (let ((file (json-ref entry "path" #f)))
+               (when file
+                 (hash-set! entries file
+                            (list (json-ref entry "mtime" 0)
+                                  (json-ref entry "size" 0)
+                                  (json-ref entry "dialect" "scheme")
+                                  (map (lambda (name) name)
+                                       (vector->list
+                                        (json-ref entry "names" (vector)))))))))
+           (vector->list (json-ref document "files" (vector)))))))
+    entries))
+
+(define (make-cache-directory directory)
+  "Create @var{directory} and every missing parent, like @code{mkdir -p}."
+  (unless (or (file-exists? directory) (string=? directory "/")
+            (string-null? directory))
+    (make-cache-directory (dirname directory))
+    (false-if-exception (mkdir directory))))
+
+(define (write-cache! root workspace)
+  "Write the metadata of @var{workspace} under @var{root}, when it can be.
+
+What is written is what the next session can trust without reading: the path,
+the size and the modification time that decide whether the file changed, the
+dialect, and the names it defines.  A cache is an optimisation, so a failure
+to write one is not a failure of the session."
+  (let ((target (cache-file root)))
+    (when target
+      (make-cache-directory (dirname target))
+      (false-if-exception
+       (call-with-output-file target
+                              (lambda (port)
+                                (display
+                                 (json-write
+                                  (json-object
+                                   (field "version" cache-version)
+                                   (field "root" root)
+                                   (field "files"
+                                          (list->vector
+                                           (map (lambda (entry)
+                                                  (let* ((file (indexed-file-path entry))
+                                                         (attributes (false-if-exception (stat file))))
+                                                    (json-object
+                                                     (field "path" file)
+                                                     (field "mtime" (if attributes (stat:mtime attributes) 0))
+                                                     (field "size" (if attributes (stat:size attributes) 0))
+                                                     (field "dialect"
+                                                            (symbol->string (indexed-file-dialect entry)))
+                                                     (field "names"
+                                                            (list->vector (indexed-file-names entry))))))
+                                                (hash-map->list (lambda (path entry) entry)
+                                                                (workspace-files workspace)))))))
+                                 port)))))))
 
 (define (workspace-index workspace)
-  "Return the workspace's index, reading the tree the first time it is asked."
+  "Return the workspace's index, scanning the tree the first time it is asked.
+
+The scan reads the names of the files and nothing else: the text and the
+definitions of a file arrive when a request needs them.  A file whose size and
+modification time are the same as the last session's starts from the names the
+cache remembers, and is parsed the moment something asks for more."
   (unless (workspace-scanned? workspace)
-    (let ((root (workspace-root workspace)))
+    (let* ((root (workspace-root workspace))
+           (cached (if root (read-cache root) (make-hash-table))))
       (when root
-        (for-each (lambda (path)
-                    (let ((entry (index-file path)))
-                      (when entry
-                        (hash-set! (workspace-files workspace) path entry))))
-                  (files-under root))))
+        (for-each
+         (lambda (path)
+           (let ((remembered (hash-ref cached path))
+                 (dialect (detect-dialect #:file path)))
+             (when dialect
+               (let ((attributes (false-if-exception (stat path))))
+                 (if (and remembered attributes
+                       (= (car remembered) (stat:mtime attributes))
+                       (= (cadr remembered) (stat:size attributes))
+                       (string=? (caddr remembered) (symbol->string dialect)))
+                   (hash-set! (workspace-files workspace) path
+                              (make-indexed-file path #f dialect #f
+                                                 (cadddr remembered)))
+                   (let ((entry (index-file path)))
+                     (when entry
+                       (hash-set! (workspace-files workspace) path entry))))))))
+         (files-under root (workspace-filter workspace)))
+        (write-cache! root workspace)))
     (set-workspace-scanned! workspace #t))
   (workspace-files workspace))
+
+(define (workspace-refresh! workspace path)
+  "Read @var{path} again, or forget it when it is gone or no longer wanted.
+
+A file the editor saved, and a file a watcher reported, are the two ways a
+project changes under a running server.  A file that is no longer one of the
+project's -- deleted, or excluded by a filter the project has since changed --
+is forgotten rather than kept as a stale answer."
+  (let* ((root (workspace-root workspace))
+         (wanted? (and root (file-exists? path)
+                    (file-included? (workspace-filter workspace) path root))))
+    (if wanted?
+      (let ((entry (index-file path)))
+        (if entry
+          (hash-set! (workspace-files workspace) path entry)
+          (hash-remove! (workspace-files workspace) path)))
+      (hash-remove! (workspace-files workspace) path))))
 
 (define (workspace-definition-sites workspace name dialect)
   "Return @code{(uri text definition)} for every file-level definition of @var{name}."
   (let ((sites '()))
     (hash-for-each
      (lambda (path entry)
-       (when (eq? (indexed-file-dialect entry) dialect)
+       (when (and (eq? (indexed-file-dialect entry) dialect)
+               (member name (indexed-file-names entry)))
          (for-each
           (lambda (definition)
             (when (and (not (definition-scope definition))
                     (string=? (definition-name definition) name))
               (set! sites
-                    (cons (list (path->uri path) (indexed-file-text entry) definition)
+                    (cons (list (path->uri path) (indexed-file-text-of entry)
+                                definition)
                           sites))))
-          (indexed-file-definitions entry))))
+          (indexed-file-definitions-of entry))))
      (workspace-index workspace))
     (reverse sites)))
 
@@ -420,11 +595,7 @@ server reads a generated file nobody edits."
     (hash-for-each
      (lambda (path entry)
        (when (eq? (indexed-file-dialect entry) dialect)
-         (for-each
-          (lambda (definition)
-            (unless (definition-scope definition)
-              (set! names (cons (definition-name definition) names))))
-          (indexed-file-definitions entry))))
+         (set! names (append (indexed-file-names entry) names))))
      (workspace-index workspace))
     (delete-duplicates (reverse names))))
 
@@ -503,7 +674,7 @@ server reads a generated file nobody edits."
        (let ((other (path->uri path)))
          (when (and (eq? (indexed-file-dialect entry) dialect)
                  (not (string=? other uri)))
-           (set! sites (cons (list other (indexed-file-text entry)) sites)))))
+           (set! sites (cons (list other (indexed-file-text-of entry)) sites)))))
      (workspace-index workspace))
     (reverse sites)))
 
@@ -589,42 +760,84 @@ server reads a generated file nobody edits."
    (map (lambda (entry) (document-symbol-of entry text))
         (document-symbol-tree (ast-of-text text dialect)))))
 
-(define (completion-items workspace documents uri text dialect)
-  "Return the names the buffer and the project define, as completion items."
+(define (symbol-character? character)
+  "Return @code{#t} for a character a Lisp name can be made of."
+  (or (char-alphabetic? character)
+    (char-numeric? character)
+    (memv character '(#\- #\_ #\? #\! #\* #\+ #\/ #\< #\> #\= #\: #\#))))
+
+(define (symbol-prefix-at text index)
+  "Return the name being typed before @var{index}, or the empty string.
+
+A completion is almost always asked for in the middle of a half-written name,
+and the name is the most specific thing the client and the server both know:
+it says which of the project's names the reader is reaching for."
+  (let loop ((at (min index (string-length text))) (characters '()))
+    (if (or (<= at 0) (not (symbol-character? (string-ref text (- at 1)))))
+      (list->string characters)
+      (loop (- at 1) (cons (string-ref text (- at 1)) characters)))))
+
+(define (completion-rank name prefix local?)
+  "Return a sort key for @var{name} given what is being typed.
+
+Three things decide, in this order: whether the name starts with what is
+typed, then whether it is defined in the buffer the reader is in, then the
+name itself.  A prefix match is what a reader is almost always asking for, and
+a name in this file is nearer than one in a file they cannot see.  Nothing is
+inferred and nothing is hidden: a name that does not match at all is still
+offered, last, because the client may be completing something sift cannot see
+the start of."
+  (let ((downcased (string-downcase name))
+        (needle (string-downcase prefix)))
+    (format #f "~a~a~a"
+            (cond
+              [(string-null? needle) 1]
+              [(string-prefix? needle downcased) 0]
+              [(string-contains downcased needle) 1]
+              [else 2])
+            (if local? 0 1)
+            name)))
+
+(define (completion-items workspace documents uri text dialect index)
+  "Return the names the buffer and the project define, as ranked items."
   (let* ((local (filter (lambda (definition) (not (definition-scope definition)))
                         (parse-definitions (ast-of-text text dialect))))
-         (names (delete-duplicates
-                 (append
-                  (map (lambda (definition) (definition-name definition)) local)
-                  (workspace-names workspace dialect)
-                  (let ((found '()))
-                    (hash-for-each
-                     (lambda (other-uri document)
-                       (when (and (not (string=? other-uri uri))
-                               (eq? (document-dialect document) dialect))
-                         (set! found
-                               (append
-                                (map (lambda (definition)
-                                       (definition-name definition))
-                                     (filter (lambda (definition)
-                                               (not (definition-scope definition)))
-                                             (parse-definitions
-                                              (ast-of-text (document-text document)
-                                                           dialect))))
-                                found))))
-                     documents)
-                    found))))
-         (kinds (make-hash-table)))
+         (prefix (symbol-prefix-at text index))
+         (kinds (make-hash-table))
+         (names '()))
+    (define (add name kind local?)
+      (unless (hash-ref kinds name)
+        (hash-set! kinds name (cons (completion-kind kind) local?)))
+      (unless (member name names) (set! names (cons name names))))
     (for-each (lambda (definition)
-                (unless (hash-ref kinds (definition-name definition))
-                  (hash-set! kinds (definition-name definition)
-                             (completion-kind (definition-kind definition)))))
+                (add (definition-name definition) (definition-kind definition) #t))
               local)
+    (hash-for-each
+     (lambda (other-uri document)
+       (when (and (not (string=? other-uri uri))
+               (eq? (document-dialect document) dialect))
+         (for-each (lambda (definition)
+                     (add (definition-name definition) (definition-kind definition) #f))
+                   (filter (lambda (definition)
+                             (not (definition-scope definition)))
+                           (parse-definitions
+                            (ast-of-text (document-text document) dialect))))))
+     documents)
+    (for-each (lambda (name) (add name 'variable #f))
+              (workspace-names workspace dialect))
     (list->vector
-     (map (lambda (name)
-            (json-object (field "label" name)
-                         (field "kind" (or (hash-ref kinds name) 6))))
-          (sort names string<?)))))
+     (map (lambda (entry)
+            (let* ((name (cdr entry))
+                   (kind (car (hash-ref kinds name))))
+              (json-object (field "label" name)
+                           (field "kind" kind)
+                           (field "sortText" (car entry)))))
+          (sort (map (lambda (name)
+                       (cons (completion-rank name prefix
+                                              (cdr (hash-ref kinds name)))
+                             name))
+                     names)
+                (lambda (a b) (string<? (car a) (car b))))))))
 
 (define (workspace-symbols workspace documents query dialect)
   "Return the definitions whose name contains @var{query}, as `workspace/symbol'.
@@ -657,8 +870,8 @@ server reads a generated file nobody edits."
        (when (or (not dialect) (eq? (indexed-file-dialect entry) dialect))
          (for-each (lambda (definition)
                      (unless (definition-scope definition)
-                       (consider (path->uri path) (indexed-file-text entry) definition)))
-                   (indexed-file-definitions entry))))
+                       (consider (path->uri path) (indexed-file-text-of entry) definition)))
+                   (indexed-file-definitions-of entry))))
      (workspace-index workspace))
     (list->vector (reverse entries))))
 
@@ -721,6 +934,89 @@ an editor will not apply the edit over typing that arrived in the meantime."
                             dialect
                             (symbol-detail definition text)
                             (definition-docstring definition))))))))
+
+(define (documentation-text text)
+  "Return a docstring without the quotes the reader kept around it."
+  (if (and (string? text) (>= (string-length text) 2)
+        (char=? (string-ref text 0) #\")
+        (char=? (string-ref text (- (string-length text) 1)) #\"))
+    (substring text 1 (- (string-length text) 1))
+    text))
+
+(define (call-at ast index)
+  "Return the nearest form whose head is a symbol and whose arguments hold
+@var{index}, or @code{#f}.
+
+That is what a signature is about: the cursor is inside the arguments of a
+call, not on its name and not in the file around it.  The ancestors come
+innermost first, so the answer is the first one that qualifies."
+  (call-with-values (lambda () (node-path-at ast index))
+    (lambda (node ancestors)
+      ;; The node the cursor is in is a candidate too: when it is the form's
+      ;; own last character -- the space before `)' -- there is no child to
+      ;; descend into, and the form is the whole path.
+      (find (lambda (candidate)
+              (and (node-list? candidate)
+                (let ((head (node-head candidate)))
+                  (and head (node-atom? head)
+                    (< (source-location-index (node-end head)) index)))))
+            (cons node ancestors)))))
+
+(define (argument-index form index)
+  "Return how many arguments of @var{form} end before @var{index}.
+
+An argument that is complete is an argument the reader has finished, so the
+number of them is the index of the one the cursor is in -- including one past
+the last, when the reader is starting a new argument, which is the protocol's
+way of saying \"the next one\"."
+  (let loop ((elements (cdr (node-elements form))) (count 0))
+    (cond
+      [(null? elements) count]
+      [(and (node-data? (car elements))
+         (<= (source-location-index (node-end (car elements))) index))
+       (loop (cdr elements) (+ count 1))]
+      [else count])))
+
+(define* (lsp-signature-help workspace documents uri text dialect index)
+  "Return the signature of the call the cursor is in, or @code{#f}.
+
+The signature is the one sift can know: the definition's own formal list, and
+the docstring the hover already shows.  A procedure from a library sift cannot
+read has no signature here, and answering with an invented one would be worse
+than answering nothing."
+  (let* ((ast (ast-of-text text dialect))
+         (call (call-at ast index)))
+    (and call
+      (let ((head (node-head call)))
+        (let* ((sites (definition-sites workspace documents uri text dialect
+                                        (source-location-index (node-start head))))
+               (definition (and (pair? sites) (caddr (car sites))))
+               (formals (and definition
+                          (filter-map (lambda (formal)
+                                        (and (node-atom? formal) (node-value formal)))
+                                      (definition-formals definition)))))
+          (and (pair? formals)
+            (let* ((name (definition-name definition))
+                   (label (format #f "(~a ~a)" name (string-join formals " ")))
+                   (documentation (documentation-text
+                                   (definition-docstring definition))))
+              (json-object
+               (field "signatures"
+                      (vector
+                       (json-object
+                        (field "label" label)
+                        (field "parameters"
+                               (list->vector
+                                (map (lambda (formal)
+                                       (json-object (field "label" formal)))
+                                     formals)))
+                        (field "documentation"
+                               (if (string? documentation)
+                                 (json-object (field "kind" "markdown")
+                                              (field "value" documentation))
+                                 json-null)))))
+               (field "activeSignature" 0)
+               (field "activeParameter" (argument-index call index))))))))))
 
 (define (workspace-root-of params)
   "Return the directory an `initialize' request says the workspace is under."
@@ -1238,6 +1534,13 @@ typed, and the findings for the part that could be read are still reported."
                   (json-object (field "resolveProvider" #f)
                                (field "triggerCharacters"
                                       (list->vector (list "#" ":")))))
+           ;; A signature is asked for while a call is being written, so the
+           ;; characters that end an argument are the ones that ask for it.
+           (field "signatureHelpProvider"
+                  (json-object (field "triggerCharacters"
+                                      (list->vector (list " " "(")))
+                               (field "retriggerCharacters"
+                                      (list->vector (list " ")))))
            (field "positionEncoding" "utf-16")))
    (field "serverInfo"
           (json-object
@@ -1255,13 +1558,55 @@ typed, and the findings for the part that could be read are still reported."
   (make-session)
   session?
   (started? session-started? set-session-started!)
-  (shutdown? session-shutdown? set-session-shutdown!))
+  (shutdown? session-shutdown? set-session-shutdown!)
+  (watchers? session-watchers? set-session-watchers!)
+  (registered? session-registered? set-session-registered!))
 
 (define (new-session)
   (let ((session (make-session)))
     (set-session-started! session #f)
     (set-session-shutdown! session #f)
+    ;; Whether the client said it would register a watcher, and whether sift
+    ;; has asked for one: asking a client that never promised is a request it
+    ;; answers with an error sift would then have to ignore twice.
+    (set-session-watchers! session #f)
+    (set-session-registered! session #f)
     session))
+
+(define (client-supports-watchers? params)
+  "Return @code{#t} when the client advertises dynamic watcher registration."
+  (equal? 'true
+          (json-ref (json-ref (json-ref (json-ref params "capabilities")
+                                        "workspace")
+                              "didChangeWatchedFiles")
+                    "dynamicRegistration")))
+
+(define (register-watchers! out session dialect)
+  "Ask the client to watch the files sift indexes, once per session."
+  (unless (session-registered? session)
+    (set-session-registered! session #t)
+    (send! out
+           (json-object
+            (field "jsonrpc" "2.0")
+            (field "id" "sift-register-watchers")
+            (field "method" "client/registerCapability")
+            (field "params"
+                   (json-object
+                    (field "registrations"
+                           (vector
+                            (json-object
+                             (field "id" "sift-watch-lisp-files")
+                             (field "method" "workspace/didChangeWatchedFiles")
+                             (field "registerOptions"
+                                    (json-object
+                                     (field "watchers"
+                                            (list->vector
+                                             (map (lambda (extension)
+                                                    (json-object
+                                                     (field "globPattern"
+                                                            (string-append "**/*"
+                                                                           extension))))
+                                                  lisp-extensions))))))))))))))
 
 ;;; --- writing ------------------------------------------------------------
 
@@ -1375,6 +1720,7 @@ dead server."
     (cond
       [(string=? method "initialize")
        (set-session-started! session #t)
+       (set-session-watchers! session (client-supports-watchers? (params)))
        ;; The root is where a question about \"the project\" is answered from;
        ;; an editor that names none still gets its open buffers searched.
        (set-workspace-root! workspace (workspace-root-of (params)))
@@ -1393,6 +1739,16 @@ dead server."
        'continue]
 
       [(string=? method "initialized")
+       ;; The watcher is registered after the client says it is ready: a
+       ;; request sent before that is a request the client may drop.
+       (when (session-watchers? session)
+         (register-watchers! out session 'scheme))
+       'continue]
+
+      [(and (request?) (not (json-ref message "method" #f)))
+       ;; An answer to a request sift made -- registering the watcher -- which
+       ;; the protocol requires to arrive and which there is nothing to do
+       ;; with: the watcher either was registered or the changes will not come.
        'continue]
 
       [(string=? method "shutdown")
@@ -1434,6 +1790,28 @@ dead server."
          'continue)]
 
       [(string=? method "textDocument/didSave")
+       ;; A save is the editor telling sift the file on disk is this buffer:
+       ;; the copy in the index is now a session out of date.
+       (let ((document (document-of)))
+         (when document
+           (let ((uri (document-uri document)))
+             (when (and (workspace-scanned? workspace)
+                     (string-prefix? "file://" uri))
+               (workspace-refresh! workspace (strip-uri uri))))
+           (publish! config out document)))
+       'continue]
+
+      [(string=? method "workspace/didChangeWatchedFiles")
+       ;; A file changed, appeared or went away without the editor opening it:
+       ;; the watcher sift asked for is the reason it hears about it.
+       (let ((changes (json-ref (params) "changes" (vector))))
+         (when (and (workspace-scanned? workspace) (vector? changes))
+           (for-each
+            (lambda (change)
+              (let ((uri (json-ref change "uri" #f)))
+                (when (and uri (string-prefix? "file://" uri))
+                  (workspace-refresh! workspace (strip-uri uri)))))
+            (vector->list changes))))
        'continue]
 
       [(string=? method "textDocument/codeAction")
@@ -1562,8 +1940,27 @@ dead server."
                    (completion-items workspace documents
                                      (document-uri document)
                                      (document-text document)
-                                     (document-dialect document))
+                                     (document-dialect document)
+                                     (index-of-text-position
+                                      (document-text document)
+                                      (json-ref (params) "position" (json-object))))
                    (vector)))
+         'continue)]
+
+      [(string=? method "textDocument/signatureHelp")
+       (let ((document (document-of)))
+         (reply! out id
+                 (if document
+                   (or (lsp-signature-help workspace documents
+                                           (document-uri document)
+                                           (document-text document)
+                                           (document-dialect document)
+                                           (index-of-text-position
+                                            (document-text document)
+                                            (json-ref (params) "position"
+                                                      (json-object))))
+                     json-null)
+                   json-null))
          'continue)]
 
       [(string=? method "textDocument/prepareRename")
@@ -1666,7 +2063,7 @@ should show a finding."
   (let ((port-in (or in (current-input-port)))
         (port-out (or out (current-output-port)))
         (documents (make-hash-table))
-        (workspace (new-workspace))
+        (workspace (new-workspace config))
         (session (new-session)))
     (let loop ((status 0))
       (let ((frame (read-message port-in)))

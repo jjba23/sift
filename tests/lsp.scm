@@ -184,6 +184,16 @@ bug; the server has to survive it."
   (request id "initialize"
            (json-object (field "capabilities" (json-object)))))
 
+(define (signature-request id line character)
+  (request id "textDocument/signatureHelp"
+           (json-object (field "textDocument" (text-document))
+                        (field "position" (point line character)))))
+
+(define (completion-request id line character)
+  (request id "textDocument/completion"
+           (json-object (field "textDocument" (text-document))
+                        (field "position" (point line character)))))
+
 (define (code-action-request id line character)
   (request id "textDocument/codeAction"
            (json-object
@@ -499,10 +509,55 @@ bug; the server has to survive it."
         (assert-contains #:expect value #:got "SIFT012")
         (assert-contains #:expect value #:got "if-without-else")))
 
+    (test "signature help answers with the definition's own formal list"
+      (let* ((text "(define (greet name)\n  \"Greet NAME.\"\n  (message \"hi\" name))\n\n(greet )\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (signature-request 7 4 7))))
+             (answer (json-ref (answer-to (cdr result) 7) "result"))
+             (signature (and answer
+                          (vector-ref (json-ref answer "signatures") 0))))
+        (assert-equal #:expect "(greet name)" #:got (json-ref signature "label"))
+        (assert-equal #:expect 0 #:got (json-ref answer "activeParameter")
+          #:name "the cursor is in the first argument")
+        (assert-equal #:expect "Greet NAME."
+          #:got (json-ref (json-ref signature "documentation") "value")
+          #:name "the docstring comes with it")))
+
+    (test "signature help counts the arguments already written"
+      (let* ((text "(define (greet name punctuation)\n  \"Greet NAME.\"\n  name)\n\n(greet \"x\" )\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (signature-request 8 4 11))))
+             (answer (json-ref (answer-to (cdr result) 8) "result")))
+        (assert-equal #:expect 1 #:got (json-ref answer "activeParameter")
+          #:name "one argument is finished, so the second is being written")))
+
+    (test "signature help says nothing about a call sift cannot see"
+      (let* ((text "(mystery 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (signature-request 9 0 6))))
+             (answer (json-ref (answer-to (cdr result) 9) "result")))
+        (assert-equal #:expect 'null #:got answer
+          #:name "no invented signature")))
+
+    (test "completion puts the name being typed first"
+      (let* ((text "(define (alpha-one) 1)\n(define (beta) 2)\n(al\n")
+             (result (session (list (initialize-request 1)
+                                    (open-with-text text)
+                                    (completion-request 10 2 2))))
+             (items (json-ref (answer-to (cdr result) 10) "result"))
+             (first (and items (> (vector-length items) 0) (vector-ref items 0))))
+        (assert-equal #:expect "alpha-one" #:got (json-ref first "label")
+          #:name "the prefix match is offered first")
+        (assert-contains #:expect (json-ref first "sortText" "") #:got "alpha-one"
+          #:name "and its sort text says why")))
+
     (test "an unknown request is refused, and the server keeps talking"
       (let* ((result (session (list (initialize-request 1)
                                     (open unclean)
-                                    (request 5 "textDocument/signatureHelp"
+                                    (request 5 "textDocument/typeHierarchy"
                                              (json-object))
                                     (formatting-request 6))))
              (refusal (answer-to (cdr result) 5))
