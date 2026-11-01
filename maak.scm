@@ -56,16 +56,6 @@
 
 ;; ====== Maak file constants ======
 
-;; The one directory the suite is loaded from, when the environment does not
-;; name another.  VERITAS_DIR wins, `vendor/veritas' is used when it has been
-;; checked out as a submodule, and the checkout beside this one is the default.
-(define (veritas-directory)
-  "Return the directory the Veritas checkout lives in."
-  (or (getenv "VERITAS_DIR")
-    (and (file-exists? "vendor/veritas/src/veritas/veritas.scm")
-      "vendor/veritas")
-    (~ "~a/Hacking/veritas" (home-dir))))
-
 ;; The corpus of golden files, as one script: every `expected' directory is
 ;; judged in the dialect and the style its path names, because the corpus is
 ;; filed by both.
@@ -83,21 +73,6 @@ done")
 
 ;; ====== Maak file helpers ======
 
-(define (veritas-source)
-  "Return the library directory of the Veritas checkout, or stop.
-
-A missing checkout is a refusal rather than a quiet fallback: the load path
-would otherwise resolve `(veritas veritas)' from whatever Guix profile happens
-to have one installed, and a suite that ran against a release while the author
-thought it ran against the checkout is worse than no suite at all."
-  (let ((source (~ "~a/src" (veritas-directory))))
-    (unless (file-exists? (~ "~a/veritas/veritas.scm" source))
-      (task-error "veritas: no checkout at ~a" #:args (list source)
-                  #:hint (string-append
-                          "Set VERITAS_DIR, vendor it as a submodule, or "
-                          "check out https://codeberg.org/jjba23/veritas.")))
-    source))
-
 (define (guile-load-flags)
   "The load path every task uses: this project's library, its tests, Veritas.
 
@@ -105,7 +80,7 @@ Guile searches `-L' directories in the order they are given, before the ones a
 Guile installation or profile contributes, so the checkout is looked in before
 any packaged copy -- which is the only way `maak test' can promise that the
 framework under development is the one the suite ran against."
-  (list "-L" "./src" "-L" "." "-L" (veritas-source)))
+  (list "-L" "./src" "-L" "."))
 
 (define (run-guile code)
   "Run CODE, one Scheme expression, under the manifest's Guile.
@@ -192,8 +167,8 @@ The suite loads the modules it needs; this loads the rest, so a module nothing
 imports still has to compile.  Each file is compiled on its own, which is what
 makes one broken file name itself rather than a pile of them."
   (run-script
-   (~ "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
-      (veritas-source))))
+   (~ "set -eu\nexport GUILE_LOAD_PATH='./src:.:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 "
+      "| xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh")))
 
 (define (fixture-check)
   "Check that every fixture in the corpus is already formatted.
