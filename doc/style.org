@@ -422,6 +422,40 @@ production.  SIFT025 and SIFT026 say so, because a file that uses
 file that uses `run` unqualified depends on whatever `*package*` happens to
 be at read time.
 
+** A file says what it uses
+:PROPERTIES:
+:CUSTOM_ID: imports
+:END:
+
+An R7RS file opens by saying which libraries it means, and sift reads that
+sentence rather than the names inside the libraries:
+
+#+begin_src scheme
+(import (scheme base)
+        (only (srfi 1) fold))      ; SIFT060: `car` was here and nothing used it
+
+(import (scheme base) (my lib))    ; SIFT061: no file declares `(my lib)'
+#+end_src
+
+*Why?*  An import nothing uses is a claim the file stopped keeping, and an
+import of a library that does not exist is a program that will not run.  Both
+are answerable without knowing anything about the library's contents, which is
+the line sift holds everywhere else: it reads the text it was given.
+
+Where sift *can* see the contents -- the names an `only' or `rename' clause
+spells out, and the `(export ...)' of a library the project declares -- it
+reports the unused one by name, and its fix deletes exactly that.  Where it
+cannot, it is silent: a plain `(import (scheme base))' is never reported,
+because most of what a standard library offers is used indirectly.  The
+`library-not-found' rule says nothing at all in a project that declares no
+libraries, so a project whose libraries live outside its tree gets no findings
+rather than a hundred.
+
+The one place sift looks outside the file it was handed is this: the libraries
+beside it, read for their `(library ...)' and `(define-library ...)' forms.
+The scan is bounded and cached per directory, because "does this library
+exist" is a question about the project.
+
 * Riastradh's rules, and which of them sift keeps
 :PROPERTIES:
 :CUSTOM_ID: riastradh
@@ -613,6 +647,8 @@ grouped by dialect, with the case for each one.
 | SIFT051 | comment-semicolons      | info     | a comment's semicolon level does not say where it belongs  |
 | SIFT052 | blank-line-in-body      | info     | a blank line in the middle of a body                       |
 | SIFT053 | single-letter-name      | info     | a variable named with a single letter                      |
+| SIFT060 | unused-import           | info     | an import the file names and never uses                    |
+| SIFT061 | library-not-found       | warning  | an import no file of the project declares                  |
 
 Why these are cross-dialect: they are about the *text* (whitespace, length,
 delimiters) or about a form all three dialects share (`if`, `when`,

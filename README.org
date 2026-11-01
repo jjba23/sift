@@ -406,6 +406,7 @@ command line wins.
 | ~--line-length N~          | format, lint                    | Soft line limit (96, or 80 for Emacs Lisp)                            |
 | ~--indent N~               | format                          | Indentation width (default 2)                                         |
 | ~--comment-align~          | format                          | Line up contiguous inline comments                                    |
+| ~--file-filter~, ~-p~      | format, lint, check, ci         | Only read files matching these globs when walking a directory         |
 | ~--no-color~               | all                             | No ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)         |
 | ~--quiet~, ~-q~            | lint, ci                        | Drop the summary line                                                 |
 | ~--verbose~, ~-v~          | all                             | Say what is being processed                                           |
@@ -834,7 +835,8 @@ from the editor's side.
 |------------------------------------------------------+---------+-----------------------------------------------------------------------------------|
 | ~initialize~, ~shutdown~, ~exit~                     | yes     | the capabilities below, and the exit status the protocol asks for                 |
 | ~textDocument/didOpen~, ~didChange~, ~didClose~       | yes     | full synchronisation: the buffer is linted on every change                        |
-| ~textDocument/didSave~                               | accepted| nothing to do; the findings are already published                                  |
+| ~textDocument/didSave~                               | yes     | findings published, and the file read again for the index                         |
+| ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away        |
 | ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page                    |
 | ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; honours ~context.only~ |
 | ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
@@ -845,11 +847,11 @@ from the editor's side.
 | ~textDocument/documentHighlight~                     | yes     | the mentions in this buffer, the declaration marked apart from the uses           |
 | ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
 | ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
-| ~textDocument/completion~                            | yes     | the names the buffer and the project define; no snippets, no arithmetic           |
+| ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
 | ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
-| ~$/cancelRequest~, ~$/setTrace~                      | ignored | there is nothing to cancel and nothing to trace                                   |
-| ~textDocument/signatureHelp~                         | no      | sift does not know a macro's argument list                                        |
+| ~$/cancelRequest~, ~$/setTrace~                      | ignored | a request is answered before a cancel could reach it; nothing is traced           |
+| ~textDocument/signatureHelp~                         | yes     | the formal list and the docstring of the definition the head resolves to          |
 | ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
 | ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
 | ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
@@ -975,6 +977,11 @@ repos:
 :CUSTOM_ID: configuration
 :END:
 
+A `file-filter` decides what a *directory* holds when sift walks one: `*'
+stops at a separator, `**' crosses one, a leading `!' excludes, and the last
+pattern that matches a file decides.  A file named on the command line is
+always read -- a filter is a rule about walking, not about what you said.
+
 Four layers, each winning over the one before: built-in defaults, the system
 file (~/etc/sift/config.yaml~), your user file (~$XDG_CONFIG_HOME/sift/~), the
 project's file, and finally the command line.  Discovery walks up from the
@@ -991,6 +998,7 @@ line-length: 90
 brackets: square
 blank-lines: one
 single-letter-names: [i, j, k]
+file-filter: ["src/**", "!src/generated/**"]
 max-positional: 4
 severity: warning
 checkers:
