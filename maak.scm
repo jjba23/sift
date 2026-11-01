@@ -51,7 +51,19 @@
     (format #f "~a/Hacking/veritas" (home-dir))))
 
 (define (veritas-source)
-  (format #f "~a/src" (veritas-directory)))
+  "Return the library directory of the Veritas checkout, or stop.
+
+A missing checkout is a hard error rather than a quiet fallback: the load path
+would otherwise resolve `(veritas veritas)' from whatever Guix profile happens
+to have one installed, and a suite that ran against a release while the author
+thought it ran against the checkout is worse than no suite at all."
+  (let ((source (format #f "~a/src" (veritas-directory))))
+    (unless (file-exists? (format #f "~a/veritas/veritas.scm" source))
+      (error (string-append
+              "veritas: no checkout at " source
+              "; set VERITAS_DIR, or vendor it as a submodule, "
+              "or check out https://codeberg.org/jjba23/veritas")))
+    source))
 
 (define %fixture-check-script
   "set -eu
@@ -68,7 +80,14 @@ done")
 ;; ====== Helpers ======
 
 (define (guile-load-flags)
-  "The load path every target uses: this project's library and its tests."
+  "The load path every target uses: this project's library and its tests.
+
+Guile searches `-L' directories in the order they are given, before the ones a
+Guile installation or profile contributes, so the checkout is looked in before
+any packaged copy -- which is the only way `maak test' can promise that the
+framework under development is the one the suite ran against.  The project's
+own directories come first only to shadow a `veritas' directory in either of
+them, and there is none."
   (list "-L" "./src" "-L" "." "-L" (veritas-source)))
 
 (define (run-guile code)
@@ -77,9 +96,9 @@ done")
 The expression is one shell word, so it keeps its own quoting inside the
 token while the rest of the command line stays arguments."
   (dsl:manifest-shell
-     (append (list "guile") (guile-load-flags)
-       (list "-c" (format #f "'~a'" code)))
-     #:verbose? #t))
+   (append (list "guile") (guile-load-flags)
+           (list "-c" (format #f "'~a'" code)))
+   #:verbose? #t))
 
 ;; ====== Tasks ======
 
@@ -100,11 +119,11 @@ compiling catches a broken module the suite may never load.  The script is
 handed to `sh' as one quoted word: an unquoted one would be split at its
 first semicolon and run as three commands."
   (dsl:manifest-shell
-     (list "sh" "-c"
-       (dsl:shell-quote
+   (list "sh" "-c"
+         (dsl:shell-quote
           (format #f "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
-            (veritas-source))))
-     #:verbose? #t))
+                  (veritas-source))))
+   #:verbose? #t))
 
 (define (fixture-check)
   "Check that every fixture in the corpus is already formatted.
@@ -113,10 +132,10 @@ This is the check a CI job runs over real code: the expected files of the
 corpus must be byte-for-byte what ~sift format~ produces.  The dialect and the
 style are read from the fixture's path, because the corpus is filed by both."
   (dsl:manifest-shell
-     (list "sh" "-c"
-       (dsl:shell-quote
+   (list "sh" "-c"
+         (dsl:shell-quote
           %fixture-check-script))
-     #:verbose? #t))
+   #:verbose? #t))
 
 (define (self-check)
   "Check that sift's own sources are formatted by sift.
@@ -125,10 +144,10 @@ A formatter that cannot read its own project is not one to trust with anyone
 else's; this is also the cheapest end-to-end test there is, since it runs the
 real executable over every module in the tree."
   (dsl:manifest-shell
-     (list "sh" "-c"
-       (dsl:shell-quote
+   (list "sh" "-c"
+         (dsl:shell-quote
           "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
-     #:verbose? #t))
+   #:verbose? #t))
 
 (define (docs)
   "Regenerate doc/rules.org from the checker records.
@@ -150,9 +169,9 @@ from the environment.  `SIFT_COMPLEXITY_BUDGET' and `SIFT_COMPLEXITY_LIMIT'
 move the budget and the length of the table, because a task's arguments are
 its operands and a flag cannot be passed through this way."
   (dsl:manifest-shell
-     (append (list "guile" "-L" "./src" "-L" "." "etc/complexity.scm")
-       (if (null? args) (list "src") args))
-     #:verbose? #t))
+   (append (list "guile" "-L" "./src" "-L" "." "etc/complexity.scm")
+           (if (null? args) (list "src") args))
+   #:verbose? #t))
 
 (define (editors-check)
   "Run the Vim plugin's tests and the VS Code extension's.
@@ -165,11 +184,11 @@ an integration that needs a toolchain to test is an integration nobody tests.
 `maak emacs-test' is the Emacs side, and Neovim is `editors/vim/neovim.lua':
 configuration rather than code, run by the editor that reads it."
   (dsl:run (list "vim" "-es" "-u" "NORC" "-N" "-S"
-             "editors/vim/test/sift.vim")
-    #:verbose? #t)
+                 "editors/vim/test/sift.vim")
+           #:verbose? #t)
   (dsl:run (list "node" "editors/vscode/edit.test.js") #:verbose? #t)
   (dsl:run (list "node" "--check" "editors/vscode/extension.js")
-    #:verbose? #t))
+           #:verbose? #t))
 
 (define (emacs-test)
   "Run the Emacs package's ERT suite.
@@ -179,9 +198,9 @@ package is a thin wrapper around the executable, so the tests run the
 executable and read what came back, the way a user would.  The Guile suite
 is Veritas; this one never runs the two together."
   (dsl:manifest-shell
-     (list "emacs" "-Q" "--batch" "-L" "emacs" "-l" "ert"
-       "-l" "emacs/sift-test.el" "-f" "ert-run-tests-batch-and-exit")
-     #:verbose? #t))
+   (list "emacs" "-Q" "--batch" "-L" "emacs" "-l" "ert"
+         "-l" "emacs/sift-test.el" "-f" "ert-run-tests-batch-and-exit")
+   #:verbose? #t))
 
 (define (emacs-check)
   "Byte-compile the Emacs package, with warnings treated as errors.
@@ -191,10 +210,10 @@ number of arguments is a package that will misbehave on someone else's
 Emacs; the compiled file is removed afterwards so that the tests always load
 the source under test."
   (dsl:manifest-shell
-     (list "sh" "-c"
-       (dsl:shell-quote
+   (list "sh" "-c"
+         (dsl:shell-quote
           "set -eu\nemacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' -L emacs -f batch-byte-compile emacs/sift.el\nrm -f emacs/sift.elc"))
-     #:verbose? #t))
+   #:verbose? #t))
 
 (define (install)
   "Install the library and the launcher under $(prefix).
@@ -206,11 +225,11 @@ $(prefix)/share/guile/site/3.0."
          (site (format #f "~a/share/guile/site/3.0" prefix))
          (bin (format #f "~a/bin" prefix)))
     (dsl:run (list "install" "-d" site bin) #:sudo? (needs-sudo? prefix)
-      #:verbose? #t)
+             #:verbose? #t)
     (dsl:run (list "cp" "-r" "src/sift" site)
-      #:sudo? (needs-sudo? prefix) #:verbose? #t)
+             #:sudo? (needs-sudo? prefix) #:verbose? #t)
     (dsl:run (list "install" "-m" "755" "bin/sift" bin)
-      #:sudo? (needs-sudo? prefix) #:verbose? #t)))
+             #:sudo? (needs-sudo? prefix) #:verbose? #t)))
 
 (define (needs-sudo? prefix)
   (not (or (string-prefix? (home-dir) prefix)
@@ -222,13 +241,13 @@ $(prefix)/share/guile/site/3.0."
          (site (format #f "~a/share/guile/site/3.0/sift" prefix))
          (bin (format #f "~a/bin/sift" prefix)))
     (dsl:run (list "rm" "-rf" site bin)
-      #:sudo? (needs-sudo? prefix) #:verbose? #t)))
+             #:sudo? (needs-sudo? prefix) #:verbose? #t)))
 
 (define (repl)
   "A REPL with the library and the tests on the load path."
   (dsl:manifest-shell
-     (append (list "guile") (guile-load-flags))
-     #:verbose? #t))
+   (append (list "guile") (guile-load-flags))
+   #:verbose? #t))
 
 (define (fmt)
   "Format sift's own sources with sift.
@@ -241,7 +260,7 @@ one to trust with anyone else's."
   ;; directory\" before the first file was read.
   (dsl:run (list "sh" "-c"
                  "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
-    #:verbose? #t))
+           #:verbose? #t))
 
 (define (clean)
   "Remove build artefacts."
@@ -287,10 +306,10 @@ one to trust with anyone else's."
   "Return the version `src/sift/records.scm' states."
   (let ((text (call-with-input-file version-file get-string-all)))
     (let ((found (string-match
-                    "sift-version[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" text)))
+                  "sift-version[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" text)))
       (unless found
         (release-error "~a does not state sift-version as a version"
-          version-file))
+                       version-file))
       (match:substring found 1))))
 
 (define (valid-version? version)
@@ -311,22 +330,22 @@ one to trust with anyone else's."
   "Write @var{new} into @var{file} wherever @var{old} is quoted, and count them."
   (let* ((text (call-with-input-file file get-string-all))
          (rewritten
-            (fold (lambda (shape text)
-                    (let ((from (format #f shape old))
-                          (to (format #f shape new)))
-                      (if (string-contains text from)
-                        (string-replace-substring text from to)
-                        text)))
-              text
-              shapes))
+          (fold (lambda (shape text)
+                  (let ((from (format #f shape old))
+                        (to (format #f shape new)))
+                    (if (string-contains text from)
+                      (string-replace-substring text from to)
+                      text)))
+                text
+                shapes))
          (count (fold
-                   (lambda (shape total)
-                     (+ total (how-many (format #f shape new) rewritten)))
-                   0
-                   shapes)))
+                 (lambda (shape total)
+                   (+ total (how-many (format #f shape new) rewritten)))
+                 0
+                 shapes)))
     (unless (string=? text rewritten)
       (call-with-output-file file
-        (lambda (port) (display rewritten port))))
+                             (lambda (port) (display rewritten port))))
     count))
 
 (define (quotation-files)
@@ -337,21 +356,21 @@ one to trust with anyone else's."
   "Return the shapes the version takes in @var{file}."
   (filter-map (lambda (entry)
                 (and (string=? (car entry) file) (cdr entry)))
-    version-quotations))
+              version-quotations))
 
 (define (write-version! old new)
   "Write @var{new} into every place that quotes the version, and answer where."
   (let ((written '()))
     (for-each
-       (lambda (file)
-         (let* ((ways (if (string=? file version-file)
-                        (list "\"~a\"")
-                        (shapes-of file)))
-                (count (and (file-exists? file)
-                         (rewrite-file file old new ways))))
-           (when (and count (> count 0))
-             (set! written (cons (format #f "~a (~a)" file count) written)))))
-       (cons version-file (quotation-files)))
+     (lambda (file)
+       (let* ((ways (if (string=? file version-file)
+                      (list "\"~a\"")
+                      (shapes-of file)))
+              (count (and (file-exists? file)
+                       (rewrite-file file old new ways))))
+         (when (and count (> count 0))
+           (set! written (cons (format #f "~a (~a)" file count) written)))))
+     (cons version-file (quotation-files)))
     (reverse written)))
 
 (define (gates)
@@ -359,13 +378,13 @@ one to trust with anyone else's."
   (for-each (lambda (task)
               (format #t "~&release: running ~a~%" (car task))
               ((cdr task)))
-    `(("docs" . ,docs)
-      ("test" . ,test)
-      ("check" . ,check)
-      ("self-check" . ,self-check)
-      ("fixture-check" . ,fixture-check)
-      ("emacs-check" . ,emacs-check)
-      ("emacs-test" . ,emacs-test))))
+            `(("docs" . ,docs)
+              ("test" . ,test)
+              ("check" . ,check)
+              ("self-check" . ,self-check)
+              ("fixture-check" . ,fixture-check)
+              ("emacs-check" . ,emacs-check)
+              ("emacs-test" . ,emacs-test))))
 
 (define (release . args)
   "Cut a release: write the version everywhere, run the gates, commit and tag.
@@ -391,48 +410,48 @@ files already state is how a bump made by hand is released."
        (format #t "~%Where the version is quoted:~%")
        (format #t "  ~a~%" version-file)
        (for-each
-          (lambda (file)
-            (for-each (lambda (shape)
-                        (format #t "  ~a  (~a)~%" file
-                          (format #f shape current)))
-              (shapes-of file)))
-          (quotation-files))
+        (lambda (file)
+          (for-each (lambda (shape)
+                      (format #t "  ~a  (~a)~%" file
+                              (format #f shape current)))
+                    (shapes-of file)))
+        (quotation-files))
        (format #t "~%To release: maak release VERSION~%")
        0]
       [(not (valid-version? requested))
        (release-error "~s is not a version; a release is numbered like 0.5.0"
-         requested)]
+                      requested)]
       [else
-         (let ((tag (string-append "v" requested)))
-           (when (member tag (git:git-tags))
-             (release-error "~a is already a tag; bump the version first" tag))
-           (format #t "~&release: ~a -> ~a~%" current requested)
-           (let ((written (write-version! current requested)))
-             (if (null? written)
-               (format #t "release: nothing quoted the old version~%")
-               (for-each
-                  (lambda (where)
-                    (format #t "release: wrote ~a into ~a~%" requested where))
-                  written)))
-           (gates)
-           (git:git (list "add" "--all"))
-           (let* ((message (format #f "chore(release): v~a" requested))
-                  (staged (string-trim-both
-                             (git:git-output (list "diff" "--cached"
-                                               "--name-only")))))
-             ;; A tree that already says the version is a tree with nothing to
-             ;; commit: tag where it stands rather than fail on an empty commit.
-             (if (string-null? staged)
-               (format #t "~%release: nothing to commit~%")
-               (begin
-                 (git:git (list "commit" "--message" message))
-                 (format #t "~%release: committed `~a'~%" message)))
-             (git:git (list "tag" "--annotate" tag "--message"
-                        (format #f "sift ~a" requested)))
-             (format #t "release: tagged ~a~%~%" tag)
-             (format #t "A tag nobody has fetched is not a release yet:~%")
-             (format #t "  git push origin trunk --follow-tags~%"))
-           0)])))
+        (let ((tag (string-append "v" requested)))
+          (when (member tag (git:git-tags))
+            (release-error "~a is already a tag; bump the version first" tag))
+          (format #t "~&release: ~a -> ~a~%" current requested)
+          (let ((written (write-version! current requested)))
+            (if (null? written)
+              (format #t "release: nothing quoted the old version~%")
+              (for-each
+               (lambda (where)
+                 (format #t "release: wrote ~a into ~a~%" requested where))
+               written)))
+          (gates)
+          (git:git (list "add" "--all"))
+          (let* ((message (format #f "chore(release): v~a" requested))
+                 (staged (string-trim-both
+                          (git:git-output (list "diff" "--cached"
+                                                "--name-only")))))
+            ;; A tree that already says the version is a tree with nothing to
+            ;; commit: tag where it stands rather than fail on an empty commit.
+            (if (string-null? staged)
+              (format #t "~%release: nothing to commit~%")
+              (begin
+                (git:git (list "commit" "--message" message))
+                (format #t "~%release: committed `~a'~%" message)))
+            (git:git (list "tag" "--annotate" tag "--message"
+                           (format #f "sift ~a" requested)))
+            (format #t "release: tagged ~a~%~%" tag)
+            (format #t "A tag nobody has fetched is not a release yet:~%")
+            (format #t "  git push origin trunk --follow-tags~%"))
+          0)])))
 
 (define (default)
   "List the tasks this project defines."

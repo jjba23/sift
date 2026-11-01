@@ -7,45 +7,17 @@
 ;;; Commentary:
 ;;
 ;; The development environment: Guile, the fibers and JSON libraries Veritas
-;; needs, and make.  Veritas itself is loaded from a checkout
-;; (VERITAS_DIR, ~/Hacking/veritas by default) rather than installed, so the
-;; suite always runs against the version being developed; the packaged
-;; release is defined below for anyone who would rather pin it.
+;; needs, and make.
+;;
+;; Veritas is never installed here.  The suite loads it from a checkout --
+;; VERITAS_DIR, ~/Hacking/veritas by default -- because the checkout under test
+;; is the one being developed.  A manifest that also provided a packaged copy
+;; would put two of them on the load path with nothing saying which one a test
+;; ran against, which is exactly the confusion a test rig cannot afford.
 
-(use-modules (guix packages)
-             (guix utils)
-             (guix git-download)
-             (gnu packages emacs)
+(use-modules (gnu packages emacs)
              (gnu packages guile)
-             (gnu packages guile-xyz)
-             (guix build-system guile)
-             ((guix licenses) #:prefix license:))
-
-(define-public guile-veritas
-  (package
-    (name "guile-veritas")
-    (version "0.9.0")
-    (source
-     (origin
-       (method git-fetch)
-       (uri (git-reference
-             (url "https://codeberg.org/jjba23/veritas.git")
-             (commit (string-append "v" version))))
-       (file-name (git-file-name name version))
-       (sha256
-        (base32 "1pr8yjnxkrp2fylmn8ihjapin7iz94jqi4hbc6yd0ajll11ajxc9"))))
-    (build-system guile-build-system)
-    (arguments
-     (list #:source-directory "src"))
-    (native-inputs (list guile-3.0))
-    (propagated-inputs (list guile-fibers guile-json-4))
-    (home-page "https://codeberg.org/jjba23/veritas")
-    (synopsis "Testing framework for Guile")
-    (description
-     "Veritas is a testing framework for Guile with an embedded domain
-specific language for test suites: suites, tests, assertions, matchers,
-table-driven cases, mocks, snapshots, generators and coverage.")
-    (license license:lgpl3+)))
+             (gnu packages guile-xyz))
 
 (packages->manifest
  (list (specification->package "make")
