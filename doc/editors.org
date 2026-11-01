@@ -41,6 +41,17 @@ and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
 x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
 whole-project check.
 
+The backend is asynchronous, and it keeps two things about the run it started:
+the process, so that the question a new keystroke replaces is cancelled rather
+than answered late, and a generation number, so that an answer which arrives
+anyway is dropped.  Flymake calls an answer to a question it is no longer
+asking an /obsolete report/ and writes it in *Messages* on every keystroke;
+cancelling and numbering is what stops that.  Checking the buffer and
+explaining a rule are asynchronous for the same reason -- their answer is a
+message, not something the next command depends on -- while formatting and
+fixing still have the text in hand before they return, because the save that
+follows writes it.
+
 If you would rather not load the package, =compile= is enough:
 
 #+begin_src elisp
@@ -66,7 +77,10 @@ same edits `sift fix' applies.
 
 `sift-eglot-setup` teaches `eglot-server-programs' about the three Lisp modes,
 turns `sift-mode` on for its keymap and its format-on-save hook, and keeps the
-Flymake backend out of the way: two backends would report every finding twice.
+parts of sift the server already does out of the buffer: the Flymake backend,
+because two backends would report every finding twice, and the format-on-save
+hook, because the server formats on save and two formatters writing one buffer
+on one save is two round trips and two undo entries for one keystroke.
 
 | In an Eglot buffer     | What it does                                            |
 |------------------------+---------------------------------------------------------|
@@ -91,6 +105,17 @@ nothing installed:
 and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
 x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
 whole-project check.
+
+The backend is asynchronous, and it keeps two things about the run it started:
+the process, so that the question a new keystroke replaces is cancelled rather
+than answered late, and a generation number, so that an answer which arrives
+anyway is dropped.  Flymake calls an answer to a question it is no longer
+asking an /obsolete report/ and writes it in *Messages* on every keystroke;
+cancelling and numbering is what stops that.  Checking the buffer and
+explaining a rule are asynchronous for the same reason -- their answer is a
+message, not something the next command depends on -- while formatting and
+fixing still have the text in hand before they return, because the save that
+follows writes it.
 
 If you would rather not load the package, =compile= is enough:
 

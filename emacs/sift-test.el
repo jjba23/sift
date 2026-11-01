@@ -200,6 +200,24 @@ it."
       (should-error (sift-fix-buffer))
       (should (equal before (buffer-string))))))
 
+(ert-deftest sift-test-flymake-cancels-the-run-it-replaces ()
+  "A second question cancels the first, so one change is reported once.
+
+Flymake treats an answer to a question it is no longer asking as obsolete and
+says so in *Messages*; cancelling the previous run is what stops that, and the
+generation counter is what catches an answer that arrived anyway."
+  (sift-test--with-buffer 'scheme-mode "(if (a) (b))\n"
+    (let ((reports 0))
+      (sift-flymake (lambda (&rest _) (setq reports (1+ reports))))
+      (should (consp sift--flymake-run))
+      (let ((first (cdr sift--flymake-run))
+            (generation (car sift--flymake-run)))
+        (sift-flymake (lambda (&rest _) (setq reports (1+ reports))))
+        (should-not (process-live-p first))
+        (should (= (1+ generation) (car sift--flymake-run)))
+        (sift-test--wait-for (current-buffer) (lambda () (>= reports 1)))
+        (should (= 1 reports))))))
+
 (ert-deftest sift-test-flymake-backend-unknown-mode ()
   "In a mode with no dialect the backend disables itself with a reason."
   (with-temp-buffer
@@ -221,12 +239,24 @@ it."
     (goto-char (point-min))
     (should (equal "if-without-else" (sift--rule-at-point)))))
 
+(defun sift-test--wait-for (buffer test)
+  "Wait until TEST is true in BUFFER, or fail after ten seconds.
+
+A command that answers asynchronously has to be waited for, and a test that
+does not wait is a test that passes or fails on how fast the machine is."
+  (with-timeout (10 (ert-fail "sift did not answer"))
+    (while (not (with-current-buffer buffer (funcall test)))
+      (accept-process-output nil 0.1))))
+
 (ert-deftest sift-test-explain ()
   "Explaining a rule shows its documentation and its code."
   (let ((buffer (get-buffer-create "*sift-explain*")))
     (unwind-protect
       (progn
         (sift-explain "if-without-else")
+        ;; the buffer is filled in when the executable answers
+        (sift-test--wait-for buffer
+                             (lambda () (string-match-p "SIFT012" (buffer-string))))
         (with-current-buffer buffer
           (should (string-match-p "SIFT012" (buffer-string)))
           (should (string-match-p "DIALECTS" (buffer-string)))))
@@ -324,12 +354,34 @@ always there, and the answer restored afterwards."
       (set-default 'emacs-lisp-mode-hook saved))))
 
 (ert-deftest sift-test-eglot-silences-the-flymake-backend ()
-  "In an Eglot-managed buffer, sift's own backend is removed."
+  "In an Eglot-managed buffer, sift\='s own backend is removed."
   (with-temp-buffer
     (add-hook 'flymake-diagnostic-functions #'sift-flymake nil t)
     (let ((eglot--managed-mode t))
       (sift--eglot-silence-flymake))
     (should-not (memq #'sift-flymake flymake-diagnostic-functions))))
+
+(ert-deftest sift-test-eglot-leaves-formatting-to-the-server ()
+  "In an Eglot-managed buffer, sift does not format on save a second time.
+
+The server already does, and two formatters writing the same buffer on one
+save is two round trips and two undo entries for one keystroke."
+  ;; `eglot--managed-mode' has to be a variable for `let' to bind it the way
+  ;; a server does, which is what loading Eglot makes it
+  (require 'eglot)
+  (with-temp-buffer
+    (setq major-mode 'scheme-mode
+          sift-format-on-save t)
+    (sift-mode 1)
+    (should (memq #'sift--format-before-save before-save-hook))
+    (let ((eglot--managed-mode t))
+      (sift--eglot-silence-flymake)
+      (should-not (memq #'sift--format-before-save before-save-hook))
+      ;; and the hook itself stands down even if it is still on the list
+      (add-hook 'before-save-hook #'sift--format-before-save nil t)
+      (cl-letf (((symbol-function 'sift-format-buffer)
+                 (lambda () (ert-fail "sift formatted on save in an Eglot buffer"))))
+        (sift--format-before-save)))))
 
 (ert-deftest sift-test-code-actions-need-a-server ()
   "Asking for code actions without Eglot says what to do instead of failing."

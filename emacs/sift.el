@@ -39,6 +39,19 @@
 ;;     Flymake's own `code' slot only exists from Emacs 31, so the code
 ;;     travels in the text and in the data, where every version can read it.
 ;;
+;;     The run is asynchronous, and the backend keeps two things about it: the
+;;     process, so that the question a new keystroke replaces is cancelled
+;;     rather than answered late, and a generation number, so that an answer
+;;     that arrives anyway is dropped.  Flymake calls an answer to a question
+;;     it is no longer asking an "obsolete report" and says so in *Messages* on
+;;     every keystroke; cancelling and numbering is what stops it.
+;;
+;;     An Eglot server reports the same findings, so in a buffer Eglot is
+;;     managing the backend takes itself out of `flymake-diagnostic-functions',
+;;     and `sift-format-on-save' stands down as well: the server formats on
+;;     save, and two formatters writing one buffer on one save is two round
+;;     trips and two undo entries for one keystroke.
+;;
 ;;   M-x sift-fix-buffer, M-x sift-fix-at-point
 ;;     Code actions.  `sift-fix-buffer' applies every fix sift has for the
 ;;     buffer; `sift-fix-at-point' applies only the fixes of the rule under
@@ -50,6 +63,14 @@
 ;;     Runs the linter in a compilation buffer, so `next-error' and
 ;;     `previous-error' navigate the findings, and `C-c s e' on a
 ;;     compilation line explains its rule.
+;;
+;;   What waits, and what does not
+;;     The commands that *report* -- checking the buffer, explaining a rule --
+;;     are asynchronous: an answer the next command does not depend on is not
+;;     worth freezing the editor for.  Formatting and fixing are not: their
+;;     result is what the save that follows writes, so `sift-format-buffer' has
+;;     the fixed text in hand before it returns, and the change is one `undo'
+;;     away.
 ;;
 ;; Setup, for all three dialects:
 ;;
@@ -218,9 +239,13 @@ are invisible, and not by Flymake."
 (defun sift--run-async (arguments source callback)
   "Run sift with ARGUMENTS on SOURCE, calling CALLBACK when it exits.
 
-CALLBACK receives the same plist `sift--run' returns.  Flymake is given the
-buffer back as soon as sift answers, which is what keeps typing responsive
-on a large file."
+CALLBACK receives the same plist `sift--run' returns.  The caller is given the
+process back as soon as it starts, so a command that waits for the answer can
+say so in the echo area while it waits; Flymake uses the process to cancel a
+question that a newer one has replaced.
+
+The two buffers the answer is read from are kept on the process, so that a run
+that is cancelled -- rather than finishing -- takes them with it."
   (let* ((stdout-buffer (generate-new-buffer " *sift-stdout*"))
          (stderr-buffer (generate-new-buffer " *sift-stderr*"))
          (process-environment (append (sift--process-environment)
@@ -237,17 +262,47 @@ on a large file."
                           :noquery t
                           :sentinel
                           (lambda (proc _event)
-                            (when (memq (process-status proc) '(exit signal))
-                              (let ((status (process-exit-status proc))
-                                    (stdout (with-current-buffer stdout-buffer (buffer-string)))
-                                    (stderr (with-current-buffer stderr-buffer (buffer-string))))
-                                (kill-buffer stdout-buffer)
-                                (kill-buffer stderr-buffer)
+                            ;; a process that was cancelled is not an answer:
+                            ;; only one that exited, or died, has one
+                            (let ((answered? (memq (process-status proc)
+                                                   '(exit signal)))
+                                  (status (process-exit-status proc))
+                                  (stdout (with-current-buffer stdout-buffer
+                                            (buffer-string)))
+                                  (stderr (with-current-buffer stderr-buffer
+                                            (buffer-string))))
+                              (sift--discard-buffers proc)
+                              (when answered?
                                 (funcall callback
-                                  (list :status status :stdout stdout :stderr stderr))))))))
+                                  (list :status status :stdout stdout
+                                        :stderr stderr))))))))
+    (process-put process 'sift-buffers (cons stdout-buffer stderr-buffer))
     (process-send-string process source)
     (process-send-eof process)
     process))
+
+(defun sift--discard-buffers (process)
+  "Kill the buffers PROCESS was writing its answer into."
+  (let ((buffers (process-get process 'sift-buffers)))
+    (process-put process 'sift-buffers nil)
+    (when (consp buffers)
+      (when (buffer-live-p (car buffers)) (kill-buffer (car buffers)))
+      (when (buffer-live-p (cdr buffers)) (kill-buffer (cdr buffers))))))
+
+(defun sift--cancel (process)
+  "Stop PROCESS, if it is still running, and forget what it was writing.
+
+Flymake asks its backend again on every change, and an answer about text that
+is no longer in the buffer is worse than no answer: it moves the squiggles back
+to where they used to be.  Cancelling the process is how the previous question
+is withdrawn, and it is cheaper than letting it finish and throwing the answer
+away."
+  (when (and process (process-live-p process))
+    (delete-process process))
+  (when process
+    ;; a killed process runs its sentinel, which does this too; a process that
+    ;; was already gone may not have been given the chance
+    (sift--discard-buffers process)))
 
 (defun sift--failure (result)
   "Return a message for a run that failed, or nil."
@@ -399,20 +454,28 @@ changes them all."
 ;;; Checking and linting
 
 (defun sift-check-buffer ()
-  "Ask sift whether the buffer is formatted, and say so."
+  "Ask sift whether the buffer is formatted, and say so.
+
+The run is asynchronous and the answer is a message: a question about
+formatting is not something the next command depends on, so waiting for it
+would only be a way of freezing the editor for the length of one process."
   (interactive)
-  (let* ((source (buffer-substring-no-properties (point-min) (point-max)))
-         (result (sift--run
-                    (append (list "check" "--stdin"
-                              (concat "--label=" (sift--label))
-                              (concat "--dialect=" (sift--require-dialect)))
-                      nil)
-                    source)))
-    (if (sift--failure result)
-      (message "sift: %s" (sift--failure result))
-      (if (= 0 (plist-get result :status))
-        (message "sift: formatted")
-        (message "sift: this buffer would be reformatted (M-x sift-format-buffer)")))))
+  (let ((source (buffer-substring-no-properties (point-min) (point-max)))
+        (dialect (sift--require-dialect)))
+    (message "sift: checking…")
+    (sift--run-async
+     (append (list "check" "--stdin"
+                   (concat "--label=" (sift--label))
+                   (concat "--dialect=" dialect)))
+     source
+     (lambda (result)
+       (let ((failure (sift--failure result)))
+         (cond
+           (failure (message "sift: %s" failure))
+           ((= 0 (plist-get result :status))
+            (message "sift: formatted"))
+           (t
+            (message "sift: this buffer would be reformatted (M-x sift-format-buffer)"))))))))
 
 (defconst sift--error-regexp
   "^\\(?:[0-9]+:\\)?\\(.*?\\):\\([0-9]+\\):\\([0-9]+\\): \\(error\\|warning\\|info\\): \\[\\([^]]+\\)\\] \\(.*\\)$"
@@ -451,22 +514,34 @@ no file to report them in."
 ;;; Explaining rules
 
 (defun sift-explain (rule)
-  "Show sift's documentation of RULE in a buffer."
+  "Show sift's documentation of RULE in a buffer.
+
+The buffer appears at once and is filled in when the executable answers: a
+documentation buffer is a place to read, not a value the next command needs,
+so waiting for it would only be a way of freezing the editor."
   (interactive
     (list (completing-read "Rule: "
             (sift--rule-names) nil nil
             (sift--rule-at-point))))
-  (let ((result (sift--run (list "explain" rule)))
-        (buffer (get-buffer-create "*sift-explain*")))
+  (let ((buffer (get-buffer-create "*sift-explain*")))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert (if (= 0 (plist-get result :status))
-                  (plist-get result :stdout)
-                  (string-trim (plist-get result :stderr))))
+        (insert (format "sift: reading the documentation of %s…\n" rule))
         (goto-char (point-min))
         (special-mode)))
-    (display-buffer buffer)))
+    (display-buffer buffer)
+    (sift--run-async
+     (list "explain" rule) ""
+     (lambda (result)
+       (when (buffer-live-p buffer)
+         (with-current-buffer buffer
+           (let ((inhibit-read-only t))
+             (erase-buffer)
+             (insert (if (= 0 (plist-get result :status))
+                       (plist-get result :stdout)
+                       (string-trim (plist-get result :stderr))))
+             (goto-char (point-min)))))))))
 
 (defun sift-ci ()
   "Run `sift ci' over the project in a compilation buffer.
@@ -480,15 +555,27 @@ is the one a CI job would see."
     (compilation-start (concat (shell-quote-argument sift-executable) " ci")
       nil (lambda (_mode) "*sift-ci*"))))
 
+(defvar sift--rule-name-cache nil
+  "The rule names last read from the executable, as (EXECUTABLE . NAMES).
+
+The list comes from `sift list-checkers', which costs a process; it is a
+property of one build of the executable and nothing else, so it is asked for
+once per `sift-executable' rather than once per completion.")
+
 (defun sift--rule-names ()
   "Return every rule name sift knows about."
-  (let ((result (sift--run (list "list-checkers"))))
-    (when (= 0 (plist-get result :status))
-      (delq nil
-        (mapcar (lambda (line)
-                  (when (string-match "^\\([a-z0-9-]+\\) +SIFT[0-9]+" line)
-                    (match-string 1 line)))
-          (split-string (plist-get result :stdout) "\n"))))))
+  (if (and (consp sift--rule-name-cache)
+        (equal sift-executable (car sift--rule-name-cache)))
+    (cdr sift--rule-name-cache)
+    (let ((result (sift--run (list "list-checkers"))))
+      (when (= 0 (plist-get result :status))
+        (let ((names (delq nil
+                           (mapcar (lambda (line)
+                                     (when (string-match "^\\([a-z0-9-]+\\) +SIFT[0-9]+" line)
+                                       (match-string 1 line)))
+                                   (split-string (plist-get result :stdout) "\n")))))
+          (setq sift--rule-name-cache (cons sift-executable names))
+          names)))))
 
 (defun sift--rule-at-point ()
   "Return the name of the rule named on this line, or nil.
@@ -570,45 +657,65 @@ so a line of UTF-8 text lands where the executable said it would."
                        :severity severity))
           diagnostics)))))
 
+(defvar-local sift--flymake-run nil
+  "The sift run in flight for this buffer, as (GENERATION . PROCESS) or nil.
+
+Flymake asks the backend again on every change, and two answers can be in
+flight at once.  The generation says which question an answer belongs to, so an
+answer to a question nobody is asking any more is dropped instead of being
+reported about text that has already moved on -- which Flymake calls an
+\"obsolete report\", and says so, once per keystroke, in *Messages*.")
+
 (defun sift-flymake (report-fn &rest _arguments)
   "Flymake backend running `sift lint' on the current buffer.
 
 The buffer text goes to sift on standard input, so nothing has to be saved
-first, and the answer comes back as JSON.  Flymake calls this again on
-every change; the run is asynchronous so that typing is never held up by
-it."
-  (let ((source (buffer-substring-no-properties (point-min) (point-max)))
-        (dialect (sift--dialect))
-        (label (sift--label))
-        ;; the answer arrives in whichever buffer is current when the process
-        ;; exits, so the buffer the question was asked about is captured now
-        (origin (current-buffer)))
+first, and the answer comes back as JSON.  Flymake calls this again on every
+change; the run is asynchronous so that typing is never held up by it, the run
+it replaces is cancelled so that its answer cannot arrive late, and an answer
+that arrives for an older question is dropped."
+  (let* ((origin (current-buffer))
+         (dialect (sift--dialect))
+         (label (sift--label))
+         (source (buffer-substring-no-properties (point-min) (point-max)))
+         (previous (and (consp sift--flymake-run) (cdr sift--flymake-run)))
+         (generation (1+ (if (consp sift--flymake-run)
+                           (car sift--flymake-run)
+                           0))))
+    ;; the question this one replaces is withdrawn before the new one is asked
+    (sift--cancel previous)
+    (setq sift--flymake-run (cons generation nil))
     (if (not dialect)
       (funcall report-fn :panic
                (format "sift: no dialect for %s; set `sift-dialect'" major-mode))
-      (sift--run-async
-         (append (list "lint" "--stdin" "--format=json")
-           (sift--severity-options)
-           (list
-             (concat "--dialect=" dialect)
-             (concat "--label=" label)))
-         source
-         (lambda (result)
-           (let ((failure (sift--failure result)))
-             (cond
-               (failure
-                  (funcall report-fn :panic failure))
-               ;; a buffer that was killed while sift was running has nothing
-               ;; left to report into
-               ((not (buffer-live-p origin)) nil)
-               (t
-                  (with-current-buffer origin
-                    (condition-case error
-                      (funcall report-fn (sift--diagnostics (plist-get result :stdout)))
-                      (error
-                         (funcall report-fn :panic
-                                  (format "sift: could not read its JSON: %s"
-                                    (error-message-string error))))))))))))))
+      (setcdr sift--flymake-run
+              (sift--run-async
+               (append (list "lint" "--stdin" "--format=json")
+                       (sift--severity-options)
+                       (list
+                        (concat "--dialect=" dialect)
+                        (concat "--label=" label)))
+               source
+               (lambda (result)
+                 ;; the answer is about a buffer and about a question; both
+                 ;; have to still be the current ones before it means anything
+                 (when (buffer-live-p origin)
+                   (with-current-buffer origin
+                     (when (and (consp sift--flymake-run)
+                                (= generation (car sift--flymake-run)))
+                       (let ((failure (sift--failure result)))
+                         (cond
+                           (failure
+                            (funcall report-fn :panic failure))
+                           (t
+                            (condition-case error
+                                (funcall report-fn
+                                         (sift--diagnostics
+                                          (plist-get result :stdout)))
+                              (error
+                               (funcall report-fn :panic
+                                        (format "sift: could not read its JSON: %s"
+                                                (error-message-string error)))))))))))))))))
 
 ;;;###autoload
 (define-minor-mode sift-flymake-mode
@@ -667,15 +774,18 @@ one meant."
         (car command)))))
 
 (defun sift--eglot-silence-flymake ()
-  "Keep sift's Flymake backend out of an Eglot-managed buffer.
+  "Keep the parts of sift that an Eglot server already does out of the buffer.
 
-The server reports the same findings Eglot already shows through Flymake, so a
-buffer with both backends carries every finding twice.  Turning the backend off
-here rather than telling the user not to run `sift-flymake-setup' means both
-entry points can be safe."
-  (when (and (bound-and-true-p eglot--managed-mode)
-          (memq #'sift-flymake flymake-diagnostic-functions))
-    (remove-hook 'flymake-diagnostic-functions #'sift-flymake t)))
+The server reports the findings Eglot shows through Flymake, so a buffer with
+both backends carries every finding twice; and the server formats on save when
+Eglot is asked to, so `sift-format-on-save' would format the same buffer a
+second time and save it twice.  Turning both off here rather than telling the
+user not to run `sift-flymake-setup' means both entry points can be safe."
+  (when (bound-and-true-p eglot--managed-mode)
+    (when (memq #'sift-flymake flymake-diagnostic-functions)
+      (remove-hook 'flymake-diagnostic-functions #'sift-flymake t))
+    (when (memq #'sift--format-before-save before-save-hook)
+      (remove-hook 'before-save-hook #'sift--format-before-save t))))
 
 (defun sift-code-actions ()
   "Offer the code actions sift's server has at point, through Eglot.
@@ -729,8 +839,15 @@ out of the way."
 (defvar sift-mode)
 
 (defun sift--format-before-save ()
-  "Format the buffer before saving it, when `sift-format-on-save' says so."
-  (when (and sift-format-on-save sift-mode)
+  "Format the buffer before saving it, when `sift-format-on-save' says so.
+
+In a buffer an Eglot server is managing, the server formats on save -- that is
+what `textDocument/formatting' is for, and what `eglot-format-mode' asks it to
+do -- so formatting here as well would send the buffer out twice and save it
+twice.  The server is the one that reads the project's own settings for the
+edits it makes, so it is the one that gets to make them."
+  (when (and sift-format-on-save sift-mode
+          (not (bound-and-true-p eglot--managed-mode)))
     (sift-format-buffer)))
 
 ;;;###autoload
