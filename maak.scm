@@ -4,14 +4,29 @@
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
+;;; Commentary:
+;;
+;; This is sift's Maak file, and it follows the two rules the other Maak files
+;; in the collection follow.
+;;
+;; The *exports* are the task list.  Maak runs every procedure a file defines
+;; when the file declares no exports, and only the exported ones when it does --
+;; so the helpers below (`run-guile', `write-version!', `needs-sudo?' and the
+;; rest) stay helpers, and `maak' lists the commands rather than the plumbing.
+;;
+;; A *command* is run with `run', which starts a program with the words it was
+;; given and never sees a shell; a *line* is run with `manifest-shell' or `$',
+;; which join their words into one command line, so anything that must survive
+;; as one word -- a Scheme expression, a script -- is quoted with
+;; `shell-quote'.  Which of the two a call needs is the difference between a
+;; task that works and a task that works until the first space or semicolon.
+
 (define-module (maak)
   #:declarative? #t
   #:use-module (maak maak)
-  ;; `run' and `test' are both task names here, and both shadow something the
-  ;; maak DSL exports, so the DSL is imported under a prefix.
-  #:use-module ((maak dsl) #:prefix dsl:)
-  ;; Likewise for git: a task called `tag' or `commit' here would shadow the
-  ;; helper it calls.
+  ;; `git' is the command, and the prefix says so at every call site: a task
+  ;; named `commit' or `tag' later in this file would shadow the helper it
+  ;; calls, and the call would be a puzzle rather than a line of a task.
   #:use-module ((maak git) #:prefix git:)
   #:use-module (ice-9 format)
   #:use-module (ice-9 regex)
@@ -19,54 +34,42 @@
   #:use-module (ice-9 textual-ports)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
-  #:export (test
-             check
-             bench
-             editors-check
-             install
-             uninstall
-             fixture-check
-             self-check
-             emacs-test
-             emacs-check
-             docs
-             complexity
-             release
-             repl
-             fmt
-             clean
-             default))
+  #:export (help
+            version
+            default
+            test
+            bench
+            check
+            fixture-check
+            self-check
+            docs
+            complexity
+            editors-check
+            emacs-test
+            emacs-check
+            fmt
+            repl
+            install
+            uninstall
+            clean
+            release))
 
-;; ====== Constants ======
+;; ====== Maak file constants ======
 
-(define project-name
-  'sift)
-
-;; Where the tests' veritas dependency lives.  The manual documents this:
-;; VERITAS_DIR wins, ~/Hacking/veritas is the default, and vendor/veritas is
-;; used when it has been checked out as a submodule.
+;; The one directory the suite is loaded from, when the environment does not
+;; name another.  VERITAS_DIR wins, `vendor/veritas' is used when it has been
+;; checked out as a submodule, and the checkout beside this one is the default.
 (define (veritas-directory)
+  "Return the directory the Veritas checkout lives in."
   (or (getenv "VERITAS_DIR")
     (and (file-exists? "vendor/veritas/src/veritas/veritas.scm")
       "vendor/veritas")
-    (format #f "~a/Hacking/veritas" (home-dir))))
+    (~ "~a/Hacking/veritas" (home-dir))))
 
-(define (veritas-source)
-  "Return the library directory of the Veritas checkout, or stop.
-
-A missing checkout is a hard error rather than a quiet fallback: the load path
-would otherwise resolve `(veritas veritas)' from whatever Guix profile happens
-to have one installed, and a suite that ran against a release while the author
-thought it ran against the checkout is worse than no suite at all."
-  (let ((source (format #f "~a/src" (veritas-directory))))
-    (unless (file-exists? (format #f "~a/veritas/veritas.scm" source))
-      (error (string-append
-              "veritas: no checkout at " source
-              "; set VERITAS_DIR, or vendor it as a submodule, "
-              "or check out https://codeberg.org/jjba23/veritas")))
-    source))
-
-(define %fixture-check-script
+;; The corpus of golden files, as one script: every `expected' directory is
+;; judged in the dialect and the style its path names, because the corpus is
+;; filed by both.
+(define fixture-check-script
   "set -eu
 for dir in tests/fixtures/*/*/expected; do
   style=$(basename \"$(dirname \"$dir\")\")
@@ -78,30 +81,81 @@ for dir in tests/fixtures/*/*/expected; do
   ./bin/sift check --dialect=\"$dialect\" --style=\"$style\" \"$dir\"/*
 done")
 
-;; ====== Helpers ======
+;; ====== Maak file helpers ======
+
+(define (veritas-source)
+  "Return the library directory of the Veritas checkout, or stop.
+
+A missing checkout is a refusal rather than a quiet fallback: the load path
+would otherwise resolve `(veritas veritas)' from whatever Guix profile happens
+to have one installed, and a suite that ran against a release while the author
+thought it ran against the checkout is worse than no suite at all."
+  (let ((source (~ "~a/src" (veritas-directory))))
+    (unless (file-exists? (~ "~a/veritas/veritas.scm" source))
+      (task-error "veritas: no checkout at ~a" #:args (list source)
+                  #:hint (string-append
+                          "Set VERITAS_DIR, vendor it as a submodule, or "
+                          "check out https://codeberg.org/jjba23/veritas.")))
+    source))
 
 (define (guile-load-flags)
-  "The load path every target uses: this project's library and its tests.
+  "The load path every task uses: this project's library, its tests, Veritas.
 
 Guile searches `-L' directories in the order they are given, before the ones a
 Guile installation or profile contributes, so the checkout is looked in before
 any packaged copy -- which is the only way `maak test' can promise that the
-framework under development is the one the suite ran against.  The project's
-own directories come first only to shadow a `veritas' directory in either of
-them, and there is none."
+framework under development is the one the suite ran against."
   (list "-L" "./src" "-L" "." "-L" (veritas-source)))
 
 (define (run-guile code)
-  "Run CODE, a single Scheme expression, under the manifest's Guile.
+  "Run CODE, one Scheme expression, under the manifest's Guile.
 
-The expression is one shell word, so it keeps its own quoting inside the
-token while the rest of the command line stays arguments."
-  (dsl:manifest-shell
-   (append (list "guile") (guile-load-flags)
-           (list "-c" (format #f "'~a'" code)))
-   #:verbose? #t))
+`manifest-shell' joins its words into one command line, so the expression is
+quoted as one word: without that, the first space in it would end the argument
+and the rest would be read as more of the command."
+  (manifest-shell (append (list "guile") (guile-load-flags)
+                          (list "-c" (shell-quote code)))
+                  #:verbose? #t))
 
-;; ====== Tasks ======
+(define (run-script script)
+  "Run SCRIPT with `sh -c' inside the manifest shell.
+
+Same reason as `run-guile': the shell is handed the script as one word, so the
+script keeps its pipes, its `;' and its quoting instead of being split on
+them."
+  (manifest-shell (list "sh" "-c" (shell-quote script)) #:verbose? #t))
+
+;; ====== Maak file tasks ======
+
+(define (help)
+  "Display maak's help screen."
+  (program-shell (list "maak" "--help")))
+
+(define (show-version)
+  "Print the version this checkout states, and where it is quoted.
+
+Two tasks answer with this -- `maak version' and `maak release' with nothing
+after it -- and they answer from one implementation, because a report written
+twice is a report that disagrees with itself."
+  (let ((current (current-version)))
+    (format #t "sift ~a~%~%" current)
+    (format #t "Where the version is quoted:~%")
+    (format #t "  ~a~%" version-file)
+    (for-each
+     (lambda (file)
+       (for-each (lambda (shape)
+                   (format #t "  ~a  (~a)~%" file (format #f shape current)))
+                 (shapes-of file)))
+     (quotation-files))
+    (format #t "~%To release: maak release VERSION~%")))
+
+(define (version)
+  "Print the version this checkout states, and where it is quoted."
+  (show-version))
+
+(define (default)
+  "List the tasks this project defines."
+  (list-tasks))
 
 (define (test)
   "Run the whole Veritas suite.
@@ -125,43 +179,29 @@ The words after the task name are paths to measure instead of `src', and
 `SIFT_BENCHMARK_PATHS' does the same from the environment -- a corpus named
 with colons, since a task's arguments are its operands and a flag cannot be
 passed through this way."
-  (dsl:manifest-shell
-   (append (list "guile")
-           (guile-load-flags)
-           (list "-c"
-                 (dsl:shell-quote
-                  (format #f "(begin (use-modules (benchmarks run)) ~a(exit (run-benchmarks!)))"
-                          (if (null? args)
-                            ""
-                            (format #f "(setenv \"SIFT_BENCHMARK_PATHS\" ~s) "
-                                    (string-join args ":")))))))
-   #:verbose? #t))
+  (run-guile
+   (~ "(begin (use-modules (benchmarks run)) ~a(exit (run-benchmarks!)))"
+      (if (null? args)
+        ""
+        (~ "(setenv \"SIFT_BENCHMARK_PATHS\" ~s) " (string-join args ":"))))))
 
 (define (check)
   "Compile every source and test module, so a syntax error fails the build.
 
-`sift check' over the fixture corpus runs inside the suite as well, but
-compiling catches a broken module the suite may never load.  The script is
-handed to `sh' as one quoted word: an unquoted one would be split at its
-first semicolon and run as three commands."
-  (dsl:manifest-shell
-   (list "sh" "-c"
-         (dsl:shell-quote
-          (format #f "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
-                  (veritas-source))))
-   #:verbose? #t))
+The suite loads the modules it needs; this loads the rest, so a module nothing
+imports still has to compile.  Each file is compiled on its own, which is what
+makes one broken file name itself rather than a pile of them."
+  (run-script
+   (~ "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
+      (veritas-source))))
 
 (define (fixture-check)
   "Check that every fixture in the corpus is already formatted.
 
 This is the check a CI job runs over real code: the expected files of the
-corpus must be byte-for-byte what ~sift format~ produces.  The dialect and the
-style are read from the fixture's path, because the corpus is filed by both."
-  (dsl:manifest-shell
-   (list "sh" "-c"
-         (dsl:shell-quote
-          %fixture-check-script))
-   #:verbose? #t))
+corpus must be byte-for-byte what `sift format' produces, and the dialect and
+the style are read from the fixture's path because the corpus is filed by both."
+  (run-script fixture-check-script))
 
 (define (self-check)
   "Check that sift's own sources are formatted by sift.
@@ -169,18 +209,30 @@ style are read from the fixture's path, because the corpus is filed by both."
 A formatter that cannot read its own project is not one to trust with anyone
 else's; this is also the cheapest end-to-end test there is, since it runs the
 real executable over every module in the tree."
-  (dsl:manifest-shell
-   (list "sh" "-c"
-         (dsl:shell-quote
-          "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
-   #:verbose? #t))
+  (run-script
+   "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
+
+(define (fmt)
+  "Format sift's own sources with sift.
+
+The tool formats itself: a formatter that cannot read its own project is not
+one to trust with anyone else's.
+
+`run' starts `sh' with the script as one word already, so the script is handed
+over as written -- quoting it here would make the shell read the quotes as part
+of the command name and fail with \"No such file or directory\" before the first
+file was read."
+  (run (list "sh" "-c"
+             "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
+       #:verbose? #t))
 
 (define (docs)
   "Regenerate doc/rules.org from the checker records.
 
 The catalogue is not written by hand: a rule that exists is in the document,
 and the test suite fails when the two disagree."
-  (run-guile "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))"))
+  (run-guile
+   "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))"))
 
 (define (complexity . args)
   "Report how hard each definition in the tree is to read.
@@ -194,7 +246,7 @@ tests' ranks the test suite instead; `SIFT_COMPLEXITY_PATHS' does the same
 from the environment.  `SIFT_COMPLEXITY_BUDGET' and `SIFT_COMPLEXITY_LIMIT'
 move the budget and the length of the table, because a task's arguments are
 its operands and a flag cannot be passed through this way."
-  (dsl:manifest-shell
+  (manifest-shell
    (append (list "guile" "-L" "./src" "-L" "." "etc/complexity.scm")
            (if (null? args) (list "src") args))
    #:verbose? #t))
@@ -209,21 +261,21 @@ an integration that needs a toolchain to test is an integration nobody tests.
 
 `maak emacs-test' is the Emacs side, and Neovim is `editors/vim/neovim.lua':
 configuration rather than code, run by the editor that reads it."
-  (dsl:run (list "vim" "-es" "-u" "NORC" "-N" "-S"
-                 "editors/vim/test/sift.vim")
-           #:verbose? #t)
-  (dsl:run (list "node" "editors/vscode/edit.test.js") #:verbose? #t)
-  (dsl:run (list "node" "--check" "editors/vscode/extension.js")
-           #:verbose? #t))
+  (run (list "vim" "-es" "-u" "NORC" "-N" "-S"
+             "editors/vim/test/sift.vim")
+       #:verbose? #t)
+  (run (list "node" "editors/vscode/edit.test.js") #:verbose? #t)
+  (run (list "node" "--check" "editors/vscode/extension.js")
+       #:verbose? #t))
 
 (define (emacs-test)
   "Run the Emacs package's ERT suite.
 
 ERT is the test framework Emacs ships, and it is the right one here: the
 package is a thin wrapper around the executable, so the tests run the
-executable and read what came back, the way a user would.  The Guile suite
-is Veritas; this one never runs the two together."
-  (dsl:manifest-shell
+executable and read what came back, the way a user would.  The Guile suite is
+Veritas; this one never runs the two together."
+  (manifest-shell
    (list "emacs" "-Q" "--batch" "-L" "emacs" "-l" "ert"
          "-l" "emacs/sift-test.el" "-f" "ert-run-tests-batch-and-exit")
    #:verbose? #t))
@@ -232,85 +284,70 @@ is Veritas; this one never runs the two together."
   "Byte-compile the Emacs package, with warnings treated as errors.
 
 A package that compiles with a warning about a free variable or a wrong
-number of arguments is a package that will misbehave on someone else's
-Emacs; the compiled file is removed afterwards so that the tests always load
-the source under test."
-  (dsl:manifest-shell
-   (list "sh" "-c"
-         (dsl:shell-quote
-          "set -eu\nemacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' -L emacs -f batch-byte-compile emacs/sift.el\nrm -f emacs/sift.elc"))
-   #:verbose? #t))
+number of arguments is a package that will misbehave on someone else's Emacs;
+the compiled file is removed afterwards so that the tests always load the
+source under test."
+  (run-script
+   "set -eu\nemacs -Q --batch --eval '(setq byte-compile-error-on-warn t)' -L emacs -f batch-byte-compile emacs/sift.el\nrm -f emacs/sift.elc"))
 
-(define (install)
-  "Install the library and the launcher under $(prefix).
+(define (repl)
+  "A REPL with the library and the tests on the load path."
+  (manifest-shell (append (list "guile") (guile-load-flags)) #:verbose? #t))
 
-The launcher finds its modules relative to itself, so the tree is installed
-rather than only copied: bin/sift lands in $(prefix)/bin and the library in
-$(prefix)/share/guile/site/3.0."
-  (let* ((prefix (or (getenv "PREFIX") "/usr/local"))
-         (site (format #f "~a/share/guile/site/3.0" prefix))
-         (bin (format #f "~a/bin" prefix)))
-    (dsl:run (list "install" "-d" site bin) #:sudo? (needs-sudo? prefix)
-             #:verbose? #t)
-    (dsl:run (list "cp" "-r" "src/sift" site)
-             #:sudo? (needs-sudo? prefix) #:verbose? #t)
-    (dsl:run (list "install" "-m" "755" "bin/sift" bin)
-             #:sudo? (needs-sudo? prefix) #:verbose? #t)))
+;;; --- installing ---
+;;;
+;;; The launcher finds its modules relative to itself, so the tree is installed
+;;; rather than only copied: bin/sift lands in $(prefix)/bin and the library in
+;;; $(prefix)/share/guile/site/3.0.  A prefix the user owns needs no
+;;; escalation, and asking for one anyway is how a `sudo' prompt appears for a
+;;; directory under the home.
 
 (define (needs-sudo? prefix)
+  "Return @code{#t} when @var{prefix} is not one this user can write."
   (not (or (string-prefix? (home-dir) prefix)
          (string-prefix? "/tmp" prefix))))
+
+(define (install)
+  "Install the library and the launcher under $(prefix)."
+  (let* ((prefix (or (getenv "PREFIX") "/usr/local"))
+         (site (~ "~a/share/guile/site/3.0" prefix))
+         (bin (~ "~a/bin" prefix))
+         (sudo? (needs-sudo? prefix)))
+    (run (list "install" "-d" site bin) #:sudo? sudo? #:verbose? #t)
+    (run (list "cp" "-r" "src/sift" site) #:sudo? sudo? #:verbose? #t)
+    (run (list "install" "-m" "755" "bin/sift" bin) #:sudo? sudo? #:verbose? #t)))
 
 (define (uninstall)
   "Remove what `install' put under $(prefix)."
   (let* ((prefix (or (getenv "PREFIX") "/usr/local"))
-         (site (format #f "~a/share/guile/site/3.0/sift" prefix))
-         (bin (format #f "~a/bin/sift" prefix)))
-    (dsl:run (list "rm" "-rf" site bin)
-             #:sudo? (needs-sudo? prefix) #:verbose? #t)))
-
-(define (repl)
-  "A REPL with the library and the tests on the load path."
-  (dsl:manifest-shell
-   (append (list "guile") (guile-load-flags))
-   #:verbose? #t))
-
-(define (fmt)
-  "Format sift's own sources with sift.
-
-The tool formats itself: a formatter that cannot read its own project is not
-one to trust with anyone else's."
-  ;; `dsl:run' starts `sh' with the script as one argument, so the script is
-  ;; handed over as written: shell-quoting it here would make the shell read
-  ;; the quotes as part of the command name and fail with \"No such file or
-  ;; directory\" before the first file was read.
-  (dsl:run (list "sh" "-c"
-                 "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
-           #:verbose? #t))
+         (site (~ "~a/share/guile/site/3.0/sift" prefix))
+         (bin (~ "~a/bin/sift" prefix)))
+    (run (list "rm" "-rf" site bin)
+         #:sudo? (needs-sudo? prefix) #:verbose? #t)))
 
 (define (clean)
   "Remove build artefacts."
   (delete-file-recursively "reports"))
 
-;; ====== Releasing ======
+;;; --- releasing ---
+;;;
+;;; The version is stated once, in the library, and quoted everywhere else: the
+;;; tag's spelling in a workflow sample, the `Version:' field of the Emacs
+;;; package, the badge at the top of the README.  A release rewrites the number
+;;; inside a shape it knows and touches nothing else -- prose that happens to
+;;; contain a number is not a version, and a task that rewrote prose is a task
+;;; nobody would dare run.
 
-;; The version is stated once, here, and quoted everywhere else.
 (define version-file
   "src/sift/records.scm")
 
-;; Where the version is quoted, besides that one home.  Each entry is a file
-;; and the shape the number takes in it: the tag's spelling in a workflow
-;; sample, the `Version:' field of the Emacs package, the line of sample output
-;; a reader sees.  A release rewrites the number inside a shape it knows and
-;; touches nothing else -- prose that happens to contain a number is not a
-;; version, and a task that rewrote prose is a task nobody would dare run.
+;; Each entry is a file and the shape the number takes in it.
 (define version-quotations
   '(("emacs/sift.el" . "Version: ~a")
     ("README.org" . "v~a")
-    ;; The release badge at the top of the README is the version as a reader
-    ;; sees it first, and it is the one quotation nobody remembers to bump:
-    ;; the shield URL spells it `release-1.4.0', with no `v' for a shape to
-    ;; match, so it gets a shape of its own.
+    ;; The release badge is the version as a reader sees it first, and the one
+    ;; quotation nobody remembers to bump: the shield URL spells it
+    ;; `release-1.4.0', with no `v' for a shape to match.
     ("README.org" . "release-~a")
     ;; The `sift doctor' transcript a reader compares their own machine to, and
     ;; the name of the extension the packaging command writes: both are the
@@ -324,21 +361,18 @@ one to trust with anyone else's."
     (".github/workflows/sift.yml" . "v~a")
     ("editors/vscode/package.json" . "\"version\": \"~a\"")))
 
-(define (release-error message . args)
-  "Stop the release with @var{message}, a format string and its arguments."
-  (apply error (string-append "release: " message) args))
-
 (define (current-version)
   "Return the version `src/sift/records.scm' states."
   (let ((text (call-with-input-file version-file get-string-all)))
     (let ((found (string-match
                   "sift-version[ \t]+\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" text)))
       (unless found
-        (release-error "~a does not state sift-version as a version"
-                       version-file))
+        (task-error "~a does not state sift-version as a version"
+                    #:args (list version-file)))
       (match:substring found 1))))
 
 (define (valid-version? version)
+  "Return @code{#t} when @var{version} is numbered like 0.5.0."
   (and (string? version)
     (string-match "^[0-9]+\\.[0-9]+\\.[0-9]+$" version)
     #t))
@@ -349,11 +383,11 @@ one to trust with anyone else's."
     (let ((at (string-contains haystack needle start)))
       (if at (loop (+ at (string-length needle)) (+ count 1)) count))))
 
-;;; Replace one spelling of the version in one file, answering how many places
-;;; it rewrote.  The file is read and written whole, so a replacement that
-;;; fails cannot leave half a file behind.
 (define (rewrite-file file old new shapes)
-  "Write @var{new} into @var{file} wherever @var{old} is quoted, and count them."
+  "Write @var{new} into @var{file} wherever @var{old} is quoted, and count them.
+
+The file is read and written whole, so a replacement that fails cannot leave
+half a file behind."
   (let* ((text (call-with-input-file file get-string-all))
          (rewritten
           (fold (lambda (shape text)
@@ -395,14 +429,14 @@ one to trust with anyone else's."
               (count (and (file-exists? file)
                        (rewrite-file file old new ways))))
          (when (and count (> count 0))
-           (set! written (cons (format #f "~a (~a)" file count) written)))))
+           (set! written (cons (~ "~a (~a)" file count) written)))))
      (cons version-file (quotation-files)))
     (reverse written)))
 
 (define (gates)
   "Run every check this project has, and stop the release when one fails."
   (for-each (lambda (task)
-              (format #t "~&release: running ~a~%" (car task))
+              (log-info "release: running ~a" (car task))
               ((cdr task)))
             `(("docs" . ,docs)
               ("test" . ,test)
@@ -415,9 +449,6 @@ one to trust with anyone else's."
 (define (release . args)
   "Cut a release: write the version everywhere, run the gates, commit and tag.
 
-With no argument, say what the current version is, where it is quoted, and
-what would have to be typed to release the next one -- and change nothing.
-
 With a version, do the whole ritual in one command: write the number into the
 library and into every place that quotes it, regenerate the rule catalogue,
 run every gate, commit everything tracked as `chore(release): vX.Y.Z', and tag
@@ -427,58 +458,48 @@ The gates run before the commit rather than after it, so a release that would
 have been broken is a tree with a new number in it and a message saying which
 check said no -- never a tag that has to be taken back.  A version that is
 already tagged is refused rather than retagged, and naming the version the
-files already state is how a bump made by hand is released."
+files already state is how a bump made by hand is released.
+
+With no argument, say what the current version is, where it is quoted, and
+what would have to be typed to release the next one -- and change nothing."
   (let* ((current (current-version))
          (requested (and (pair? args) (car args))))
     (cond
       [(null? args)
-       (format #t "~&sift ~a~%" current)
-       (format #t "~%Where the version is quoted:~%")
-       (format #t "  ~a~%" version-file)
-       (for-each
-        (lambda (file)
-          (for-each (lambda (shape)
-                      (format #t "  ~a  (~a)~%" file
-                              (format #f shape current)))
-                    (shapes-of file)))
-        (quotation-files))
-       (format #t "~%To release: maak release VERSION~%")
-       0]
+       (show-version)
+       #t]
       [(not (valid-version? requested))
-       (release-error "~s is not a version; a release is numbered like 0.5.0"
-                      requested)]
+       (task-error "~s is not a version; a release is numbered like 0.5.0"
+                   #:args (list requested))]
       [else
-        (let ((tag (string-append "v" requested)))
+        (let ((tag (~ "v~a" requested)))
           (when (member tag (git:git-tags))
-            (release-error "~a is already a tag; bump the version first" tag))
-          (format #t "~&release: ~a -> ~a~%" current requested)
+            (task-error "~a is already a tag; bump the version first"
+                        #:args (list tag)))
+          (log-info "release: ~a -> ~a" current requested)
           (let ((written (write-version! current requested)))
             (if (null? written)
-              (format #t "release: nothing quoted the old version~%")
+              (log-info "release: nothing quoted the old version")
               (for-each
                (lambda (where)
-                 (format #t "release: wrote ~a into ~a~%" requested where))
+                 (log-info "release: wrote ~a into ~a" requested where))
                written)))
           (gates)
           (git:git (list "add" "--all"))
-          (let* ((message (format #f "chore(release): v~a" requested))
+          (let* ((message (~ "chore(release): v~a" requested))
                  (staged (string-trim-both
                           (git:git-output (list "diff" "--cached"
                                                 "--name-only")))))
             ;; A tree that already says the version is a tree with nothing to
             ;; commit: tag where it stands rather than fail on an empty commit.
             (if (string-null? staged)
-              (format #t "~%release: nothing to commit~%")
+              (log-info "release: nothing to commit")
               (begin
                 (git:git (list "commit" "--message" message))
-                (format #t "~%release: committed `~a'~%" message)))
+                (log-info "release: committed `~a'" message)))
             (git:git (list "tag" "--annotate" tag "--message"
-                           (format #f "sift ~a" requested)))
-            (format #t "release: tagged ~a~%~%" tag)
-            (format #t "A tag nobody has fetched is not a release yet:~%")
-            (format #t "  git push origin trunk --follow-tags~%"))
-          0)])))
-
-(define (default)
-  "List the tasks this project defines."
-  (list-tasks))
+                           (~ "sift ~a" requested)))
+            (log-info "release: tagged ~a" tag)
+            (log-separator)
+            (log-info "A tag nobody has fetched is not a release yet:~%  git push origin trunk --follow-tags"))
+          #t)])))
