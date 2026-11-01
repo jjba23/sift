@@ -372,6 +372,20 @@ bug; the server has to survive it."
         (assert-equal #:expect 0 #:got (vector-length diagnostics)
           #:name "the clean text has nothing to report")))
 
+    (test "findings that have not changed are not published again"
+      ;; An editor re-renders every diagnostic it is handed, and most
+      ;; keystrokes in a file leave its findings exactly as they were: the
+      ;; same array sent again makes the editor redraw every squiggle.
+      (let* ((result (session (list (initialize-request 1)
+                                    (open unclean)
+                                    ;; the same text again: the findings are
+                                    ;; the ones the editor already has
+                                    (change unclean))))
+             (published* (notifications (cdr result)
+                                        "textDocument/publishDiagnostics")))
+        (assert-equal #:expect 1 #:got (length published*)
+          #:name "one buffer, one publication")))
+
     (test "closing a buffer takes its findings away"
       (let* ((result (session (list (initialize-request 1)
                                     (open unclean) (close))))

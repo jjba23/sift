@@ -235,13 +235,22 @@ from sending one bad message."
 ;;; and one of them has three spellings.
 
 (define-record-type <document>
-  (make-document uri text language-id version dialect)
+  (make-document uri text language-id version dialect published)
   document?
   (uri document-uri)
   (text document-text set-document-text!)
   (language-id document-language-id)
   (version document-version set-document-version!)
-  (dialect document-dialect))
+  (dialect document-dialect)
+  ;; the findings last sent to the editor, so that the same ones are not sent
+  ;; again: an editor re-renders every diagnostic it is given, and a buffer
+  ;; being typed in has most of its findings unchanged from one keystroke to
+  ;; the next
+  (published document-published set-document-published!))
+
+(define (new-document uri text language-id version dialect)
+  "Return a document about which nothing has been published yet."
+  (make-document uri text language-id version dialect #f))
 
 (define (dialect-of language-id uri)
   "Return the dialect a buffer is read as.
@@ -1655,18 +1664,28 @@ that answers with nothing looks like a request that worked."
                   (field "diagnostics" diagnostics))))))
 
 (define* (publish! config out document)
-  "Send the diagnostics of @var{document} to the editor.
+  "Send the diagnostics of @var{document} to the editor, if they changed.
 
 A buffer that does not parse is a buffer with findings -- the reader's own,
 with severity `error` and the code `reader` -- so this works the same way
-whether the text is a program or half of one."
-  (publish-diagnostics! out
-                        (document-uri document)
-                        (document-version document)
-                        (lsp-diagnostics config
-                                         (document-text document)
-                                         #:dialect (document-dialect document)
-                                         #:uri (document-uri document))))
+whether the text is a program or half of one.
+
+An editor re-renders every diagnostic it is handed, and most keystrokes in a
+file leave its findings exactly as they were: sending the same array again makes
+the editor redraw every squiggle, and makes a backend that is being asked to
+report about text that has already moved on say so.  The findings last sent are
+kept on the document, and finding them unchanged is the one case where saying
+nothing is the right answer."
+  (let ((diagnostics (lsp-diagnostics config
+                                      (document-text document)
+                                      #:dialect (document-dialect document)
+                                      #:uri (document-uri document))))
+    (unless (equal? diagnostics (document-published document))
+      (set-document-published! document diagnostics)
+      (publish-diagnostics! out
+                            (document-uri document)
+                            (document-version document)
+                            diagnostics))))
 
 ;;; --- reading a change ---------------------------------------------------
 ;;;
@@ -1760,11 +1779,11 @@ dead server."
        (let* ((item (json-ref (params) "textDocument"))
               (uri (json-ref item "uri" ""))
               (language (json-ref item "languageId" #f))
-              (document (make-document uri
-                                       (json-ref item "text" "")
-                                       language
-                                       (json-ref item "version" #f)
-                                       (dialect-of language uri))))
+              (document (new-document uri
+                                      (json-ref item "text" "")
+                                      language
+                                      (json-ref item "version" #f)
+                                      (dialect-of language uri))))
          (hash-set! documents uri document)
          (publish! config out document)
          'continue)]
