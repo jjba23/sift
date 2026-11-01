@@ -42,10 +42,9 @@
             (cons (make-lint-warning 'empty-body 'warning message
                                      (node-start node))
                   warnings)))
-    (walk-with-ancestors
+    (walk-forms
      (lambda (node ancestors)
-       (let ((head (and (code-position? node ancestors)
-                     (node-list? node)
+       (let ((head (and (node-list? node)
                      (node-head-name node))))
          (case head
            [(cond)
@@ -138,10 +137,9 @@
 (define (without-body-warnings checker-name head-name)
   (lambda (ast source dialect)
     (let ((warnings '()))
-      (walk-with-ancestors
+      (walk-forms
        (lambda (node ancestors)
-         (when (and (code-position? node ancestors)
-                 (list-headed-by? node head-name)
+         (when (and (list-headed-by? node head-name)
                  (< (length (form-elements node)) 3))
            (set! warnings
                  (cons (make-lint-warning checker-name 'warning

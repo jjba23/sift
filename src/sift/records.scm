@@ -434,17 +434,27 @@ Both the editor-facing names and the everyday ones are accepted, so
 ;;; its original text cut back out of the source.
 
 (define-record-type <node>
-  (%make-node kind value start end fields)
+  (%make-node kind value start end fields cache)
   node?
   (kind node-kind) ; symbol
   (value node-value) ; depends on the kind
   (start node-start) ; <source-location>
   (end node-end) ; <source-location>
-  (fields node-fields)) ; alist of extra properties
+  (fields node-fields) ; alist of extra properties
+  (cache node-cache set-node-cache!)) ; derived from the children, computed once
+
+;;; The `cache' slot is the one place a node is not a plain record of what the
+;;; reader read.  Two questions about a list node -- which of its children
+;;; carry a datum, and what the first of them is called -- are asked by every
+;;; checker about every node, and both are answered by walking the children.
+;;; Answering them once and keeping the answer is what turns the second ask
+;;; from a walk into a vector reference; it is safe because a node never
+;;; changes: the one pass that rewrites one (marking a datum comment's children
+;;; commented out) builds a new node, which starts with no cache.
 
 (define* (make-node kind value start end #:optional (fields '()))
   "Return a node of @var{kind} holding @var{value}, spanning @var{start}..@var{end}."
-  (%make-node kind value start end fields))
+  (%make-node kind value start end fields #f))
 
 (define* (node-field node key #:optional (default #f))
   "Return the property @var{key} of @var{node}, or @var{default}."
@@ -555,12 +565,51 @@ treat it as code."
   "Return every child of a list node, trivia included."
   (if (node-list? node) (node-value node) '()))
 
+;; --- derived from the children, and computed once --------------------
+;;;
+;;; `node-elements' and `node-head-name' are asked about the same node by every
+;;; checker, and both are answered by walking its children; `node-elements' also
+;;; conses a fresh list each time.  The answer is kept in the node's cache slot,
+;;; so the second ask is a vector reference.  Nodes are immutable, so the cache
+;;; can never be stale.
+
+(define (node-list-cache node)
+  "Return @code{#(elements head-name)} for the list @var{node}, computing it once."
+  (or (node-cache node)
+    (let* ((children (node-value node))
+           (elements (let loop ((rest children) (kept '()))
+                       (cond
+                         [(null? rest) (reverse! kept)]
+                         [(node-data? (car rest)) (loop (cdr rest) (cons (car rest) kept))]
+                         [else (loop (cdr rest) kept)])))
+           (computed (vector elements (head-name-of elements))))
+      (set-node-cache! node computed)
+      computed)))
+
+(define (head-name-of elements)
+  "Return the operator named by the first datum of @var{elements}, or @code{#f}.
+
+Only an unquoted, unprefixed atom names an operator: @code{('foo x)} and
+@code{(#'foo x)} have no operator, which is what the indentation table keys
+on.  A keyword names one too, so that `:export' and `export' compare the same
+way."
+  (let ((head (and (pair? elements) (car elements))))
+    (and head
+      (node-atom? head)
+      (not (node-stray-delimiter? head))
+      (let ((type (node-atom-type head)))
+        (and (memq type '(symbol keyword))
+          (string->symbol (node-value head)))))))
+
 (define (node-elements node)
   "Return the children of @var{node} that carry a datum, trivia aside.
 
 Comments and whitespace are dropped, and so is a datum comment, so the
-result is the form as a program sees it."
-  (filter node-data? (node-children node)))
+result is the form as a program sees it.  The list is shared with every other
+caller -- a node is immutable, so sharing it is free."
+  (if (node-list? node)
+    (vector-ref (node-list-cache node) 0)
+    '()))
 
 (define (node-inline? node)
   "Return @code{#t} when @var{node} is a comment that follows code on its line."
@@ -590,8 +639,9 @@ result is the form as a program sees it."
 
 (define (node-head node)
   "Return the first datum of a list node, or @code{#f}."
-  (let ((elements (node-elements node)))
-    (if (null? elements) #f (car elements))))
+  (and (node-list? node)
+    (let ((elements (vector-ref (node-list-cache node) 0)))
+      (and (pair? elements) (car elements)))))
 
 (define (node-head-name node)
   "Return the head of a list node as a symbol, or @code{#f}.
@@ -603,16 +653,15 @@ on.
 A vector has no operator either.  @code{#(progn a)} is a literal that holds
 two symbols; reading the first of them as an operator is how a linter ends up
 offering to replace a vector with its contents, and a formatter ends up
-indenting a literal like a call."
-  (let ((head (node-head node)))
-    (and head
-      (not (node-vector? node))
-      (not (node-bytevector? node))
-      (node-atom? head)
-      (not (node-stray-delimiter? head))
-      (let ((type (node-atom-type head)))
-        (and (memq type '(symbol keyword))
-          (string->symbol (node-value head)))))))
+indenting a literal like a call.
+
+The answer is computed once and kept on the node: every checker asks it about
+every node, and interning the same name again for each of them is the largest
+single cost a lint has."
+  (and (node-list? node)
+    (not (node-vector? node))
+    (not (node-bytevector? node))
+    (vector-ref (node-list-cache node) 1)))
 
 (define (node->string node)
   "Render @var{node} back to source text, verbatim.

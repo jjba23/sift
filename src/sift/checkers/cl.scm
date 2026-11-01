@@ -54,10 +54,9 @@
   (let ((exported (exported-symbols ast))
         (warnings '()))
     (when (pair? exported)
-      (walk-with-ancestors
+      (walk-forms
        (lambda (node ancestors)
          (when (and (node-list? node)
-                 (code-position? node ancestors)
                  (not (inside-defpackage? node ancestors)))
            (let ((head (node-head node)))
              (when (and head

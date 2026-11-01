@@ -30,24 +30,34 @@
 
 ;;; ===== trailing-whitespace =====
 
+(define (trailing-whitespace-at source start end)
+  "Return the index where the whitespace that ends a line begins, or @code{#f}.
+
+The line is scanned from its end rather than copied out of the source: a
+checker that allocates a string per line of a two-thousand-line file spends
+most of its time in the garbage collector."
+  (let loop ((i end))
+    (if (and (> i start)
+          (memv (string-ref source (- i 1)) '(#\space #\tab)))
+      (loop (- i 1))
+      (and (< i end) i))))
+
 (define (trailing-whitespace-warnings ast source dialect)
   (let ((spans (line-spans source))
         (warnings '()))
     (let loop ((rest spans) (number 1))
       (unless (null? rest)
         (let* ((span (car rest))
-               (text (substring source (car span) (cdr span)))
-               (trimmed (string-trim-right text (char-set #\space #\tab))))
-          (when (< (string-length trimmed) (string-length text))
-            (let* ((first-bad (+ (car span) (string-length trimmed))))
-              (set! warnings
-                    (cons (make-lint-warning/range
-                           'trailing-whitespace 'warning
-                           "line ends with whitespace"
-                           (location-at-index source first-bad)
-                           first-bad (cdr span)
-                           (lambda (source start end) ""))
-                          warnings)))))
+               (first-bad (trailing-whitespace-at source (car span) (cdr span))))
+          (when first-bad
+            (set! warnings
+                  (cons (make-lint-warning/range
+                         'trailing-whitespace 'warning
+                         "line ends with whitespace"
+                         (location-at-index source first-bad)
+                         first-bad (cdr span)
+                         (lambda (source start end) ""))
+                        warnings))))
         (loop (cdr rest) (+ number 1))))
     (reverse warnings)))
 
@@ -69,6 +79,29 @@
           [(memv (string-ref source i) '(#\space #\tab)) (loop (+ i 1))]
           [else i])))
 
+(define (indent-tab-at source start end)
+  "Return the index of the first tab in the indentation of a line, or @code{#f}.
+
+The indentation is scanned in place: a substring per line is an allocation per
+line, and a file of two thousand lines has two thousand lines."
+  (let loop ((i start))
+    (cond
+      [(>= i end) #f]
+      [(char=? (string-ref source i) #\tab) i]
+      [(char=? (string-ref source i) #\space) (loop (+ i 1))]
+      [else #f])))
+
+(define (expand-indentation source start end width)
+  "Return the indentation from @var{start} to @var{end} with tabs expanded."
+  (let loop ((i start) (out '()))
+    (if (>= i end)
+      (list->string (reverse! out))
+      (if (char=? (string-ref source i) #\tab)
+        (loop (+ i 1)
+              (let pad ((n width) (acc out))
+                (if (zero? n) acc (pad (- n 1) (cons #\space acc)))))
+        (loop (+ i 1) (cons #\space out))))))
+
 (define (tabs-warnings ast source dialect)
   (let* ((spans (line-spans source))
          (exempt (text-ranges-of ast))
@@ -79,27 +112,20 @@
         (let* ((span (car rest))
                (start (car span))
                (end (cdr span))
-               (indent-end (leading-whitespace-end source start end))
-               (indent (substring source start indent-end)))
-          (when (and (< (string-length indent) (- end start))
-                  ;; a line that begins inside a string or a block comment
-                  ;; is text, not code
-                  (not (index-in-ranges? start exempt))
-                  (string-index indent #\tab))
-            (let* ((tab-at (+ start (string-index indent #\tab)))
-                   (expanded
-                    (string-join
-                     (map (lambda (c)
-                            (if (char=? c #\tab) (make-string width #\space) " "))
-                          (string->list indent))
-                     "")))
+               (tab-at (indent-tab-at source start end)))
+          ;; A line that begins inside a string or a block comment is text,
+          ;; not code -- and the ranges are only asked about a line that has a
+          ;; tab in its indentation, which is the rare one.
+          (when (and tab-at (not (index-in-ranges? start exempt)))
+            (let ((indent-end (leading-whitespace-end source start end)))
               (set! warnings
                     (cons (make-lint-warning/range
                            'tabs 'warning
                            "indentation contains a tab character"
                            (location-at-index source tab-at)
                            start indent-end
-                           (lambda (source s e) expanded))
+                           (lambda (source s e)
+                             (expand-indentation source s e width)))
                           warnings))))
           (loop (cdr rest) (+ number 1))))
       (reverse warnings))))
@@ -123,8 +149,9 @@
     (let loop ((rest spans) (number 1))
       (unless (null? rest)
         (let ((span (car rest)))
-          (when (> (string-length (substring source (car span) (cdr span)))
-                   limit)
+          ;; the length of a line is the distance between its two ends: asking
+          ;; for the substring of every line to measure it is a copy per line
+          (when (> (- (cdr span) (car span)) limit)
             (set! warnings
                   (cons (make-lint-warning 'line-length 'warning
                                            (format #f "line is ~a columns long, over the limit of ~a"
@@ -157,7 +184,7 @@
          (last-non-blank
           (let loop ((rest spans) (number 1) (found 0))
             (cond [(null? rest) found]
-                  [(blank-line? (substring source (caar rest) (cdar rest)))
+                  [(blank-line? source (caar rest) (cdar rest))
                    (loop (cdr rest) (+ number 1) found)]
                   [else (loop (cdr rest) (+ number 1) number)])))
          ;; The final line a trailing newline creates is not a blank line the

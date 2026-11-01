@@ -115,10 +115,9 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define (eta-reduction-warnings ast source dialect)
   (let ((warnings '()))
     (when (eq? dialect 'scheme)
-      (walk-with-ancestors
+      (walk-forms
        (lambda (node ancestors)
-         (when (and (code-position? node ancestors)
-                 (eq? (call-head-name node) 'lambda))
+         (when (eq? (call-head-name node) 'lambda)
            (let* ((formal (formals-of node))
                   (body (single-body node))
                   (called (and body (node-list? body) body))

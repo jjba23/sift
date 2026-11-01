@@ -400,10 +400,9 @@ in a `do' or a `let' that only declares."
 
 (define (unused-binding-warnings ast source dialect)
   (let ((warnings '()))
-    (walk-with-ancestors
+    (walk-forms
      (lambda (node ancestors)
-       (when (and (code-position? node ancestors)
-               (node-list? node)
+       (when (and (node-list? node)
                (memq (node-head-name node) binding-form-heads))
          (let ((bindings (binding-list-of node)))
            (when (node-list? bindings)

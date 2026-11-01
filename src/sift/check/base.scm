@@ -28,6 +28,7 @@
                           make-lint-warning make-lint-warning/range)
   #:export (for-each-node
             for-each-form
+            walk-forms
             for-each-top-level
             fold-nodes
             node-source
@@ -56,6 +57,7 @@
             node-index
             node-end-index
             line-of-index
+            line-and-column
             location-at-index
             ranges-of
             index-in-ranges?
@@ -106,12 +108,7 @@ and a vector literal.  A rule about the shape of a form asks this walker and
 never has to ask whether what it is looking at is code at all -- which is what
 stops `(if . 2)' in an alist from being reported as an `if` with no else
 branch, and `#(if a b)' from being reported as one either."
-  (walk-with-ancestors
-   (lambda (node ancestors)
-     (when (and (not (node-trivia? node))
-             (code-position? node ancestors))
-       (proc node)))
-   ast))
+  (walk-forms (lambda (node ancestors) (proc node)) ast #:ancestors? #f))
 
 (define (fold-nodes kons knil ast)
   "Fold @var{kons} over every datum in @var{ast}."
@@ -123,7 +120,11 @@ branch, and `#(if a b)' from being reported as one either."
   "Call @var{proc} with each datum and the list of forms that enclose it.
 
 The ancestors come nearest-first, which is the order a checker asks them in:
-\"is there a `let' between me and that `lambda'?\""
+\"is there a `let' between me and that `lambda'?\"
+
+Unlike @code{for-each-form} this visits every node, comments and whitespace
+included, because a checker that asks this question is asking about
+positions rather than about shapes."
   (define (walk node ancestors)
     (unless (node-commented-out? node)
       (proc node ancestors)
@@ -143,6 +144,128 @@ The ancestors come nearest-first, which is the order a checker asks them in:
            (when feature (walk feature ancestors))
            (when guarded (walk guarded ancestors)))])))
   (for-each (lambda (node) (when (node-data? node) (walk node '()))) ast))
+
+;;; ===== Where code is evaluated =====
+;;;
+;;; The four places a node is data rather than code are decided by looking at
+;;; the node and at the forms above it.  Asking the question by walking back up
+;;; the ancestors for every node is what made a lint cost more than a format by
+;;; two orders of magnitude: the walk up happens once per node per level, and
+;;; each step of it asks what a form is called.
+;;;
+;;; So the same question is answered twice: `walk-forms' carries the answer
+;;; down with it, and `code-position?' recomputes it from an ancestor list for
+;;; the callers and the tests that only have one.  The two must agree, and the
+;;; suite walks a corpus of everything that is ambiguous -- quotes, quasiquotes,
+;;; vectors, `case` clauses, parameter lists -- through both and compares.
+
+(define formals-form-heads
+  '(lambda define define* define-public defun defmacro defsubst
+     cl-defun cl-defmacro defmethod defgeneric))
+
+(define quote-opening-tokens '("'" "`" "#`"))
+(define quote-closing-tokens '("," ",@" "#," "#,@"))
+(define quote-opening-heads '(quote quasiquote quasisyntax))
+(define quote-closing-heads
+  '(unquote unquote-splicing unsyntax unsyntax-splicing))
+
+(define (formals-of-form node)
+  "Return the parameter list of @var{node} when it is a form that has one."
+  (and (node-list? node)
+    (memq (node-head-name node) formals-form-heads)
+    (let ((elements (node-elements node)))
+      (and (pair? elements) (pair? (cdr elements)) (cadr elements)))))
+
+(define* (walk-forms proc ast #:key (ancestors? #t))
+  "Call @var{proc} on every node in a position where code is evaluated.
+
+@var{proc} receives the node and, when @var{ancestors?} is true, the forms
+that enclose it, nearest first.
+
+Whether a node is code is decided while descending -- from three flags that
+say whether the walk is inside a quotation, a vector or a parameter list,
+and from the two nearest forms, whose names are carried down with them --
+so a whole tree is walked once rather than once per level of nesting.
+
+The `case` test needs the head of the node's parent and the name of its
+grandparent, so those are carried beside the flags: @var{parent-head} is the
+first datum of the node's parent, @var{parent-head-name} the name of that
+parent, and @var{gp-is-case?} says whether the grandparent is one of the forms
+whose clauses begin with a datum."
+  (define (walk node quoted? in-vector? in-formals?
+                gp-is-case? parent-head parent-head-name ancestors)
+    (unless (node-commented-out? node)
+      (when (and (not (node-trivia? node))
+              (not (node-vector? node))
+              (not (node-bytevector? node))
+              (not quoted?)
+              (not in-vector?)
+              (not in-formals?)
+              (not (and gp-is-case? (eq? parent-head node))))
+        (proc node (if ancestors? ancestors '())))
+      (cond
+        [(node-list? node)
+         (let* ((head (node-head-name node))
+                (quoted-next (cond [(memq head quote-opening-heads) #t]
+                                   [(memq head quote-closing-heads) #f]
+                                   [else quoted?]))
+                (vector-next (if (memq head quote-closing-heads) #f in-vector?))
+                (data-children? (or (node-vector? node) (node-bytevector? node)))
+                (container? (memq head formals-form-heads))
+                (formals (and container? (formals-of-form node)))
+                ;; what the children of this node see: their parent is this
+                ;; node, whose own name and parent are exactly what the `case`
+                ;; test of a child needs
+                (child-gp-is-case? (and parent-head-name
+                                     (memq parent-head-name case-form-heads)
+                                     #t))
+                (child-parent-head (node-head node))
+                (child-parent-head-name head)
+                (child-ancestors (and ancestors? (cons node ancestors))))
+           (for-each
+            (lambda (child)
+              (walk child
+                    quoted-next
+                    ;; a vector literal is data, and so is everything in it
+                    (if data-children? #t vector-next)
+                    (if container?
+                      (and formals
+                        (<= (node-index formals) (node-index child))
+                        (<= (node-end-index child) (node-end-index formals)))
+                      in-formals?)
+                    child-gp-is-case? child-parent-head child-parent-head-name
+                    child-ancestors))
+            (node-children node)))]
+        [(node-prefix? node)
+         (let ((token (node-token node))
+               (child (node-child node)))
+           (when (and child (not (node-datum-comment? node)))
+             (walk child
+                   (cond [(member token quote-opening-tokens) #t]
+                         [(member token quote-closing-tokens) #f]
+                         [else quoted?])
+                   (if (member token quote-closing-tokens) #f in-vector?)
+                   in-formals?
+                   ;; a prefix is a parent like any other, and not a list, so
+                   ;; nothing below it can be the datum of a `case` clause
+                   #f #f #f
+                   (if ancestors? (cons node ancestors) '()))))]
+        ;; a conditional is not an ancestor: `#+foo (if a b)' is an `if' in
+        ;; the same place the reader found it
+        [(node-conditional? node)
+         (let ((feature (node-feature node))
+               (guarded (node-guarded-form node)))
+           (when feature
+             (walk feature quoted? in-vector? in-formals?
+                   gp-is-case? parent-head parent-head-name ancestors))
+           (when guarded
+             (walk guarded quoted? in-vector? in-formals?
+                   gp-is-case? parent-head parent-head-name ancestors)))]
+        [else #f])))
+  (for-each (lambda (node)
+              (when (node-data? node)
+                (walk node #f #f #f #f #f #f '())))
+            ast))
 
 ;;; ===== Reading a form =====
 
@@ -362,21 +485,63 @@ problem from a crash."
       rest)))
 
 ;;; ===== Lines and text =====
+;;;
+;;; Where the lines of a text begin depends on the text and on nothing else,
+;;; and it is asked once per finding -- and, by a checker that reports a
+;;; position for every match it finds, once per match.  Working it out again
+;;; for every question is what made a walk over a two-thousand-line file cost
+;;; ten seconds, so it is worked out once per text and kept until a different
+;;; text is asked about.  One entry is enough because a run reads one source at
+;;; a time; a different string is a cache miss, never a wrong answer.
 
-(define (line-spans source)
-  "Return @code{(start . end)} character offsets for every line.
+(define *lines* (vector #f #f))
+
+(define (compute-line-starts source)
+  "Return a vector of the character index at which each line of @var{source} begins."
+  (let* ((n (string-length source))
+         (starts (let loop ((i 0) (acc (list 0)))
+                   (cond
+                     [(>= i n) (reverse! acc)]
+                     [(char=? (string-ref source i) #\newline)
+                      (loop (+ i 1) (cons (+ i 1) acc))]
+                     [else (loop (+ i 1) acc)]))))
+    (list->vector starts)))
+
+(define (compute-line-spans source starts)
+  "Return @code{(start . end)} character offsets for every line of @var{source}.
 
 @var{end} excludes the line break, so a slice of the source is exactly the
 line the user sees.  A file that ends with a newline has a final empty line,
 which is what a text editor shows too."
-  (let ((n (string-length source)))
-    (let loop ((start 0) (i 0) (out '()))
-      (cond
-        [(>= i n)
-         (reverse (cons (cons start i) out))]
-        [(char=? (string-ref source i) #\newline)
-         (loop (+ i 1) (+ i 1) (cons (cons start i) out))]
-        [else (loop start (+ i 1) out)]))))
+  (let* ((n (string-length source))
+         (count (vector-length starts)))
+    (let loop ((i 0) (out '()))
+      (if (>= i count)
+        (reverse! out)
+        (loop (+ i 1)
+              (cons (cons (vector-ref starts i)
+                          (if (< (+ i 1) count)
+                            (- (vector-ref starts (+ i 1)) 1)
+                            n))
+                    out))))))
+
+(define (line-index source)
+  "Return @code{#(starts spans)} for @var{source}, computed once per text.
+
+The cache is keyed by @code{eq?} on the string, so a text that is a different
+object is read again rather than assumed to be the same one: the answer is
+never wrong, at worst it is worked out twice."
+  (if (eq? (vector-ref *lines* 0) source)
+    (vector-ref *lines* 1)
+    (let* ((starts (compute-line-starts source))
+           (entry (vector starts (compute-line-spans source starts))))
+      (vector-set! *lines* 0 source)
+      (vector-set! *lines* 1 entry)
+      entry)))
+
+(define (line-spans source)
+  "Return @code{(start . end)} character offsets for every line of @var{source}."
+  (vector-ref (line-index source) 1))
 
 (define* (line-text source line #:optional (lines #f))
   "Return line @var{line} (1-based) of @var{source}, without its break."
@@ -407,12 +572,38 @@ editor uses for a file it has not been told about."
 (define (node-end-index node)
   (source-location-index (node-end node)))
 
+(define (line-number-of index starts)
+  "Return the 1-based line that holds @var{index}, given where the lines @var{starts}.
+
+A binary search, because a file of two thousand lines is asked this question
+once per finding, and walking the lines to find one is the difference between
+a lint that finishes and a lint that does not."
+  (let loop ((low 0) (high (- (vector-length starts) 1)) (answer 0))
+    (if (> low high)
+      (+ answer 1)
+      (let ((middle (quotient (+ low high) 2)))
+        (if (<= (vector-ref starts middle) index)
+          (loop (+ middle 1) high middle)
+          (loop low (- middle 1) answer))))))
+
+(define (line-and-column source index)
+  "Return @code{(values line column)} of character @var{index} in @var{source}.
+
+Both count from one.  An index past the end of the text is answered the way
+the line list always answered it: the line after the last one, at its first
+column."
+  (let* ((entry (line-index source))
+         (starts (vector-ref entry 0))
+         (number (line-number-of index starts)))
+    (if (<= index (string-length source))
+      (values number
+              (+ 1 (- index (vector-ref starts (- number 1)))))
+      (values (+ (vector-length starts) 1) 1))))
+
 (define (line-of-index source index)
   "Return the 1-based line of character @var{index} in @var{source}."
-  (let loop ((spans (line-spans source)) (n 1))
-    (cond [(null? spans) n]
-          [(<= index (cdr (car spans))) n]
-          [else (loop (cdr spans) (+ n 1))])))
+  (call-with-values (lambda () (line-and-column source index))
+    (lambda (line column) line)))
 
 (define (location-at-index source index)
   "Build a location from an index alone.
@@ -421,18 +612,21 @@ A checker is handed the AST and the text, not the file name, so the file is
 left @code{#f} here and the driver fills it in from the run's context.  The
 line and column are counted in characters, exactly as the reader counts
 them."
-  (let loop ((spans (line-spans source)) (number 1))
-    (if (null? spans)
-      (make-source-location #f number 1 index index)
-      (let ((span (car spans)))
-        (if (<= index (cdr span))
-          (make-source-location #f number (+ 1 (- index (car span)))
-                                index index)
-          (loop (cdr spans) (+ number 1)))))))
+  (call-with-values (lambda () (line-and-column source index))
+    (lambda (line column)
+      (make-source-location #f line column index index))))
 
-(define (blank-line? text)
-  "Return @code{#t} when @var{text} holds nothing but whitespace."
-  (string-every (lambda (c) (memv c '(#\space #\tab #\return))) text))
+(define* (blank-line? text #:optional (start 0) (end (string-length text)))
+  "Return @code{#t} when @var{text} holds nothing but whitespace.
+
+@var{start} and @var{end} narrow the question to one line of a larger text,
+which is what a checker that has the offsets already wants: asking it of a
+substring would be a copy of the line to find out that it is blank."
+  (let loop ((i start))
+    (cond
+      [(>= i end) #t]
+      [(memv (string-ref text i) '(#\space #\tab #\return)) (loop (+ i 1))]
+      [else #f])))
 
 ;;; ===== Ranges =====
 
@@ -450,12 +644,15 @@ them."
 
 Strings and block comments are what a text-level checker must not look
 inside: a tab in a string literal is data, and a line that starts inside a
-multi-line block comment is not indentation."
-  (append (ranges-of ast (lambda (node) (and (node-atom? node)
-                                          (eq? (node-atom-type node) 'string))))
-          (ranges-of ast (lambda (node)
-                           (or (node-block-comment? node)
-                             (node-string? node))))))
+multi-line block comment is not indentation.  One pass, because the walk is
+over the whole tree and doing it twice doubles the cost of every checker that
+asks."
+  (reverse
+   (fold-nodes (lambda (node acc)
+                 (if (or (node-block-comment? node) (node-string? node))
+                   (cons (cons (node-index node) (node-end-index node)) acc)
+                   acc))
+               '() ast)))
 
 (define (index-in-ranges? index ranges)
   "Return @code{#t} when @var{index} falls inside one of @var{ranges}."
