@@ -168,9 +168,6 @@ the quoting rules to disagree with themselves."
 (define (mapping-node entries line column) (vector 'mapping entries line column))
 
 (define (node-type node) (vector-ref node 0))
-(define (node-line node) (vector-ref node 2))
-(define (node-column node) (vector-ref node 3))
-
 (define (parse-block lines path indent)
   "Parse the block at @var{indent}, returning a node and the remaining lines."
   (cond

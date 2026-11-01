@@ -81,21 +81,6 @@
   (and (= (length expected) (length actual))
     (every (lambda (a b) (eq? a b)) expected actual)))
 
-(define (describe nodes source)
-  "Return the source text of @var{nodes}, for a message that can be read."
-  (map (lambda (node)
-         (if (node-list? node)
-           (string-append "(" (if (node-head-name node)
-                                (symbol->string (node-head-name node))
-                                "?")
-                          " ...)")
-           (let ((start (node-index node))
-                 (end (node-end-index node)))
-             (if (<= end (string-length source))
-               (substring source start end)
-               "?"))))
-       nodes))
-
 ;;; ===== The suite =====
 
 (define (spec)

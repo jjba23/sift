@@ -46,13 +46,6 @@ server that handles one."
                  (number->string (bytevector-length (string->utf8 body)))
                  "\r\n\r\n" body))
 
-(define (frame value)
-  "Return @var{value} as one framed JSON-RPC message."
-  (let* ((body (json-write value))
-         (length (bytevector-length (string->utf8 body))))
-    (string-append "Content-Length: " (number->string length) "\r\n\r\n"
-                   body)))
-
 (define (unframe text)
   "Return the messages in @var{text}, a run of framed messages."
   (let loop ((index 0) (messages '()))

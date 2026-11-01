@@ -435,12 +435,6 @@ was given, because naming a file is the most specific thing anyone can say."
   (when (config-ref config 'verbose)
     (apply format (current-error-port) (string-append "sift: " fmt "~%") args)))
 
-(define* (read-source-of path #:key (label #f))
-  "Read @var{path}, or standard input when it is @code{#f}."
-  (if path
-    (call-with-input-file path get-string-all)
-    (get-string-all (current-input-port))))
-
 (define (errno-in thing)
   "Return the error number in @var{thing}, a Guile system-error argument.
 
@@ -485,12 +479,6 @@ rather than guesses, and says which dialects it knows."
     (and source (detect-dialect #:source source))
     (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|elisp|cl"
                  (or label path "the input"))))
-
-(define (parse-error-count warnings)
-  (length (filter (lambda (warning)
-                    (and (eq? (lint-warning-checker warning) 'reader)
-                      (eq? (lint-warning-severity warning) 'error)))
-                  warnings)))
 
 (define (error-findings warnings)
   "Return the findings that say the file is not a program.

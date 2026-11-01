@@ -28,10 +28,6 @@
 
 ;;; ===== empty-body =====
 
-(define binding-heads
-  '(let let* letrec letrec* let-values let*-values let-syntax letrec-syntax
-     flet labels macrolet symbol-macrolet))
-
 (define (cond-clauses node)
   (filter node-list? (form-arguments node)))
 

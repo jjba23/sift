@@ -27,7 +27,8 @@
             docstring-texinfo-checker
             unused-binding-checker
             unused-import-checker
-            library-not-found-checker))
+            library-not-found-checker
+            unused-definition-checker))
 
 ;;; ===== internal-define =====
 
@@ -506,14 +507,6 @@ after the form on that line is the author's and stops the deletion."
   (or (assoc-ref (declared-libraries ast) key)
     (assoc-ref project key)))
 
-(define (unused-import-finding source node span message)
-  "Return a finding about @var{node} whose fix deletes @var{span}."
-  (make-lint-warning/range
-   'unused-import 'info
-   (format #f "`~a` ~a" (source-text source node) message)
-   (node-start node) (car span) (cdr span)
-   (lambda (text from to) "")))
-
 (define (unused-name-findings source used spec at warnings)
   "Return the findings about the unused names of one @code{only} clause."
   (let* ((names (spec-name-nodes spec))
@@ -576,28 +569,62 @@ whole."
          (not (any (lambda (name) (used? used name)) exports))))]
     [else #f]))
 
+(define (line-start-of source index)
+  "Return the index at which the line that holds @var{index} begins."
+  (let loop ((at (min index (string-length source))))
+    (cond
+      [(<= at 0) 0]
+      [(char=? (string-ref source (- at 1)) #\newline) at]
+      [else (loop (- at 1))])))
+
+(define (site-text source site)
+  "Return @var{site} as it is written, on one line.
+
+A clause is a keyword and a spec, so the text of one is the two of them: a
+finding that printed `#:use-module` alone would say what was removed and not
+what it named."
+  (let ((form (import-site-form site))
+        (anchor (import-site-anchor site)))
+    (single-line
+     (substring source (node-index form)
+                (node-end-index (or anchor form))))))
+
+(define (site-deletion source site)
+  "Return @code{(start . end)}, what a fix deletes to remove @var{site} whole.
+
+An `(import ...)' form goes with the lines it occupies; a `#:use-module' clause
+goes with its own line, keyword included -- leaving the keyword behind would
+leave `#:use-module' with nothing after it."
+  (let ((form (import-site-form site))
+        (anchor (import-site-anchor site)))
+    (if anchor
+      (cons (line-start-of source (node-index form))
+            (line-start-of source (+ 1 (node-end-index anchor))))
+      (cons (node-index form) (line-end-of source (node-end-index form))))))
+
 (define (unused-import-warnings ast source dialect)
   (let* ((used (referenced-names ast))
          (file (source-file-of ast))
          (project (project-libraries (and file (dirname file))))
          (warnings '()))
     (for-each
-     (lambda (form)
-       (let* ((specs (import-specs form))
+     (lambda (site)
+       (let* ((specs (import-site-specs site))
               (unused (filter (lambda (spec) (spec-unused? used spec ast project))
                               specs)))
          (cond
-           ;; every spec unused: one finding, on the form, whose fix removes it
+           ;; every spec unused: one finding, on the site, whose fix removes it
            [(and (pair? specs) (= (length unused) (length specs)))
-            (set! warnings
-                  (cons (make-lint-warning/range
-                         'unused-import 'info
-                         (format #f "`~a` imports nothing this file uses"
-                                 (source-text source form))
-                         (node-start form) (node-index form)
-                         (line-end-of source (node-end-index form))
-                         (lambda (text from to) ""))
-                        warnings))]
+            (let ((span (site-deletion source site)))
+              (set! warnings
+                    (cons (make-lint-warning/range
+                           'unused-import 'info
+                           (format #f "`~a` imports nothing this file uses"
+                                   (site-text source site))
+                           (node-start (import-site-form site))
+                           (car span) (cdr span)
+                           (lambda (text from to) ""))
+                          warnings)))]
            [else
              ;; a spec of two is deleted with the space before it
              (for-each
@@ -622,7 +649,7 @@ whole."
                    (set! warnings (unused-rename-findings source used spec warnings))]
                   [else #f]))
               specs)])))
-     (import-forms ast))
+     (import-sites ast))
     (reverse warnings)))
 
 (define unused-import-checker
@@ -677,6 +704,63 @@ whole."
            #:example '((input . "(import (my helpers))\n")
                        (fix . "no automatic fix; name the library the project declares, or add it"))))
 
+;;; ===== unused-definition =====
+;;;
+;;; A module that lists what it exports has said what its public surface is.
+;;; Another module cannot name anything that is not on that list, so a top-level
+;;; definition that is neither exported nor mentioned anywhere in its own file
+;;; is code nothing can reach.
+;;;
+;;; Both halves are required, and each of them alone would be a guess.  Without
+;;; an `#:export' clause there is no public surface to compare against -- a
+;;; script exports nothing and is right to -- so the rule says nothing.  And
+;;; without counting the whole file, a name that appears under a quote, or in a
+;;; form the reader kept as data, would look dead when it is not: `mentions'
+;;; counts every appearance, which is why this rule misses an odd case rather
+;;; than reporting one.
+
+(define (module-level-definitions ast)
+  "Return the top-level `define' and `define*' forms of @var{ast}."
+  (filter (lambda (node)
+            (and (node-list? node)
+              (memq (node-head-name node) '(define define*))))
+          (filter node-data? ast)))
+
+(define (unused-definition-warnings ast source dialect)
+  (let ((module (file-module ast)))
+    (if (not module)
+      '()
+      (let ((exports (module-export-clause-names module)))
+        (if (not exports)
+          '()
+          (let ((mentions (mentions ast))
+                (warnings '()))
+            (for-each
+             (lambda (form)
+               (let* ((name (defined-name form))
+                      (text (and name (node-atom? name) (node-value name))))
+                 (when (and text
+                         (not (member text exports))
+                         (= 1 (or (hash-ref mentions text) 0)))
+                   (set! warnings
+                         (cons (make-lint-warning
+                                'unused-definition 'info
+                                (format #f "`~a` is defined here, never used, and not exported; nothing can reach it"
+                                        text)
+                                (node-start name))
+                               warnings)))))
+             (module-level-definitions ast))
+            (reverse warnings)))))))
+
+(define unused-definition-checker
+  (checker 'unused-definition
+           "A definition nothing in the file uses, in a module that does not export it"
+           '(scheme)
+           unused-definition-warnings
+           #:severity 'info
+           #:example '((input . "(define-module (demo)\n  #:export (used))\n\n(define (used) 1)\n(define (forgotten) 2)\n")
+                       (fix . "delete it, or export it if another module is meant to call it"))))
+
 ;;; ===== The list =====
 
 (define scheme-checkers
@@ -688,4 +772,5 @@ whole."
         docstring-texinfo-checker
         unused-binding-checker
         unused-import-checker
-        library-not-found-checker))
+        library-not-found-checker
+        unused-definition-checker))

@@ -38,6 +38,21 @@
             code-position?
             case-datum?
             case-form-heads
+            declaration-heads
+            declaration-form?
+            data-declaration-heads
+            definition-heads
+            definition-form?
+            keyword-clause?
+            call-form?
+            formals-positions
+            formals-of-form
+            formals-holder?
+            keyword-node?
+            formal-marker?
+            required-positional-formals
+            defined-name
+            formal-elements
             list-headed-by?
             head-is-one-of?
             form-elements
@@ -159,22 +174,147 @@ positions rather than about shapes."
 ;;; suite walks a corpus of everything that is ambiguous -- quotes, quasiquotes,
 ;;; vectors, `case` clauses, parameter lists -- through both and compares.
 
-(define formals-form-heads
-  '(lambda define define* define-public defun defmacro defsubst
-     cl-defun cl-defmacro defmethod defgeneric))
+;;; --- where a parameter list is ---------------------------------------
+;;;
+;;; Every form that has parameters puts them somewhere, and where is the
+;;; dialect's business: `(lambda (a) ...)' keeps them in the second element,
+;;; `(define (f a) ...)' inside the name in the second, and `(defun f (a) ...)'
+;;; in the third.  A rule that counts parameters and a rule that must not read a
+;;; parameter list as a call both have to ask this rather than guess "the second
+;;; element", which is what made `(defun f (a b c d e f))' look like a call of
+;;; `a' with six arguments.
+;;;
+;;; The number is the element's position, counting the operator as one.
+
+(define formals-positions
+  '((lambda . 2)
+    (lambda* . 2)
+    (case-lambda . 2)
+    (define . 2)
+    (define* . 2)
+    (define-public . 2)
+    (define-inlinable . 2)
+    (define-values . 2)
+    (destructuring-bind . 2)
+    (defun . 3)
+    (defmacro . 3)
+    (defsubst . 3)
+    (cl-defun . 3)
+    (cl-defmacro . 3)
+    (cl-defsubst . 3)
+    (cl-defmethod . 3)
+    (defmethod . 3)
+    (defgeneric . 3)
+    (cl-defgeneric . 3)
+    (defsetf . 3)
+    (define-setf-expander . 3)))
+
+(define (formals-of-form node)
+  "Return the element of @var{node} that holds its parameter list, or @code{#f}.
+
+For `(define (f a) ...)' that element is the whole `(f a)': the parameters are
+its tail, and a rule that wants them says so.  For `(define x 1)' it is the
+name, which has no parameters under it -- and answering the name is what keeps
+a rule from reading the value as one."
+  (let* ((head (and (node-list? node) (node-head-name node)))
+         (position (and head (assq-ref formals-positions head))))
+    (and position
+      (let ((elements (node-elements node)))
+        (and (<= position (length elements))
+          (list-ref elements (- position 1)))))))
+
+(define (formals-holder? node)
+  "Return @code{#t} when @var{node} is a form whose shape includes parameters."
+  (and (node-list? node)
+    (assq-ref formals-positions (node-head-name node))
+    #t))
+
+(define (keyword-node? node)
+  "Return @code{#t} when @var{node} is a keyword: `:key' or `#:key'.
+
+The two dialects spell a keyword differently and the reader keeps them
+differently: Common Lisp's `:key' is an atom of type `keyword`, and Guile's
+`#:key' is a symbol whose package marker is `#:'.  A rule that asks whether an
+argument is a keyword has to ask this, because a call that passes one is not a
+call that passes positional arguments."
+  (and (node-atom? node)
+    (or (eq? (node-atom-type node) 'keyword)
+      (let ((marker (node-package-marker node)))
+        (and marker (string=? marker "#:"))))))
+
+(define (formal-marker? node)
+  "Return @code{#t} when @var{node} structures a formal list rather than naming a parameter.
+
+Common Lisp's `&optional' and `&rest', Guile's `#:optional', `#:key' and
+`#:rest', the dot of a rest parameter and CL's `&allow-other-keys' all say
+something about the rest of the list rather than being an argument a caller
+passes, so they are markers in both of the places a formal list is read: the
+count of required arguments, and the question of which nodes are parameters."
+  (and (node-atom? node)
+    (let ((value (node-value node)))
+      (or (keyword-node? node)
+        (string=? value ".")
+        (string=? value "...")
+        (and (> (string-length value) 1)
+          (string=? (substring value 0 1) "&"))))))
+
+(define (required-positional-formals formals)
+  "Return how many parameters of @var{formals} a caller must pass positionally.
+
+Everything from the first marker onwards is optional, keyword or rest, so a
+rule about a parameter list that has grown too long stops there: `(defun f (a b
+c &rest rest))' takes three arguments a call has to name, and every one after
+that is the caller's choice."
+  (let loop ((rest formals) (count 0))
+    (cond
+      [(null? rest) count]
+      [(not (node-atom? (car rest))) (+ count 1)]
+      [(formal-marker? (car rest)) count]
+      [else (loop (cdr rest) (+ count 1))])))
+
+(define (defined-name node)
+  "Return the atom that names what @var{node} defines, or @code{#f}.
+
+`(define (f a) ...)' keeps the name inside its second element, `(define x 1)'
+keeps it in the second element whole, and `(defun f (a) ...)' in the second as
+well; reading the second element answers all three."
+  (let ((elements (form-elements node)))
+    (cond
+      [(and (pair? elements) (pair? (cdr elements)))
+       (let ((second (cadr elements)))
+         (if (node-list? second) (node-head second) second))]
+      [else #f])))
+
+(define (formal-elements node)
+  "Return the nodes that name the parameters of @var{node}, or @code{#f}.
+
+`(define (f a b) ...)' keeps its parameters after the name, inside its second
+element; `(defun f (a b) ...)' keeps them in its third, which holds nothing
+else; `(define-values (a b) expr)' names all of its second.  Which shape the
+form is decides, and it is read here so that a rule about parameters asks the
+form rather than guessing an element position -- the guess that made a `defun`
+look like a call of its first parameter."
+  (let ((head (and (node-list? node) (node-head-name node)))
+        (formals (and (definition-form? node) (formals-of-form node))))
+    (and formals
+      (cond
+        [(memq head '(define define* define-public define-inlinable
+                       define-macro))
+         ;; the second element is `(name parameters...)' for a procedure and a
+         ;; value for a variable, and only the first of those has parameters
+         (and (node-list? formals)
+           (let ((elements (node-elements formals)))
+             (and (pair? elements) (cdr elements))))]
+        [(memq head '(define-values))
+         (and (node-list? formals) (node-elements formals))]
+        [(node-list? formals) (node-elements formals)]
+        [else #f]))))
 
 (define quote-opening-tokens '("'" "`" "#`"))
 (define quote-closing-tokens '("," ",@" "#," "#,@"))
 (define quote-opening-heads '(quote quasiquote quasisyntax))
 (define quote-closing-heads
   '(unquote unquote-splicing unsyntax unsyntax-splicing))
-
-(define (formals-of-form node)
-  "Return the parameter list of @var{node} when it is a form that has one."
-  (and (node-list? node)
-    (memq (node-head-name node) formals-form-heads)
-    (let ((elements (node-elements node)))
-      (and (pair? elements) (pair? (cdr elements)) (cadr elements)))))
 
 (define* (walk-forms proc ast #:key (ancestors? #t))
   "Call @var{proc} on every node in a position where code is evaluated.
@@ -208,10 +348,11 @@ whose clauses begin with a datum."
          (let* ((head (node-head-name node))
                 (quoted-next (cond [(memq head quote-opening-heads) #t]
                                    [(memq head quote-closing-heads) #f]
+                                   [(memq head data-declaration-heads) #t]
                                    [else quoted?]))
                 (vector-next (if (memq head quote-closing-heads) #f in-vector?))
                 (data-children? (or (node-vector? node) (node-bytevector? node)))
-                (container? (memq head formals-form-heads))
+                (container? (and head (assq-ref formals-positions head) #t))
                 (formals (and container? (formals-of-form node)))
                 ;; what the children of this node see: their parent is this
                 ;; node, whose own name and parent are exactly what the `case`
@@ -276,6 +417,101 @@ whose clauses begin with a datum."
 (define case-form-heads
   '(case ecase ccase typecase etypecase ctypecase))
 
+;;; --- declarations, definitions and calls ------------------------------
+;;;
+;;; A rule about calls -- how many arguments are too many, whether an argument
+;;; list has grown past reading as a sentence -- is a rule about *calls*, and
+;;; two other kinds of form look like one.  A declaration says what the file or
+;;; the package is: `(use-modules (srfi srfi-1))' names six libraries in one
+;;; form, and `(defpackage :demo (:export #:a ...))' names an export list, and
+;;; neither is a call anybody could make shorter by passing keywords.  A
+;;; definition names something and gives it a body; how many parameters it takes
+;;; is `too-many-arguments`' question, and the body is not an argument list.
+;;;
+;;; The three tables below are the whole of that knowledge, per dialect, so that
+;;; a rule asks `declaration-form?' rather than keeping a list of its own that
+;;; drifts from the next rule's.
+
+;; The operators of forms that describe a file or a package rather than compute
+;; a value: what it imports, what it exports, what it implements, what it tells
+;; the compiler.  None of them is a call, so none of its elements is an
+;; argument.
+(define declaration-heads
+  '(;; Guile and R6RS/R7RS module and library declarations
+     define-module use-modules import export re-export
+     include include-ci include-library-declarations
+     library define-library cond-expand declare
+     ;; a file's own name, in each dialect
+     in-package defpackage
+     ;; Emacs Lisp
+     require provide use-package require-theme declare-function
+     eval-after-load with-eval-after-load eval-when-compile
+     ;; situations, not arguments
+     eval-when
+     ;; Common Lisp
+     proclaim declaim))
+
+;; The declaration forms whose body is entirely data: lists of libraries, of
+;; exported names, of parameters, of situations.  Nothing inside one is a form,
+;; so `(one two three four five six)' in `#:export (one two ...)' is a list of
+;; names to a reader and must be one to a rule as well.
+;;
+;; The declarations that hold *code* are deliberately not here: the body of
+;; `(eval-when (compile) (define x 1))', the `:config' of a `use-package' and
+;; the clauses of a `cond-expand' are forms, and a rule has business with them.
+(define data-declaration-heads
+  '(define-module use-modules import export re-export
+     include include-ci include-library-declarations
+     require provide require-theme declare-function
+     defpackage in-package declare declaim proclaim))
+
+;; The operators of forms that name something and give it a body.
+(define definition-heads
+  '(define define* define-public define-inlinable define-values define-syntax
+     define-syntax-rule define-record-type define-class define-macro
+     defun defmacro defsubst defalias defvar defconst defcustom defgroup
+     defface defstruct defclass defparameter defconstant
+     cl-defun cl-defmacro cl-defsubst cl-defmethod cl-defgeneric
+     defmethod defgeneric))
+
+(define (declaration-form? node)
+  "Return @code{#t} when @var{node} is a form that declares rather than calls.
+
+A clause headed by a keyword -- `#:export (...)' in Guile, `(:export ...)' in a
+Common Lisp package definition -- is a declaration too: the keyword is what the
+clause *is*, not what it is applied to."
+  (and (node-list? node)
+    (let ((head (node-head node)))
+      (or (keyword-clause? node)
+        (and head
+          (node-atom? head)
+          (memq (atom-symbol head) declaration-heads))))))
+
+(define (keyword-clause? node)
+  "Return @code{#t} when the operator of @var{node} is a keyword.
+
+`#:export', `#:use-module' and `(:export ...)' head a clause of a declaration.
+Reading one as a procedure that takes seven arguments is reading a list of
+names as a call."
+  (and (node-list? node)
+    (let ((head (node-head node)))
+      (and head (node-atom? head) (eq? (node-atom-type head) 'keyword)))))
+
+(define (definition-form? node)
+  "Return @code{#t} when @var{node} is a definition form."
+  (and (node-list? node)
+    (memq (node-head-name node) definition-heads)))
+
+(define (call-form? node)
+  "Return @code{#t} when @var{node} is a call: a list that is neither.
+
+The distinction is deliberate rather than exhaustive: a form whose operator is
+a symbol this file has never heard of is a call, and a rule about calls says
+what it has to say about it."
+  (and (node-list? node)
+    (not (declaration-form? node))
+    (not (definition-form? node))))
+
 (define (case-datum? node ancestors)
   "Return @code{#t} when @var{node} is the datum head of a `case` clause.
 
@@ -309,6 +545,13 @@ An unquote ends the data, whichever of its spellings it is written in --
       [(and (node-list? (car rest))
          (memq (node-head-name (car rest)) '(quote quasiquote quasisyntax)))
        #t]
+      ;; what a declaration says is data: the names in `#:export (a b)', the
+      ;; libraries in `(use-modules (a) (b))', the situations in `(eval-when
+      ;; (compile) ...)' -- which is why the second is a declaration that holds
+      ;; code and the first two are not
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest)) data-declaration-heads))
+       #t]
       [(and (node-prefix? (car rest))
          (member (node-token (car rest)) '("," ",@" "#," "#,@")))
        #f]
@@ -323,19 +566,16 @@ An unquote ends the data, whichever of its spellings it is written in --
 
 `(define* (f (labels #f)) ...)' has a pair in its formals that looks exactly
 like a `labels` form; it is a parameter with a default, and no rule about
-bodies has any business reading it as code."
+bodies has any business reading it as code.
+
+Where the parameter list is depends on the form, so the answer comes from
+@code{formals-of-form} rather than from counting to the second element: in
+`(defun f (a) ...)' the second element is the name."
   (let loop ((rest ancestors))
     (cond
       [(null? rest) #f]
-      [(and (node-list? (car rest))
-         (memq (node-head-name (car rest))
-               '(lambda define define* define-public defun defmacro defsubst
-                  cl-defun cl-defmacro defmethod defgeneric)))
-       (let* ((elements (node-elements (car rest)))
-              (formals
-               (and (pair? elements)
-                 (pair? (cdr elements))
-                 (cadr elements))))
+      [(formals-holder? (car rest))
+       (let ((formals (formals-of-form (car rest))))
          (and formals
            (<= (node-index formals) (node-index node))
            (<= (node-end-index node) (node-end-index formals))))]

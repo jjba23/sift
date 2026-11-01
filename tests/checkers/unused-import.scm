@@ -73,6 +73,51 @@
        #:source "(define-library (my lib)\n  (export run)\n  (import (scheme base) (only (srfi 1) car))\n  (define (run) 1))\n"
        #:checker 'unused-import #:expect '((3 25))))
 
+    ;; Guile writes its imports as clauses of `define-module', and a clause is
+    ;; an import site like an `(import ...)' form is: the same question, the
+    ;; same answer, and a fix that takes the keyword with the spec -- a fix that
+    ;; left `#:use-module' behind would leave a declaration of nothing.
+    (test "a `#:use-module` clause nothing uses is reported, keyword and all"
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/records.scm")
+               "(define-module (proj records)\n  #:export (make-warning))\n(define (make-warning a) a)\n")
+         (let* ((path (string-append directory "/client.scm"))
+                (source
+                 (string-append
+                  "(define-module (proj client)\n"
+                  "  #:use-module (proj records)\n"
+                  "  #:export (f))\n"
+                  "(define (f x) x)\n")))
+           (spit path source)
+           (let ((warnings (lint-file path #:severity 'info
+                                      #:checkers '(unused-import))))
+             (assert-equal #:expect 1 #:got (length warnings)
+               #:name "one finding, on the clause")
+             (assert-same-text
+              #:expect (string-append "(define-module (proj client)\n"
+                                      "  #:export (f))\n"
+                                      "(define (f x) x)\n")
+              #:got (apply-fixes source warnings)
+              #:name "the fix removes the clause and the line it was on"))))))
+
+    (test "a `#:use-module` clause whose names are used is silent"
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/records.scm")
+               "(define-module (proj records)\n  #:export (make-warning))\n(define (make-warning a) a)\n")
+         (let ((path (string-append directory "/client.scm")))
+           (spit path
+                 (string-append
+                  "(define-module (proj client)\n"
+                  "  #:use-module (proj records)\n"
+                  "  #:export (f))\n"
+                  "(define (f x) (make-warning x))\n"))
+           (assert-equal #:expect 0
+             #:got (length (lint-file path #:severity 'info
+                                      #:checkers '(unused-import)))
+             #:name "the name the clause brings in is used")))))
+
     (test "every name in an `only` clause used is silent"
       (assert-warnings
        #:source "(import (only (srfi 1) fold))\n(display (fold + 0 (list 1)))\n"

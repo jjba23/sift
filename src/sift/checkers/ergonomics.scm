@@ -91,35 +91,6 @@ form is written as one long expression instead of a few named steps."
 
 ;;; ===== unused-argument =====
 
-(define definition-heads
-  '(define define* define-public lambda lambda* defun defmacro defsubst
-     cl-defun cl-defmacro cl-defsubst defmethod defgeneric))
-
-(define (formals-of node)
-  "Return the parameter nodes of a definition @var{node}, or @code{#f}.
-
-For `(define (f x y) ...)' the parameters are the elements of the head list
-after the name; for `(defun f (x y) ...)' they are the elements of the second
-argument."
-  (let* ((head (node-head-name node))
-         (elements (node-elements node))
-         (second (and (pair? elements) (pair? (cdr elements)) (cadr elements)))
-         (third (and (pair? elements) (pair? (cdr elements))
-                  (pair? (cddr elements)) (car (cddr elements)))))
-    (cond
-      [(not head) #f]
-      [(memq head '(lambda lambda*))
-       (and (node-list? second) (node-elements second))]
-      [(memq head '(define define* define-public))
-       (and (node-list? second)
-         (let ((rest (node-elements second)))
-           (and (pair? rest) (cdr rest))))]
-      [(memq head '(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
-                          defmethod defgeneric))
-       ;; the name comes first, the parameter list second
-       (and (node-list? third) (node-elements third))]
-      [else #f])))
-
 (define (formal-names formals)
   "Return the parameter names in @var{formals}, as @code{(node . text)} pairs.
 
@@ -128,11 +99,9 @@ their own; a parameter written `(name default)' contributes `name'."
   (append-map
    (lambda (element)
      (cond
+       [(formal-marker? element) '()]
        [(and (node-atom? element) (eq? (node-atom-type element) 'symbol))
-        (let ((text (node-value element)))
-          (if (or (string-prefix? "&" text) (string-prefix? "#:" text))
-            '()
-            (list (cons element text))))]
+        (list (cons element (node-value element)))]
        [(node-list? element)
         ;; a parameter with a default, `(name value)'
         (let ((first (node-head element)))
@@ -164,8 +133,7 @@ their own; a parameter written `(name default)' contributes `name'."
   (let ((warnings '()))
     (for-each-form
      (lambda (node)
-       (let ((formals (and (memq (node-head-name node) definition-heads)
-                        (formals-of node))))
+       (let ((formals (and (definition-form? node) (formal-elements node))))
          (when formals
            (for-each
             (lambda (parameter)
@@ -232,7 +200,7 @@ their own; a parameter written `(name default)' contributes `name'."
         (warnings '()))
     (for-each-form
      (lambda (node)
-       (when (memq (node-head-name node) definition-heads)
+       (when (definition-form? node)
          (let ((depth (definition-body-depth node)))
            (when (> depth limit)
              (set! warnings
@@ -268,7 +236,12 @@ their own; a parameter written `(name default)' contributes `name'."
         (warnings '()))
     (for-each-form
      (lambda (node)
-       (when (node-list? node)
+       ;; a declaration and a definition are not calls: `(use-modules (a) (b)
+       ;; (c) (d) (e) (f))' names six libraries and `#:export (a b c d e f)'
+       ;; names six exports, and neither is a call anybody could shorten by
+       ;; passing keywords.  A parameter list is not one either, and that is
+       ;; what `for-each-form` already knows.
+       (when (call-form? node)
          (let* ((name (node-head-name node))
                 (arguments (form-arguments node)))
            (when (and name
@@ -286,10 +259,6 @@ their own; a parameter written `(name default)' contributes `name'."
                          warnings))))))
      ast)
     (reverse warnings)))
-
-(define (keyword-node? node)
-  "Return @code{#t} when @var{node} is a keyword such as @code{:key}."
-  (and (node-atom? node) (eq? (node-atom-type node) 'keyword)))
 
 (define keyword-arguments-checker
   (checker 'keyword-arguments

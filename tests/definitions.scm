@@ -28,7 +28,6 @@
   #:use-module (sift records)
   #:use-module (sift reader)
   #:use-module (sift definitions)
-  #:use-module (tests helpers)
   #:export (spec))
 
 ;;; ===== Reading and addressing =====

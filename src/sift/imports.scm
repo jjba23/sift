@@ -32,6 +32,7 @@
 (define-module (sift imports)
   #:declarative? #t
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
   #:use-module (ice-9 ftw)
@@ -40,6 +41,18 @@
   #:use-module (sift reader)
   #:use-module (sift check base)
   #:export (import-forms
+            import-sites
+            import-site?
+            import-site-form
+            import-site-anchor
+            import-site-specs
+            site-clause?
+            declaration-clauses
+            export-names-of-nodes
+            module-exports
+            module-export-clause-names
+            file-module
+            mentions
             import-specs
             data-elements
             spec-kind
@@ -74,6 +87,61 @@
       [(symbol string keyword number) (node-value node)]
       [else #f])))
 
+(define (first-data nodes)
+  "Return the first node of @var{nodes} that carries a datum, or @code{#f}."
+  (cond
+    [(null? nodes) #f]
+    [(node-data? (car nodes)) (car nodes)]
+    [else (first-data (cdr nodes))]))
+
+(define (declaration-clauses form)
+  "Return the @code{(keyword . datum)} clauses of a declaration @var{form}.
+
+`(define-module (foo) #:use-module (srfi srfi-1) #:export (a b))' is a
+sequence of keyword clauses with whitespace and comments between them, and the
+datum a keyword introduces is what the clause is about.  A `#:'-keyword is a
+symbol atom with a package marker, which is why this is not a keyword type test.
+"
+  (let loop ((rest (node-children form)) (out '()))
+    (cond
+      [(null? rest) (reverse out)]
+      [(keyword-node? (car rest))
+       (let ((argument (first-data (cdr rest))))
+         (if argument
+           (loop (memq argument rest) (cons (cons (car rest) argument) out))
+           (loop (cdr rest) out)))]
+      [else (loop (cdr rest) out)])))
+
+(define (module-exports form)
+  "Return the names a `define-module' @var{form} exports, in order.
+
+`#:export' and `#:re-export' both put a name on the module's public surface:
+the first because the module defines it here, the second because it hands on a
+name another module defined.  Either way a file that imports the module can
+name it."
+  (append-map
+   (lambda (clause)
+     (if (memq (atom-symbol (car clause)) (quote (export re-export)))
+       (export-names-of-nodes (data-elements (cdr clause)))
+       (quote ())))
+   (declaration-clauses form)))
+
+(define (module-export-clause-names form)
+  "Return the names a `define-module' @var{form} puts in its `#:export' clause.
+
+@code{#f} is not the same answer as the empty list: a module that says
+`#:export ()' has declared that it exports nothing, and a module with no
+`#:export' clause has not said what it exports at all -- a script exports
+nothing and is right to."
+  (let ((clause (find (lambda (pair) (eq? (atom-symbol (car pair)) 'export))
+                      (declaration-clauses form))))
+    (and clause (export-names-of-nodes (data-elements (cdr clause))))))
+
+(define (file-module ast)
+  "Return the `define-module' form of @var{ast}, or @code{#f}."
+  (find (lambda (node) (list-headed-by? node 'define-module))
+        (filter node-data? ast)))
+
 (define (import-forms ast)
   "Return the @code{(import ...)} forms of @var{ast}, in source order.
 
@@ -92,6 +160,51 @@ about what the file uses."
                               top))))
     (append (filter (lambda (node) (list-headed-by? node 'import)) top)
             library-imports)))
+
+;;; --- where a file says what it imports ---------------------------------
+;;;
+;;; Two shapes, and only two.  An `(import ...)' form holds specs, and a
+;;; `#:use-module' clause of a `define-module' holds one: the datum the keyword
+;;; introduces.  A clause is not a list -- the keyword is a node of its own --
+;;; so a site carries the keyword as well, which is what a finding points at and
+;;; what a fix has to remove along with the spec.
+
+(define-record-type <import-site>
+  (make-import-site form anchor specs)
+  import-site?
+  (form import-site-form) ; the import form, or a clause's keyword
+  (anchor import-site-anchor) ; the spec a clause introduces, or #f
+  (specs import-site-specs)) ; the specs the site holds
+
+(define (site-clause? site)
+  "Return @code{#t} when @var{site} is a `define-module' clause."
+  (and (import-site? site) (import-site-anchor site) #t))
+
+;; The clauses of a `define-module' that name another module.
+(define module-import-keywords
+  '(use-module autoload use-syntax))
+
+(define (module-import-sites ast)
+  "Return the import clauses of every `define-module' in @var{ast}."
+  (append-map
+   (lambda (form)
+     (filter-map
+      (lambda (clause)
+        (and (memq (atom-symbol (car clause)) module-import-keywords)
+          (make-import-site (car clause) (cdr clause) (list (cdr clause)))))
+      (declaration-clauses form)))
+   (filter (lambda (node) (list-headed-by? node 'define-module))
+           (filter node-data? ast))))
+
+(define (import-sites ast)
+  "Return every place @var{ast} says what it imports, in source order.
+
+An `(import ...)' form, wherever it is written -- at the top of a program or
+inside an R6RS `library' -- and a `#:use-module' clause of a Guile module."
+  (append (map (lambda (form)
+                 (make-import-site form #f (import-specs form)))
+               (import-forms ast))
+          (module-import-sites ast)))
 
 (define (import-specs form)
   "Return the import specs of @var{form}, which is an @code{import} form."
@@ -134,18 +247,18 @@ is the same four times: `(only (scheme base) car)' imports `(scheme base)'."
     (filter node-list? (cddr (data-elements spec)))
     '()))
 
-(define (prefix-atom spec)
-  (and (eq? (spec-kind spec) 'prefix) (nth-or (data-elements spec) 2)))
-
 (define (nth-or lst k)
   (if (and (>= k 0) (< k (length lst))) (list-ref lst k) #f))
 
 ;;; ===== Libraries a file declares =====
 
-(define library-form-heads '(define-library library))
+;;; A "library" here is whatever a file uses to name itself and say what it
+;;; exports: R7RS's `define-library', R6RS's `library', and Guile's
+;;; `define-module', which is the one most Scheme in the wild is written in.
+(define library-form-heads '(define-library library define-module))
 
 (define (library-forms ast)
-  "Return the library forms of @var{ast}: R7RS and R6RS alike."
+  "Return the library forms of @var{ast}: R7RS, R6RS and Guile alike."
   (filter (lambda (node)
             (memq (and (node-list? node) (node-head-name node))
                   library-form-heads))
@@ -158,8 +271,8 @@ is the same four times: `(only (scheme base) car)' imports `(scheme base)'."
       (map element-name (data-elements spec))
       '())))
 
-(define (export-clause-names clause)
-  "Return the names one @code{export} clause exports.
+(define (export-names-of-nodes nodes)
+  "Return the names @var{nodes} exports.
 
 `(export a (rename internal external))' exports `a' and `external': the name a
 user of the library writes is the one that counts, which is the second half of
@@ -173,16 +286,27 @@ a `rename'."
           (let ((name (and external (element-name external))))
             (if name (list name) '())))]
        [else '()]))
-   (form-arguments clause)))
+   nodes))
+
+(define (export-clause-names clause)
+  "Return the names one @code{(export ...)} clause exports."
+  (export-names-of-nodes (form-arguments clause)))
 
 (define (library-exports form)
-  "Return the names @var{form} exports, as the library itself writes them."
-  (append-map (lambda (clause)
-                (if (and (node-list? clause)
-                      (memq (node-head-name clause) '(export re-export)))
-                  (export-clause-names clause)
-                  '()))
-              (form-arguments form)))
+  "Return the names @var{form} exports, as the library itself writes them.
+
+R7RS and R6RS write an `(export ...)' clause; Guile writes `#:export (a b)'
+and `#:re-export (c d)', which are clauses too, just not lists.  A name a
+library re-exports is on its surface all the same: a file that imports the
+library can name it."
+  (if (list-headed-by? form 'define-module)
+    (module-exports form)
+    (append-map (lambda (clause)
+                  (if (and (node-list? clause)
+                        (memq (node-head-name clause) '(export re-export)))
+                    (export-clause-names clause)
+                    '()))
+                (form-arguments form))))
 
 (define (library-key name)
   "Return the key a library @var{name} is looked up by."
@@ -243,7 +367,11 @@ what the question is about, and `.git' alone would answer it more slowly."
   "Return the libraries the file at @var{path} declares, if it can be read."
   (let ((text (false-if-exception (call-with-input-file path get-string-all))))
     (if (and (string? text) (< (string-length text) scan-byte-limit)
-          (string-contains text "library"))
+          ;; a cheap question first: a file that never says either word has no
+          ;; library to declare, and reading every file of a tree to find that
+          ;; out would make a lint quadratic in the project
+          (or (string-contains text "library")
+            (string-contains text "define-module")))
       (call-with-values
         (lambda () (read-source #:source text #:dialect 'scheme #:file path))
         (lambda (ast errors) (declared-libraries ast)))
@@ -296,6 +424,23 @@ entered.  A datum comment is code the reader was told not to read."
 
 (define (used? names name)
   (and name (hash-ref names name) #t))
+
+(define (mentions ast)
+  "Return a hash from every symbol @var{ast} names to how many times it does.
+
+The plainer cousin of `referenced-names`, and the difference is the whole
+point of it: `referenced-names` asks what the *program* uses, so it skips a
+quote and skips the import forms.  This asks whether a name appears at all,
+because the question it answers is whether a definition is dead -- and a name
+under a quote is a mention a formatter cannot rule out as a use."
+  (let ((counts (make-hash-table)))
+    (for-each-node
+     (lambda (node)
+       (when (and (node-atom? node) (eq? (node-atom-type node) 'symbol))
+         (let ((name (node-value node)))
+           (hash-set! counts name (+ 1 (or (hash-ref counts name) 0))))))
+     ast)
+    counts))
 
 ;;; ===== Where a fix may cut =====
 

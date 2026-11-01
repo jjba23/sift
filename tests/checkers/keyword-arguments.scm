@@ -43,6 +43,34 @@
       (assert-warnings #:source "(let ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6)) a)\n"
                        #:checker 'keyword-arguments #:expect '()))
 
+    ;; A declaration is not a call.  `(use-modules (a) (b) (c) (d) (e) (f))'
+    ;; names six libraries and `#:export (a b c d e f)' names six exports, and
+    ;; neither is a call anybody could shorten by passing keywords.
+    (test "a use-modules form is a declaration, not a call"
+      (assert-warnings
+       #:source "(use-modules (srfi srfi-1) (srfi srfi-13) (ice-9 format)\n             (ice-9 match) (sift records) (sift reader))\n"
+       #:checker 'keyword-arguments #:expect '()))
+
+    (test "the export list of a define-module is data"
+      (assert-warnings
+       #:source "(define-module (demo thing)\n  #:use-module (srfi srfi-1)\n  #:export (one two three four five six))\n"
+       #:checker 'keyword-arguments #:expect '()))
+
+    (test "a Common Lisp package definition is a declaration"
+      (assert-warnings
+       #:source "(defpackage :demo\n  (:use :cl :alexandria)\n  (:export #:one #:two #:three #:four #:five #:six))\n"
+       #:checker 'keyword-arguments #:dialect 'cl #:expect '()))
+
+    (test "require and provide are declarations"
+      (assert-warnings
+       #:source "(require 'cl-lib)\n(provide 'demo)\n"
+       #:checker 'keyword-arguments #:dialect 'elisp #:expect '()))
+
+    (test "a parameter list is not a call"
+      (assert-warnings
+       #:source "(defun demo-f (a b c d e f g)\n  (list a b c d e f g))\n"
+       #:checker 'keyword-arguments #:dialect 'elisp #:expect '()))
+
     (test "the limit is configuration"
       (assert-warnings #:source "(make-window a b c)\n" #:checker 'keyword-arguments
                        #:options '((max-positional . 2)) #:expect '((1 1))))))

@@ -192,65 +192,23 @@ quote character, which is what makes the fix a replacement of the whole node."
 
 ;;; ===== too-many-arguments =====
 
-(define formal-markers
-  '(&optional &rest &key &aux &body &whole))
-
-(define (formal-marker? node)
-  "Return @code{#t} when @var{node} is a keyword that structures a formal list.
-
-Guile's @code{#!optional} and Common Lisp's @code{&optional} are both spelled
-here, and the first is matched by its prefix because writing it out would open
-a @code{#!} comment in the very file that lists it."
-  (let ((name (and (node-atom? node) (atom-symbol node))))
-    (and name
-      (or (memq name formal-markers)
-        (string-prefix? "#!" (symbol->string name))))))
-
-(define (formal-names nodes)
-  "Return the atoms of @var{nodes} that name a parameter."
-  (remove formal-marker? nodes))
-
-(define (definition-name-and-formals node)
-  "Return @code{(name . formals)} for a definition form, or @code{#f}.
-
-Only the forms whose name is followed by a parameter list are here: a
-`define' of a value has no arguments to count, and a lambda is counted
-where it is bound rather than where it is written."
-  (let* ((head (and (node-list? node) (node-head-name node)))
-         (arguments (and head (form-arguments node)))
-         (first (and (pair? arguments) (car arguments)))
-         (second (and (pair? arguments) (pair? (cdr arguments)) (cadr arguments))))
-    (cond
-      [(not head) #f]
-      [(memq head '(define define* define-public))
-       ;; a list's elements already begin with its head, so the parameters
-       ;; are what follows the name; `(define ())' has no parameters at all
-       (and (node-list? first)
-         (pair? (form-elements first))
-         (cons (node-head first) (cdr (form-elements first))))]
-      [(memq head '(defun defmacro defsubst cl-defun cl-defmacro defsubst
-                          defmethod defgeneric))
-       (and (node-atom? first) (node-list? second)
-         (pair? (form-elements second))
-         (cons first (cdr (form-elements second))))]
-      [else #f])))
-
 (define (too-many-arguments-warnings ast source dialect)
   (let ((limit (or (option 'max-arguments 5)))
         (warnings '()))
     (for-each-node
      (lambda (node)
-       (let ((found (definition-name-and-formals node)))
-         (when found
-           (let ((count (length (formal-names (cdr found))))
-                 (name (car found)))
+       ;; a definition has parameters, and only the ones a caller must pass
+       ;; positionally are the ones a call site has to read past
+       (let ((formals (and (definition-form? node) (formal-elements node))))
+         (when formals
+           (let ((count (required-positional-formals formals)))
              (when (> count limit)
                (set! warnings
                      (cons (make-lint-warning
                             'too-many-arguments 'info
-                            (format #f "this definition takes ~a arguments; beyond ~a the call site stops reading as a sentence"
+                            (format #f "this definition takes ~a positional arguments; beyond ~a the call site stops reading as a sentence"
                                     count limit)
-                            (and name (node-start name)))
+                            (node-start (or (defined-name node) node)))
                            warnings)))))))
      ast)
     (reverse warnings)))

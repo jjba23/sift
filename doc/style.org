@@ -417,6 +417,33 @@ the author's to decide; the rule skips special forms and the calls that are
 meant to be variadic (`list`, `format`, `+`), and the limit is
 configuration (`max-positional`).
 
+A *declaration* is not a call either, and the two look enough alike to fool a
+rule that only counts:
+
+#+begin_src scheme
+(use-modules (srfi srfi-1) (srfi srfi-13) (ice-9 format)
+             (ice-9 match) (sift records) (sift reader))  ; six libraries, no call
+
+(define-module (demo)
+  #:export (one two three four five six seven))           ; seven names, no call
+#+end_src
+
+So sift keeps one table of declarations per dialect -- what a file imports,
+what it exports, what it implements, what it tells the compiler -- and both
+rules that count ask it with a single question.  Everything inside a
+declaration is data, the way the inside of a quote is: `#:export (a b c)' is a
+list of names to the reader, and it is one to the rules.  The same holds in
+the other two Lisps: `(defpackage :demo (:use :cl) (:export #:a ...))` and
+`(require \='cl-lib)' are declarations, and `#:export` and `:export` are
+clauses whose operator is a keyword rather than a procedure.
+
+A parameter list is the third thing that looks like a call.  Where a form keeps
+its parameters is the dialect's business -- `(define (f a) ...)' inside its
+second element, `(defun f (a) ...)' in its third -- so sift reads that from a
+table too, and a `too-many-arguments` finding counts only what a caller must
+pass positionally: everything from the first `&optional`, `&key` or dot
+onwards is the caller's choice.
+
 ** Packages are named, and never reached into
 :PROPERTIES:
 :CUSTOM_ID: packages
@@ -458,10 +485,42 @@ because most of what a standard library offers is used indirectly.  The
 libraries, so a project whose libraries live outside its tree gets no findings
 rather than a hundred.
 
+Guile writes the same sentence as clauses of `define-module', and sift reads
+those too -- `#:use-module' is an import, `#:export' is a public surface -- so a
+project whose modules are Guile modules is judged like one whose modules are
+R7RS libraries:
+
+#+begin_src scheme
+(define-module (demo client)
+  #:use-module (demo records)   ; SIFT060: nothing it exports is used here
+  #:export (run))
+#+end_src
+
+A definition is the other half of the same question.  A module that lists what
+it exports has said what its public surface is, and another module cannot name
+anything that is not on that list -- so a top-level definition that is neither
+exported nor mentioned anywhere in its own file is code nothing can reach:
+
+#+begin_src scheme
+(define-module (demo)
+  #:export (run))
+
+(define (helper) 1)              ; used by `run': kept
+(define (run) (helper))
+(define (forgotten) 2)           ; SIFT062: nothing can reach it
+#+end_src
+
+Both halves of that are required, and either alone would be a guess: without an
+`#:export' clause there is no public surface to compare against (a script
+exports nothing and is right to), and a name that appears under a quote is a
+mention sift cannot rule out as a use, so it counts as one.  The rule says
+nothing at all about a file with no `define-module`, which is most Scheme.
+
 The one place sift looks outside the file it was handed is this: the libraries
-beside it, read for their `(library ...)' and `(define-library ...)' forms.
-The scan is bounded and cached per directory, because "does this library
-exist" is a question about the project.
+beside it, read for their `(library ...)' and `(define-library ...)' forms and
+for their `define-module' -- the same three ways a file names itself and says
+what it exports.  The scan is bounded and cached per directory, because "does
+this library exist" is a question about the project.
 
 * Riastradh's rules, and which of them sift keeps
 :PROPERTIES:
@@ -665,6 +724,7 @@ grouped by dialect, with the case for each one.
 | SIFT053 | single-letter-name      | info     | a variable named with a single letter                      |
 | SIFT060 | unused-import           | info     | an import the file names and never uses                    |
 | SIFT061 | library-not-found       | warning  | an import no file of the project declares                  |
+| SIFT062 | unused-definition       | info     | a definition nothing uses and the module does not export    |
 
 Why these are cross-dialect: they are about the *text* (whitespace, length,
 delimiters) or about a form all three dialects share (`if`, `when`,

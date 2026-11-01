@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 61 rules in sift 1.10.0.
+There are 62 rules in sift 1.10.0.
 
 * Summary
 
@@ -76,6 +76,7 @@ There are 61 rules in sift 1.10.0.
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
 | unused-argument | SIFT043 | all | info | A parameter that the definition never refers to |
 | unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
+| unused-definition | SIFT062 | scheme | info | A definition nothing in the file uses, in a module that does not export it |
 | unused-import | SIFT060 | scheme | info | A name or a library an ~import~ brings in that the file never uses |
 | when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
@@ -1287,6 +1288,31 @@ A binding whose name is never referenced in the form that binds it
 
 #+begin_quote
 Run ~sift explain unused-binding~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT062 unused-definition
+:PROPERTIES:
+:CUSTOM_ID: unused-definition
+:END:
+
+A definition nothing in the file uses, in a module that does not export it
+
+- *Dialects:* scheme
+- *Severity:* info
+- *Fix:* delete it, or export it if another module is meant to call it
+
+#+begin_src scheme
+(define-module (demo)
+  #:export (used))
+
+(define (used) 1)
+(define (forgotten) 2)
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain unused-definition~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

@@ -73,6 +73,28 @@
       (assert-warnings #:source "(define x 5)\n"
                        #:checker 'too-many-arguments #:expect '()))
 
+    ;; Where a form keeps its parameters is the dialect's business, and the
+    ;; count has to be of the parameters a *caller* must pass: everything from
+    ;; the first `&optional', `&key' or dot onwards is the caller's choice.
+    (test "a defun's parameters are all of them, not all but the first"
+      (assert-warning-count #:source "(defun demo-f (a b c d e f)\n  (list a))\n"
+                            #:checker 'too-many-arguments #:dialect 'elisp
+                            #:count 1))
+
+    (test "only the required positional parameters are counted"
+      (assert-warnings
+       #:source "(define* (window a b #:key c d e f g h)\n  (list a b))\n"
+       #:checker 'too-many-arguments #:expect '())
+      (assert-warnings
+       #:source "(defun f (a b c &rest rest &key d e f)\n  (list a))\n"
+       #:checker 'too-many-arguments #:dialect 'elisp #:expect '())
+      (assert-warnings
+       #:source "(define (f a b c . rest)\n  (list a))\n"
+       #:checker 'too-many-arguments #:expect '())
+      (assert-warning-count
+       #:source "(defmethod area ((shape circle) &key scale outline fill shadow aa bb)\n  scale)\n"
+       #:checker 'too-many-arguments #:dialect 'cl #:count 0))
+
     (test "a defcustom without :type is reported in Emacs Lisp"
       (assert-warning-count
        #:source "(defcustom sift-thing nil\n  \"A thing.\"\n  :group 'sift)\n"

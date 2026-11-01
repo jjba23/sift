@@ -360,7 +360,8 @@ cannot move when the list is re-sorted."
     (defcustom-without-type . "SIFT059")
     ;; the rules about what a file claims to use
     (unused-import . "SIFT060")
-    (library-not-found . "SIFT061")))
+    (library-not-found . "SIFT061")
+    (unused-definition . "SIFT062")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

@@ -44,7 +44,6 @@
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
   #:use-module (sift records)
-  #:use-module (sift reader)
   #:export (<definition>
             definition?
             make-definition
@@ -559,9 +558,6 @@ land on the first one and not go looking in another file."
   (append (form-bindings form) (internal-bindings form)))
 
 ;;; ===== Walking =====
-
-(define (quoted-context? ancestors)
-  (any quoted? ancestors))
 
 (define (walk-forms proc ast)
   "Call @var{proc} on every form in @var{ast}, with its enclosing forms.
