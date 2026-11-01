@@ -35,7 +35,7 @@ package, and is licensed MIT.  It is for people who have decided that Lisp is
 worth formatting properly, and who would like the formatter to agree.
 
 #+begin_quote
-*Check, format, lint — three questions, one reader.*  ~sift check~ prints the
+*Check, format, lint  ~sift check~ prints the
 patch it would make and exits 1; ~sift format~ prints the formatted file;
 ~sift lint~ names the rule that fired, its severity and its position.  These
 are the same answers your editor and your pipeline get.  Every line in that
@@ -1305,7 +1305,7 @@ tests/              one Veritas suite per rule, per module and per command
 benchmarks/         the benchmarks, run by Veritas and printed by its reporter
 emacs/              the Emacs package and its ERT suite
 editors/            the Neovim, Vim and VS Code integrations, with their tests
-assets/             the logo and the demo recording
+assets/             the logo, the app icon set and the demo recording
 doc/                style.org (the reasoning), rules.org (generated), editors.org
 #+end_example
 

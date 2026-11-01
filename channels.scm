@@ -20,14 +20,12 @@
        (branch "trunk")
        ;; The release this configuration is built against: lambdock 0.21.1,
        ;; heks-toon 0.3.2, maak 0.14.0, veritas 0.9.0, scriba 0.4.5, sift
-       ;; 1.13.0, and the rest of the collection, at the same revision.  This
-       ;; is the bump to sift 1.13.0 itself: the language server names each
-       ;; positional argument with an inlay hint and takes its settings from the
-       ;; editor as well as from `sift.yaml', SIFT063 (`sxml-empty-element')
-       ;; reports the markup element that carries attributes and no children,
-       ;; and SIFT032 stops counting the fields of a Guix `package' or
-       ;; `operating-system' as positional arguments.
-       (commit "6874be6e35fd6f1852e2f11f8513cb2a1beeb2e1")
+       ;; 1.14.0, and the rest of the collection, at the same revision.  This
+       ;; is the bump to sift 1.14.0 itself: `inlay-hints' is the list of
+       ;; hint kinds -- `parameters' names each positional argument, `types'
+       ;; says what type a literal states outright -- and a project chooses
+       ;; them in `sift.yaml' or sends them from its editor.
+       (commit "fbb3bc21dd41a08374662f10f763cadd771b539d")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
