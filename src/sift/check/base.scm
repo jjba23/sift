@@ -33,6 +33,7 @@
             node-source
             quoted-context?
             in-formals?
+            in-vector?
             code-position?
             case-datum?
             case-form-heads
@@ -99,11 +100,12 @@ told not to read as code."
 (define (for-each-form proc ast)
   "Call @var{proc} on every node that is a form, outermost first.
 
-A *form* is a node in a position where code is evaluated.  Three places are
-not: anything inside a quote, the datum of a `case` clause, and a parameter
-list.  A rule about the shape of a form asks this walker and never has to ask
-whether what it is looking at is code at all -- which is what stops
-`(if . 2)' in an alist from being reported as an `if` with no else branch."
+A *form* is a node in a position where code is evaluated.  Four places are
+not: anything inside a quote, the datum of a `case` clause, a parameter list
+and a vector literal.  A rule about the shape of a form asks this walker and
+never has to ask whether what it is looking at is code at all -- which is what
+stops `(if . 2)' in an alist from being reported as an `if` with no else
+branch, and `#(if a b)' from being reported as one either."
   (walk-with-ancestors
    (lambda (node ancestors)
      (when (and (not (node-trivia? node))
@@ -168,22 +170,29 @@ form; it is a datum, and no rule should treat it as code."
 (define (quoted-context? ancestors)
   "Return @code{#t} when the innermost quoted form is still in effect.
 
-Walking up from a node, the first ancestor that is a quote, a quasiquote or a
-`quote` form decides: inside it the node is data, and a list that happens to
-start with `cond` is not a `cond` form."
+Walking up from a node, the first ancestor that is a quote, a quasiquote, a
+quasisyntax or a `quote`-style form decides: inside it the node is data, and a
+list that happens to start with `cond` is not a `cond` form.
+
+An unquote ends the data, whichever of its spellings it is written in --
+`,`/`(unquote ...)`, `,@`/`(unquote-splicing ...)`, and the syntax-case
+`#,' and `#,@' -- because what is inside it is evaluated again."
   (let loop ((rest ancestors))
     (cond
       [(null? rest) #f]
       [(and (node-prefix? (car rest))
-         (member (node-token (car rest)) '("'" "`")))
+         (member (node-token (car rest)) '("'" "`" "#`")))
        #t]
       [(and (node-list? (car rest))
-         (memq (node-head-name (car rest)) '(quote quasiquote)))
+         (memq (node-head-name (car rest)) '(quote quasiquote quasisyntax)))
        #t]
       [(and (node-prefix? (car rest))
-         (member (node-token (car rest)) '("," ",@")))
-       ;; an unquote ends the data: what is inside it is evaluated again
-       (loop (cdr rest))]
+         (member (node-token (car rest)) '("," ",@" "#," "#,@")))
+       #f]
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest))
+               '(unquote unquote-splicing unsyntax unsyntax-splicing)))
+       #f]
       [else (loop (cdr rest))])))
 
 (define (in-formals? node ancestors)
@@ -209,15 +218,40 @@ bodies has any business reading it as code."
            (<= (node-end-index node) (node-end-index formals))))]
       [else (loop (cdr rest))])))
 
+(define (in-vector? ancestors)
+  "Return @code{#t} when @var{node} sits inside a vector literal.
+
+`#(if a b)' is a vector that holds three symbols, not an `if' with no else
+branch: a vector literal is data, so a rule about the shape of a form has no
+business reading what is inside one.  An unquote -- `,', `,@' or one of their
+syntax-case spellings -- ends the data again, exactly as it does in
+@code{quoted-context?}: what is inside it is evaluated."
+  (let loop ((rest ancestors))
+    (cond
+      [(null? rest) #f]
+      [(or (node-vector? (car rest)) (node-bytevector? (car rest))) #t]
+      [(and (node-prefix? (car rest))
+         (member (node-token (car rest)) '("," ",@" "#," "#,@")))
+       #f]
+      [(and (node-list? (car rest))
+         (memq (node-head-name (car rest))
+               '(unquote unquote-splicing unsyntax unsyntax-splicing)))
+       #f]
+      [else (loop (cdr rest))])))
+
 (define (code-position? node ancestors)
   "Return @code{#t} when a rule may read @var{node} as a form.
 
-Three places are data rather than code: anything inside a quote, the datum of
-a `case` clause, and a parameter list.  Every rule that asks about the shape
-of a form asks this first."
-  (not (or (quoted-context? ancestors)
+Four places are data rather than code: anything inside a quote, the datum of
+a `case` clause, a parameter list, and a vector literal.  A vector literal is
+not a form itself, and nothing inside one is, so `#(if a b)' is left alone.
+Every rule that asks about the shape of a form asks this first."
+  (not (or (node-vector? node)
+         (node-bytevector? node)
+         (quoted-context? ancestors)
          (case-datum? node ancestors)
-         (in-formals? node ancestors))))
+         (in-formals? node ancestors)
+         (in-vector? ancestors))))
 
 (define (node-source source node)
   "Return the source text @var{node} was read from."

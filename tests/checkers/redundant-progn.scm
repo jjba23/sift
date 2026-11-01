@@ -34,6 +34,12 @@
       (assert-warnings #:source "(define (f) (a) (progn (b)))\n"
                        #:checker 'redundant-progn #:expect '()))
 
+    (test "a vector whose first element is progn is a literal, not a body"
+      ;; The fix would otherwise replace the vector with its contents, which
+      ;; is not a reformatting but a rewrite of the program.
+      (assert-warnings #:source "(define y #(progn a))\n"
+                       #:checker 'redundant-progn #:expect '()))
+
     (test "the fix splices the body"
       (assert-fix #:source "(define (f) (progn (a) (b)))\n"
                   #:checker 'redundant-progn

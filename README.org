@@ -75,9 +75,12 @@ eat a comment, this is for you.
   went in.  Formatting is a fixed point: run it twice and the second run
   changes nothing, which is asserted over every fixture in the test suite.
 - *It knows which dialect it is looking at.*  Three dialects, one tool:
-  character literals, ~#| ... |#~ block comments, ~#;~ datum comments, package
-  prefixes, LOOP and docstring conventions follow the dialect rather than a
-  compromise.
+  character literals, read macros, ~#| ... |#~ block comments, ~#;~ datum
+  comments, package prefixes, LOOP and docstring conventions follow the
+  dialect rather than a compromise.  So does a square bracket, which is a
+  vector in Emacs Lisp and a clause in Scheme, and ~#{ ... }#~, which is a
+  symbol and only Guile reads.  Guile is what sift is written in and the
+  dialect it knows best; the others are read, not guessed at.
 - *Three jobs, three commands.*  Formatting, linting and fixing are separate
   on purpose: ~format~ prints, ~--write~ writes, ~lint~ reports, ~lint --fix~
   fixes, and ~ci~ asks the formatting question and the lint question in one
@@ -531,7 +534,9 @@ yet, and its fix swaps the two delimiter characters and nothing else.
    the opening parenthesis; the table exists so that a form whose operator
    stands alone on its line is not indented from the operator instead.
 2. A form whose first element is not a symbol is a data list — a binding list,
-   a ~cond~ clause, a vector — and its elements line up under the first.
+   a ~cond~ clause — and its elements line up under the first.  So does a
+   vector, whatever its first element is: see [[#vectors][Read syntax, dialect
+   by dialect]].
 3. Anything else: two columns in from the opener when the first argument is on
    the operator's line, two columns in from the operator when it is not.  A
    call with keyword arguments lines those up under the first argument
@@ -573,6 +578,103 @@ indent-rules:
 #+end_src
 
 and a project rule wins over the built-in table.
+
+** Read syntax, dialect by dialect
+:PROPERTIES:
+:CUSTOM_ID: vectors
+:END:
+
+sift is written in Guile and for Guile, so what Guile reads is what it knows
+best.  It is not Guile-only: the reader knows the read syntax of R6RS, R7RS and
+the Schemes that follow them — Chez, Gauche, Chicken, Chibi, Gambit, MIT — and
+of the other two dialects sift formats.
+
+#+begin_src scheme
+(define table #(one two three))         ; a vector
+(define bytes #u8(1 2 3))               ; a bytevector: Guile and R7RS
+(define other #vu8(1 2 3))              ; the same datum: R6RS spelling
+#!fold-case                             ; an R7RS reader directive
+(define (f #{the number of attempts}#)  ; an extended symbol: Guile
+  #`(list #,x #,@xs))                   ; syntax-case: Guile and R6RS
+#+end_src
+
+- A vector's elements line up under its first element, whatever that element
+  is.  ~#(foo bar)~ is a literal that holds two symbols, not a call to ~foo~,
+  so the formatter does not use a call's alignment on it.
+- A bytevector is a vector whose elements are numbers, in either spelling:
+  ~#u8(...)~ is the one Guile and R7RS write, ~#vu8(...)~ the one R6RS writes,
+  and both are kept as they were written.
+- In Emacs Lisp the square bracket is the vector syntax and is read as one.
+  In Scheme and Common Lisp the same bracket is a parenthesis by another name
+  — a ~cond~ clause — and is not a vector at all.
+- ~#{ ... }#~ is one atom, from the ~#{~ to the first ~}#~ that is not
+  escaped: spaces, brackets and newlines inside a name are the name.  Nothing
+  inside it is formatted, because nothing inside it is code.
+- ~#'~ is a function quote, and ~#`~, ~#,~ and ~#,@~ are the syntax-case
+  spellings of quasiquote, unquote and unquote-splicing.
+- What a vector holds is data, so no rule about the shape of a form reads it:
+  ~#(if a b)~ holds three symbols, and is not an ~if~ with no else branch.
+
+A ~#~ dispatch character and the datum it applies to are one node.  That is
+what keeps the read macros of the other dialects readable and round-trippable:
+
+#+begin_src lisp
+(defparameter *grid* #2A((1 2) (3 4)))  ; Common Lisp, an array
+(defparameter *z* #c(1 2))              ; a complex number
+(defparameter *s* #S(point :x 1))       ; a structure, case and all
+(defparameter *cycle* #1=(a . #1#))     ; a datum label
+(probe-file #P"/tmp/x")                 ; a pathname, case and all
+(setq my-table #s(hash-table test equal data ("a" 1)))  ; Emacs Lisp
+#+end_src
+
+~#2A((1 2))~ is an array and ~#2A ((1 2))~ is not, so the formatter never
+opens a space between a read macro and its datum.  A ~#~ token that nothing is
+glued to — ~#b1010~, ~#*1011~, ~#:uninterned~ — is an atom and is read as one.
+
+A ~#!~ line is read as a shebang when it names a program to run the file —
+~#!/usr/bin/env guile~, or the same with a space after the ~#!~ — and as a
+token everywhere else, so ~#!r6rs~, ~#!fold-case~, ~#!no-fold-case~, Chez's
+~#!optional~ and ~#!eof~ and Gambit's ~#!void~ are read as the directives they
+are.  A ~#!~ that names a path anywhere but the first line is still reported:
+a shebang in the middle of a file is a mistake.
+
+What *ends a symbol* is the dialects' business too, and the difference is not
+academic: the names Guile's own sources give their variables — ~number'~,
+~lst''~ — are single symbols, and reading the quote as a separate form leaves a
+list that never closes.
+
+| Character     | Scheme                | Emacs Lisp             | Common Lisp            |
+|---------------+-----------------------+------------------------+------------------------|
+| ~'~ ~`~ ~,~   | part of the name      | ends the name          | ends the name          |
+| ~#~           | part of the name      | ends the name          | part of the name       |
+| ~[~ and ~]~   | ends it (a bracket)   | ends it (a vector)     | part of the name       |
+| ~{~ and ~}~   | part of the name      | part of the name       | part of the name       |
+| a backslash   | —                     | escapes the next char  | escapes the next char  |
+| a bar         | opens an escaped name | an ordinary character  | opens an escaped name  |
+
+A brace is therefore never a bracket: Guile reads ~{a b}~ as the two symbols
+~{a~ and ~b}~, and reading it as a list would split a name in two and leave a
+form that never closes.  The Schemes that do read ~{...}~ as parentheses keep
+every byte of it — the braces are atoms and the text is copied — but they do
+not get bracket-aware formatting for it.
+
+Reading another dialect's syntax is not an error — sift keeps every byte of it
+— but it is reported, because a file that mixed two dialects is a bug worth
+seeing:
+
+| Construct                            | Read in      | Reported in     |
+|--------------------------------------+--------------+-----------------|
+| ~#{ ... }#~ extended symbol          | Scheme       | Emacs Lisp, CL  |
+| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme       | Emacs Lisp, CL  |
+| ~#`~, ~#,~, ~#,@~ syntax-case        | Scheme       | Emacs Lisp, CL  |
+| ~#;~ datum comment                   | Scheme       | Emacs Lisp, CL  |
+| ~#\a~ character literal              | Scheme, CL   | Emacs Lisp      |
+| ~?a~ character literal               | Emacs Lisp   | —               |
+| ~#p"..."~ pathname                   | CL           | Scheme, Elisp   |
+| ~#.~ read-time evaluation            | CL           | Scheme, Elisp   |
+| ~#+~, ~#-~ feature conditional       | CL           | Scheme, Elisp   |
+| ~#(...)~ vector, ~#<...>~ object     | all three    | —               |
+| ~#1=~ datum label                    | CL, Elisp, R7RS | —            |
 
 ** What it will not do
 :PROPERTIES:

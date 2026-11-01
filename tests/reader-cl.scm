@@ -94,6 +94,38 @@
       (assert-same-text #:expect "#s(point :x 1 :y 2)"
                         #:got (round-trip "#s(point :x 1 :y 2)")))
 
+    (test "a read macro keeps its datum glued to it"
+      (assert-same-text #:expect "#2A((1 2) (3 4))"
+                        #:got (round-trip "#2A((1 2) (3 4))"))
+      (assert-same-text #:expect "#c(1 2)"
+                        #:got (round-trip "#c(1 2)"))
+      (assert-same-text #:expect "#1=(a . #1#)"
+                        #:got (round-trip "#1=(a . #1#)"))
+      (assert-same-text #:expect "#*1011"
+                        #:got (round-trip "#*1011")))
+
+    (test "a pathname keeps the case of its dispatch character"
+      (assert-same-text #:expect "(probe-file #P\"/tmp/x\")"
+                        #:got (round-trip "(probe-file #P\"/tmp/x\")"))
+      (assert-equal #:expect '()
+        #:got (errors-cl "(probe-file #P\"/tmp/x\")")))
+
+    (test "a datum comment is Scheme syntax, and is reported here"
+      (assert-equal #:expect '((1 1 the))
+        #:got (errors-cl "#;foo bar")))
+
+    (test "a bracket and a hash are symbol characters here"
+      ;; SBCL reads `A[B' and `A#B' as single symbols; splitting them would
+      ;; leave a form that never closes.
+      (assert-equal #:expect '("A[B" "A#B")
+        #:got (map node-value (atom-nodes "A[B A#B")))
+      (assert-same-text #:expect "(defun f () A[B)"
+                        #:got (round-trip "(defun f () A[B)")))
+
+    (test "a quote ends a symbol here"
+      (assert-equal #:expect '("a")
+        #:got (map node-value (atom-nodes "a'b"))))
+
     (test "block comments nest"
       (assert-same-text #:expect "#| a #| b |# c |# x"
                         #:got (round-trip "#| a #| b |# c |# x")))

@@ -30,7 +30,6 @@
 (define (open-token-name token)
   (cond [(equal? token "(") "parenthesis"]
         [(equal? token "[") "bracket"]
-        [(equal? token "{") "brace"]
         [else "delimiter"]))
 
 (define (unmatched-parens-warnings ast source dialect)

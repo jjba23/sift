@@ -187,6 +187,15 @@ built once per file so the conversion costs nothing per node."
   (let ((i (+ (reader-index r) k)))
     (if (< i (reader-length r)) (string-ref (reader-source r) i) #f)))
 
+(define (looking-at? r text)
+  "Return @code{#t} when the source at @var{r}'s index begins with @var{text}."
+  (let loop ((i 0))
+    (cond
+      [(>= i (string-length text)) #t]
+      [else
+        (let ((c (peek-at r i)))
+          (and c (char=? c (string-ref text i)) (loop (+ i 1))))])))
+
 (define (advance! r)
   (set-reader-index! r (+ 1 (reader-index r))))
 
@@ -233,15 +242,34 @@ built once per file so the conversion costs nothing per node."
   "Return @code{#t} when @var{c} is whitespace of any kind."
   (and c (or (whitespace-char? c) (newline-char? c))))
 
-(define (atom-delimiter? c)
-  "Return @code{#t} when @var{c} ends an atom.
+(define (dialect-delimiters dialect)
+  "Return the characters that end an atom in @var{dialect}, whitespace aside.
 
-A `#' is not a delimiter: it only starts a reader directive at the beginning
-of a token, and a symbol such as `foo#bar' (Scheme) is one atom."
+A delimiter is what a reader stops at, and which characters they are is the
+dialect's business.  The differences are not academic:
+
+- In Scheme a quote, a backquote and a comma belong to a symbol -- `number''
+  and `lst'' are the names Guile's own sources give their variables, and every
+  R7RS reader agrees -- while Emacs Lisp and Common Lisp end the symbol there.
+- Emacs Lisp ends a symbol at a `#' as well; Common Lisp does not, and its
+  symbols may hold a `[' or a `#' in the middle (`A#B', `A[B').
+- Nothing ends an atom at a brace in any of the three: `a{b' is one name in
+  Guile, in Emacs Lisp and in Common Lisp, and so is `{a'."
+  (case dialect
+    [(elisp) '(#\( #\) #\[ #\] #\" #\; #\' #\` #\, #\#)]
+    [(cl) '(#\( #\) #\" #\; #\' #\` #\,)]
+    [else '(#\( #\) #\[ #\] #\" #\;)]))
+
+(define (atom-delimiter? r c)
+  "Return @code{#t} when @var{c} ends an atom in the dialect @var{r} reads.
+
+A `#' is not a delimiter in Scheme or in Common Lisp: it only starts a reader
+directive at the beginning of a token, and a symbol such as `foo#bar' (Scheme)
+or `A#B' (Common Lisp) is one atom.  A quote is not one in Scheme either: what
+Guile calls `x'' is a single name, not a name and a quote."
   (and c
-    (or (whitespace-char? c)
-      (newline-char? c)
-      (memv c '(#\( #\) #\[ #\] #\{ #\} #\" #\; #\' #\` #\,)))))
+    (or (space-or-newline? c)
+      (memv c (dialect-delimiters (reader-dialect r))))))
 
 ;;; ===== Node constructors =====
 
@@ -277,6 +305,18 @@ top.  The reader has already advanced past @var{end} when it asks for one."
 A character literal or a `|bar-quoted|' symbol is an atom whose value is the
 text the author wrote -- never respelled, never classified further."
   (span-node r 'atom start end (list (cons 'atom-type atom-type))))
+
+(define (dialect-name dialect)
+  "Return the name of @var{dialect} as a diagnostic spells it.
+
+The reader is permissive by design: it reads a construct that belongs to
+another dialect anyway, keeps every byte of it, and says so in the dialect's
+name, so that a file which mixed two dialects is reported where it happens
+rather than formatted into something neither dialect reads."
+  (case dialect
+    [(elisp) "Emacs Lisp"]
+    [(cl) "Common Lisp"]
+    [else "Scheme"]))
 
 ;;; ===== Reading trivia =====
 
@@ -322,12 +362,41 @@ text the author wrote -- never respelled, never classified further."
 
 ;;; ===== Reading bracket forms =====
 
+(define (read-bytevector r open-text)
+  "Read a bytevector literal written @var{open-text} -- `#u8(' or `#vu8('.
+
+A bytevector is bracketed like a list and holds numbers rather than
+s-expressions, which is a rule for the checkers and the formatter, not for
+the reader: the reader reads it as a bracketed datum whose opener is the
+whole token, and every element inside it is read exactly as it would be
+anywhere else."
+  (unless (eq? (reader-dialect r) 'scheme)
+    (record-error! r (reader-index r) 'warning
+                   (format #f "bytevectors are not ~a syntax"
+                           (dialect-name (reader-dialect r)))))
+  (read-balanced r open-text))
+
 (define (matching-close open)
   (case open
     [(#\() #\)]
     [(#\[) #\]]
-    [(#\{) #\}]
     [else #\)]))
+
+(define (bracket-fields r open-text close)
+  "Return the fields of a bracketed node: its delimiters, and its kind.
+
+The reader is the only place that knows the dialect, so it is the place that
+answers \"is this `[' a vector or a parenthesis by another name?\": in Emacs
+Lisp a square bracket holds a vector, and in Scheme and Common Lisp it is a
+list written with square brackets.  Recording the answer on the node is what
+lets `node-vector?' answer correctly without being handed a dialect."
+  (append
+   (list (cons 'open open-text) (cons 'close close))
+   (cond
+     [(string=? open-text "#(") (list (cons 'vector #t))]
+     [(and (eq? (reader-dialect r) 'elisp) (string=? open-text "["))
+      (list (cons 'vector #t))]
+     [else '()])))
 
 (define* (read-balanced r open-text #:optional (open-char #f))
   "Read a bracketed form whose opening text is @var{open-text}.
@@ -350,15 +419,13 @@ without a closer: the reader never invents a `)'."
          (make-node 'list (reverse children)
                     (index->location r start)
                     (index->location r (reader-index r))
-                    (list (cons 'open open-text)
-                          (cons 'close #f)))]
+                    (bracket-fields r open-text #f))]
         [(eqv? (peek r) close-char)
          (advance! r)
          (make-node 'list (reverse children)
                     (index->location r start)
                     (index->location r (reader-index r))
-                    (list (cons 'open open-text)
-                          (cons 'close (string close-char))))]
+                    (bracket-fields r open-text (string close-char)))]
         [else
           (let ((node (read-node r)))
             (if (eq? node '*eof*)
@@ -445,7 +512,11 @@ is kept exactly as it was written."
         (let ((c (peek r)))
           (cond
             [(not c) #f]
-            [(or (eqv? c #\\) (eqv? c #\^))
+            [(eqv? c #\^)
+             ;; `?\^I' is control-I: a `^' and the character it applies to.
+             ;; Every other escape is one character -- `?\\' is a backslash
+             ;; and ends there -- so consuming two would eat the delimiter
+             ;; after it and leave the form unterminated.
              (advance! r)
              (unless (at-end? r) (advance! r))]
             [else (advance! r)])))
@@ -454,6 +525,15 @@ is kept exactly as it was written."
     (literal-node r start (reader-index r) 'character)))
 
 ;;; ===== Atoms =====
+
+(define (bar-symbol-dialect? r)
+  "Return @code{#t} when @code{|...|} quotes a symbol in @var{r}'s dialect.
+
+Scheme reads `|foo bar|' as the symbol `foo bar', and Common Lisp reads it as
+a name whose characters are taken literally.  Emacs Lisp does not: a `|' there
+is an ordinary symbol character, so `(rx (| a b))' is a call to a symbol named
+`|' and must not be read as an escaped name that runs to the next bar."
+  (not (eq? (reader-dialect r) 'elisp)))
 
 (define (read-bar-symbol r)
   "Read a |bar-quoted symbol|, escapes included, verbatim."
@@ -469,9 +549,59 @@ is kept exactly as it was written."
          (literal-node r start (reader-index r) 'symbol)]
         [else (advance! r) (loop)]))))
 
-(define (read-atom r)
+(define (read-extended-symbol r)
+  "Read Guile's @code{#{...}#} symbol, every character of it, verbatim.
+
+The syntax exists for the symbols code that writes code can produce and nobody
+wants to spell: a name with a space, a newline or a bracket in it.  It does not
+nest: the first `}#` that is not escaped ends the name, so a backslash is
+honoured only to the extent that it keeps a `}` from closing the symbol, and
+everything between the two markers is kept exactly as written."
   (let ((start (reader-index r)))
-    (while (and (peek r) (not (atom-delimiter? (peek r)))) (advance! r))
+    (unless (eq? (reader-dialect r) 'scheme)
+      (record-error! r start 'warning
+                     "extended symbols like `#{}#' are Guile syntax"))
+    (advance-by! r 2) ; # and {
+    (let loop ()
+      (cond
+        [(at-end? r)
+         (record-error! r start 'error "unterminated #{...}# symbol")
+         (literal-node r start (reader-index r) 'symbol)]
+        [(eqv? (peek r) #\\)
+         (advance! r)
+         (unless (at-end? r) (advance! r))
+         (loop)]
+        [(and (eqv? (peek r) #\}) (eqv? (peek-at r 1) #\#))
+         (advance-by! r 2)
+         (literal-node r start (reader-index r) 'symbol)]
+        [else (advance! r) (loop)]))))
+
+(define (symbol-escape? r)
+  "Return @code{#t} when a backslash quotes the next character of a symbol.
+
+Emacs Lisp and Common Lisp both use a single escape inside a symbol, so `\\('
+is the symbol `(' and `\\#' is the symbol `#' -- neither opens a list nor
+starts a reader directive.  Scheme has no such escape: a backslash in a symbol
+is a stray character there, and Guile does not read one."
+  (not (eq? (reader-dialect r) 'scheme)))
+
+(define (read-atom r)
+  "Read an atom, honouring whatever the dialect makes of an escape.
+
+The escape is kept as it was written, like every other byte the reader copies:
+what it decides is only where the atom ends, which is what a formatter has to
+get right and what a symbol named `\\(' depends on."
+  (let ((start (reader-index r)))
+    (let loop ()
+      (let ((c (peek r)))
+        (cond
+          [(not c) #f]
+          [(and (char=? c #\\) (symbol-escape? r))
+           (advance! r)
+           (unless (at-end? r) (advance! r))
+           (loop)]
+          [(atom-delimiter? r c) #f]
+          [else (advance! r) (loop)])))
     (when (= start (reader-index r)) ; a lone delimiter we do not know
       (advance! r))
     (atom-node r start (reader-index r))))
@@ -561,7 +691,8 @@ is what reports it."
   (let ((start (reader-index r)))
     (when (eq? (reader-dialect r) 'elisp)
       (record-error! r start 'warning
-                     "block comments are not Emacs Lisp syntax"))
+                     (format #f "block comments are not ~a syntax"
+                             (dialect-name (reader-dialect r)))))
     (advance-by! r 2)
     (let loop ((depth 1))
       (cond
@@ -608,9 +739,10 @@ The datum is parsed in full -- its comments and locations included -- and
 every node in it is marked `commented-out', which is what tells the linter
 to stay out and the formatter to copy it verbatim."
   (let ((start (reader-index r)))
-    (when (eq? (reader-dialect r) 'elisp)
+    (unless (eq? (reader-dialect r) 'scheme)
       (record-error! r start 'warning
-                     "the #; datum comment is not Emacs Lisp syntax"))
+                     (format #f "the #; datum comment is not ~a syntax"
+                             (dialect-name (reader-dialect r)))))
     (advance-by! r 2)
     (let loop ()
       (when (space-or-newline? (peek r))
@@ -635,6 +767,9 @@ to stay out and the formatter to copy it verbatim."
 (define (read-read-time-eval r)
   "\"#.\" is Common Lisp read-time evaluation: parsed, never evaluated, copied."
   (let ((start (reader-index r)))
+    (unless (eq? (reader-dialect r) 'cl)
+      (record-error! r start 'warning
+                     "read-time evaluation `#.' is Common Lisp syntax"))
     (advance-by! r 2)
     (let loop ()
       (when (space-or-newline? (peek r))
@@ -719,6 +854,103 @@ is still a form the author wrote."
                            (cons 'gap gap)
                            (cons 'gap2 gap2))))))))
 
+(define (read-syntax-prefix r token)
+  "Read @var{token} -- a syntax-case prefix -- and the datum it applies to.
+
+`#`' is quasisyntax, `#,' unsyntax and `#,@' unsyntax-splicing: the same three
+shapes a quasiquote has, spelled with a `#' in front so that a macro can build
+code without building data first.  Guile reads all three, and so does every
+R6RS implementation; Common Lisp and Emacs Lisp read none of them."
+  (unless (eq? (reader-dialect r) 'scheme)
+    (record-error! r (reader-index r) 'warning
+                   (format #f "the ~a prefix is not ~a syntax"
+                           token
+                           (dialect-name (reader-dialect r)))))
+  (read-prefix r token))
+
+(define (shebang-looking? r)
+  "Return @code{#t} when the `#!' at @var{r}'s index names a program to run.
+
+A shebang holds the path of the interpreter that runs the file, so it holds a
+`/': before the end of the line at the start of a file
+(@code{#!/usr/bin/env guile}, @code{#! /usr/bin/guile}), or before the first
+space anywhere else.  A reader directive holds neither: @code{#!r6rs},
+@code{#!fold-case} and Chez's @code{#!optional} are tokens, not paths."
+  (let ((start (reader-index r))
+        (to-end-of-line? (zero? (reader-index r))))
+    (let loop ((i (+ 2 start)))
+      (cond
+        [(>= i (reader-length r)) #f]
+        [(char=? (string-ref (reader-source r) i) #\/) #t]
+        [(or (newline-char? (string-ref (reader-source r) i))
+           (and (not to-end-of-line?)
+             (atom-delimiter? r (string-ref (reader-source r) i))))
+         #f]
+        [else (loop (+ i 1))]))))
+
+(define (read-bang r)
+  "Read a `#!' form: the shebang line at the start of a file, or a directive.
+
+R6RS has `#!r6rs', R7RS has `#!fold-case' and `#!no-fold-case', Chez has
+`#!optional' and `#!eof', Gambit has `#!void' -- all of them tokens inside a
+form or at the top of one.  They are read as atoms and never rewritten; only a
+`#!' that names a program path is a shebang, and that is a line of its own."
+  (let ((start (reader-index r)))
+    (cond
+      [(not (shebang-looking? r)) (read-atom r)]
+      [(zero? start) (read-shebang r)]
+      [else
+        (record-error! r start 'error
+                       "`#!' is only a shebang at the start of a file")
+        (read-atom r)])))
+
+(define (read-char-literal r)
+  "Read a `#\\a' character literal, saying so when the dialect has none.
+
+Scheme and Common Lisp spell a character this way; Emacs Lisp spells it `?a',
+so a `#\\a' in an Emacs Lisp file is reported and kept as it was written."
+  (when (eq? (reader-dialect r) 'elisp)
+    (record-error! r (reader-index r) 'warning
+                   (format #f "character literals written `#\\a' are not ~a syntax"
+                           (dialect-name (reader-dialect r)))))
+  (read-scheme-char-literal r))
+
+(define (hash-token-end r)
+  "Return the index just past the token that starts at @var{r}'s index.
+
+The token is read the way an atom is, so `#2A' ends at the bracket, `#1='
+after the `=', and `#b1010' at the space."
+  (let loop ((i (+ 1 (reader-index r))))
+    (cond
+      [(>= i (reader-length r)) i]
+      [(atom-delimiter? r (string-ref (reader-source r) i)) i]
+      [else (loop (+ i 1))])))
+
+(define (glued-datum-char? c)
+  "Return @code{#t} when @var{c} can begin a datum glued to its read macro.
+
+What a read macro is glued to is a bracket, a string, another `#' form or a
+quote: @code{#2A((1 2))}, @code{#c(1 2)}, @code{#p\"/tmp\"},
+@code{#1=(a)} and @code{#1='(a)}.  Nothing else can follow one without a
+space, so nothing else makes a token a prefix."
+  (and c (memv c '(#\( #\[ #\{ #\" #\# #\' #\` #\,))))
+
+(define (read-hash-token r)
+  "Read a `#'-token as a read macro over a datum, or as a plain atom.
+
+`#1=', `#2A', `#c', `#16r', `#s' are read macros: the datum they apply to is
+glued to them, and the formatter must never put a space between the two,
+because @code{#2A((1 2))} is an array and @code{#2A ((1 2))} is not.  A token
+with nothing glued to it -- @code{#b1010}, @code{#*1011}, @code{#:name} -- is
+an atom, and is read as one."
+  (let* ((start (reader-index r))
+         (end (hash-token-end r))
+         (next (and (< end (reader-length r))
+                 (string-ref (reader-source r) end))))
+    (if (glued-datum-char? next)
+      (read-prefix r (substring (reader-source r) start end))
+      (read-atom r))))
+
 (define (read-hash r)
   (let ((start (reader-index r))
         (c (peek-at r 1)))
@@ -728,32 +960,50 @@ is still a form the author wrote."
       [(eqv? c #\|) (read-block-comment r)]
       [(eqv? c #\;) (read-datum-comment r)]
       [(eqv? c #\') (read-prefix r "#'")]
+      [(and (eqv? (peek-at r 2) #\@) (eqv? c #\,))
+       (read-syntax-prefix r "#,@")]
+      [(eqv? c #\,) (read-syntax-prefix r "#,")]
+      [(eqv? c #\`) (read-syntax-prefix r "#`")]
       [(eqv? c #\() (read-balanced r "#(")]
-      [(and (memv c '(#\u #\U)) (eqv? (peek-at r 2) #\8) (eqv? (peek-at r 3) #\())
-       (when (eq? (reader-dialect r) 'elisp)
-         (record-error! r start 'warning
-                        "bytevectors are not Emacs Lisp syntax"))
-       (read-balanced r "#u8(")]
-      [(and (memv c '(#\s #\S)) (eqv? (peek-at r 2) #\())
-       (read-prefix r "#s")]
+      [(eqv? c #\{) (read-extended-symbol r)]
+      ;; A bytevector is written `#u8(...)' by Guile and R7RS and `#vu8(...)'
+      ;; by R6RS; both are the same datum, so both are read the same way.  The
+      ;; spelling is kept, because the reader never respells a token.
+      [(looking-at? r "#u8(") (read-bytevector r "#u8(")]
+      [(looking-at? r "#vu8(") (read-bytevector r "#vu8(")]
       [(and (memv c '(#\p #\P)) (eqv? (peek-at r 2) #\"))
        (unless (eq? (reader-dialect r) 'cl)
          (record-error! r start 'warning "pathnames are Common Lisp syntax"))
-       (read-prefix r "#p")]
+       ;; the token as written -- `#p' or `#P' -- because the reader never
+       ;; respells one
+       (read-prefix r (substring (reader-source r) start (+ start 2)))]
       [(memv c '(#\+ #\-))
        (read-conditional r)]
       [(eqv? c #\.) (read-read-time-eval r)]
       [(eqv? c #\<) (read-unreadable r)]
-      [(eqv? c #\!)
-       (if (= start 0)
-         (read-shebang r)
-         (begin
-           (record-error! r start 'error "`#!' is only a shebang at the start of a file")
-           (read-atom r)))]
-      [(eqv? c #\\) (read-scheme-char-literal r)]
-      [else (read-atom r)])))
+      [(eqv? c #\!) (read-bang r)]
+      [(eqv? c #\\) (read-char-literal r)]
+      [else (read-hash-token r)])))
 
 ;;; ===== The dispatch =====
+
+(define (dialect-brackets dialect)
+  "Return the bracket pairs @var{dialect} reads, as @code{(open . close)}.
+
+Parentheses are a list in all three dialects.  A square bracket is a list in
+Scheme and a vector in Emacs Lisp.  A curly brace is not a bracket in any of
+them: Guile reads `{a b}' as the two symbols `{a' and `b}', Emacs Lisp and
+Common Lisp read `{a' as one symbol, and treating a brace as an opener would
+split a name in two and leave a form that never closes.  The Schemes that do
+read `{...}' as parentheses keep every byte of it here -- the braces are atoms
+and the text is copied -- but they do not get bracket-aware formatting."
+  (case dialect
+    [(cl) '((#\( . #\)))]
+    [else '((#\( . #\)) (#\[ . #\]))]))
+
+(define (dialect-closers dialect)
+  "Return the characters that close a list in @var{dialect}."
+  (map cdr (dialect-brackets dialect)))
 
 (define (read-node r)
   "Read the next node, or return @code{*eof*} at end of input."
@@ -767,16 +1017,17 @@ is still a form the author wrote."
     [(newline-char? (peek r)) (read-newline-run r)]
     [(whitespace-char? (peek r)) (read-space-run r)]
     [(eqv? (peek r) #\;) (read-comment r)]
-    [(memv (peek r) '(#\( #\[ #\{))
+    [(assv (peek r) (dialect-brackets (reader-dialect r)))
      (read-balanced r (string (peek r)))]
-    [(memv (peek r) '(#\) #\] #\})) (read-stray-close r)]
+    [(memv (peek r) (dialect-closers (reader-dialect r)))
+     (read-stray-close r)]
     [(eqv? (peek r) #\") (read-string r)]
     [(eqv? (peek r) #\') (read-prefix r "'")]
     [(eqv? (peek r) #\`) (read-prefix r "`")]
     [(eqv? (peek r) #\,)
      (if (eqv? (peek-at r 1) #\@) (read-prefix r ",@") (read-prefix r ","))]
     [(eqv? (peek r) #\#) (read-hash r)]
-    [(eqv? (peek r) #\|) (read-bar-symbol r)]
+    [(and (eqv? (peek r) #\|) (bar-symbol-dialect? r)) (read-bar-symbol r)]
     [(and (eqv? (peek r) #\?) (eq? (reader-dialect r) 'elisp))
      (read-elisp-char-literal r)]
     [else (read-atom r)]))
@@ -888,15 +1139,24 @@ that gets @code{#f} must ask for `--dialect' rather than guess."
       [(and ext (member ext '(".lisp" ".cl" ".asd" ".lsp" ".system"))) 'cl]
       [else #f])))
 
+;; The programs whose name in a shebang means the file is Scheme.  Guile is the
+;; one sift is written for and the one the dialect is named after, but a
+;; shebang naming Chez, Gauche, Chicken, Chibi, Gambit, MIT Scheme or the
+;; report itself is just as good a statement that the file is Scheme.
+(define scheme-interpreters
+  '("guile" "scheme" "chez" "petite" "gosh" "csi" "chibi" "gsi" "gambit"
+    "r6rs" "r7rs"))
+
 (define (shebang-dialect source)
   (and (string-prefix? "#!" source)
     (let* ((first-line (car (source-lines source)))
            (line (string-downcase first-line)))
       (cond
-        [(or (string-contains line "guile")) 'scheme]
+        [(any (lambda (name) (string-contains line name)) scheme-interpreters)
+         'scheme]
         [(or (string-contains line "sbcl")
            (string-contains line "clisp")
            (string-contains line "ecl")
            (string-contains line "ccl")) 'cl]
-        [(or (string-contains line "emacs")) 'elisp]
+        [(string-contains line "emacs") 'elisp]
         [else #f]))))

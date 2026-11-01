@@ -58,6 +58,53 @@
        #:expect "(let ((a 1)\n      (b 2))\n  (+ a b))\n"
        #:got (format-string "(let ((a 1)\n(b 2))\n(+ a b))\n")))
 
+    (test "a vector's elements line up under its first, symbol or not"
+      ;; `#(foo bar)' is a literal that holds two symbols; the formatter must
+      ;; not read it as a call to `foo' and line `baz' up under `bar'.
+      (assert-same-text
+       #:expect "(define v #(foo bar\n            baz))\n"
+       #:got (format-string "(define v #(foo bar\n baz))\n")))
+
+    (test "a bytevector's numbers line up under the first as well"
+      (assert-same-text
+       #:expect "(define b #u8(1 2\n              3))\n"
+       #:got (format-string "(define b #u8(1 2\n 3))\n"))
+      (assert-same-text
+       #:expect "(define b #vu8(1 2\n               3))\n"
+       #:got (format-string "(define b #vu8(1 2\n 3))\n")))
+
+    (test "a vector is closed with the delimiter it was opened with"
+      (assert-same-text #:expect "(define v #(a b))\n"
+                        #:got (format-string "(define v #(a b))\n")))
+
+    (test "an extended symbol is one token, and is never respelled"
+      (assert-same-text #:expect "(define #{foo bar}# 1)\n"
+                        #:got (format-string "(define   #{foo bar}#   1)\n")))
+
+    (test "a multi-line extended symbol keeps the name it was given"
+      (let ((source "(define #{what\never}# 1)\n"))
+        (assert-same-text #:expect source #:got (format-string source))))
+
+    (test "a read macro keeps the datum it applies to glued to it"
+      (assert-same-text #:expect "(define a #1=(x . #1#))\n"
+                        #:got (format-string "(define a #1=(x . #1#))\n"))
+      (assert-same-text #:expect "(display #`(a #,b #,@c))\n"
+                        #:got (format-string "(display   #`(a #,b #,@c))\n")))
+
+    (test "an R6RS library indents its declarations two columns in"
+      (assert-same-text
+       #:expect "#!r6rs\n(library (demo)\n  (export f)\n  (import (rnrs)))\n"
+       #:got (format-string "#!r6rs\n(library (demo)\n(export f)\n(import (rnrs)))\n"))
+      (assert-same-text
+       #:expect "#!fold-case\n(define-library (demo lib)\n  (import (scheme base))\n  (export a))\n"
+       #:got (format-string "#!fold-case\n(define-library (demo lib)\n(import (scheme base))\n(export a))\n")))
+
+    (test "a list whose first element starts a line indents one column in"
+      ;; The head is on the line below the opener, so there is nothing on the
+      ;; opener's line to line the rest of the form up with.
+      (assert-same-text #:expect "'(\n  insert-tab)\n"
+                        #:got (format-string "'(\n      insert-tab)\n")))
+
     (test "an unknown operator lines its arguments up under the first"
       (assert-same-text
        #:expect "(my-macro a\n          b)\n"

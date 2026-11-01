@@ -83,6 +83,147 @@
           (assert-equal #:expect "#u8(1 2)"
             #:got (ast->text ast)))))
 
+    (test "both spellings of a bytevector are the same datum"
+      (assert-same-text #:expect "(vector-ref #vu8(1 2) 0)"
+                        #:got (round-trip "(vector-ref #vu8(1 2) 0)"))
+      (call-with-values (lambda () (read-source-string "#vu8(1 2)"))
+        (lambda (ast errors)
+          (assert-true (node-bytevector? (car (filter node-data? ast)))
+            #:name "`#vu8(' is a bytevector"))))
+
+    (test "a vector node knows it is a vector, and a bracket is one only in Elisp"
+      (call-with-values (lambda () (read-source-string "#(1 2 3)"))
+        (lambda (ast errors)
+          (let ((node (car (filter node-data? ast))))
+            (assert-true (node-vector? node) #:name "a `#(' literal")
+            (assert-equal #:expect "#(" #:got (node-open node)))))
+      ;; In Scheme a square bracket is a clause, and `cond' is written with
+      ;; one; reading it as a vector would be reading it as data.
+      (call-with-values (lambda () (read-source-string "(cond [else 1])"))
+        (lambda (ast errors)
+          (let ((clause (cadr (node-elements (car (filter node-data? ast))))))
+            (assert-false (node-vector? clause)
+              #:name "a Scheme clause written with a bracket"))))
+      (call-with-values
+        (lambda () (read-source-string "(setq v [a b])" #:dialect 'elisp))
+        (lambda (ast errors)
+          (let ((vector (last (node-elements (car (filter node-data? ast))))))
+            (assert-true (node-vector? vector)
+              #:name "an Emacs Lisp vector")))))
+
+    (test "a vector keeps the comments written inside it"
+      (assert-same-text #:expect "#(a #| note |# b)"
+                        #:got (round-trip "#(a #| note |# b)")))
+
+    (test "a Guile extended symbol is one atom, spaces and all"
+      (call-with-values (lambda () (read-source-string "'#{foo bar}#"))
+        (lambda (ast errors)
+          (assert-equal #:expect '() #:got errors)
+          (let ((node (node-child (car (filter node-data? ast)))))
+            (assert-equal #:expect 'symbol #:got (node-atom-type node))
+            (assert-equal #:expect "#{foo bar}#" #:got (node-value node))))))
+
+    (test "an extended symbol is a symbol even when it looks like a number"
+      (call-with-values (lambda () (read-source-string "#{}# #{4242}#"))
+        (lambda (ast errors)
+          (let ((atoms (filter node-data? ast)))
+            (assert-equal #:expect '("#{}#" "#{4242}#")
+              #:got (map node-value atoms))
+            (assert-equal #:expect '(symbol symbol)
+              #:got (map node-atom-type atoms))))))
+
+    (test "an extended symbol round-trips, newline and escape included"
+      (let ((source "(define #{what\never}# 1)\n"))
+        (assert-same-text #:expect source #:got (round-trip source)))
+      (assert-same-text #:expect "'#{a\\}b}#"
+                        #:got (round-trip "'#{a\\}b}#")))
+
+    (test "an unterminated extended symbol is reported at its opener"
+      (assert-equal #:expect '((1 1 unterminated))
+        #:got (read-errors "#{foo")))
+
+    (test "extended symbols are Guile syntax, and say so elsewhere"
+      (assert-equal #:expect '((1 1 extended))
+        #:got (read-errors "#{foo bar}#" #:dialect 'elisp)))
+
+    (test "read-time evaluation is Common Lisp syntax, and is reported"
+      (assert-equal #:expect '((1 1 read-time))
+        #:got (read-errors "#.(+ 1 2)"))
+      (assert-same-text #:expect "#.(+ 1 2)" #:got (round-trip "#.(+ 1 2)")))
+
+    (test "a syntax-case prefix is a prefix, and its datum is glued to it"
+      (call-with-values (lambda () (read-source-string "#`(a #,b #,@c)"))
+        (lambda (ast errors)
+          (assert-equal #:expect '() #:got errors)
+          (let* ((outer (car (filter node-data? ast)))
+                 (elements (node-elements (node-child outer)))
+                 (unsyntax (cadr elements))
+                 (splicing (caddr elements)))
+            (assert-equal #:expect "#`" #:got (node-token outer))
+            (assert-equal #:expect "a" #:got (node-value (car elements)))
+            (assert-equal #:expect "#," #:got (node-token unsyntax))
+            (assert-equal #:expect "#,@" #:got (node-token splicing)))))
+      (assert-same-text #:expect "(display #`(a #,b #,@c))"
+                        #:got (round-trip "(display #`(a #,b #,@c))")))
+
+    (test "a read macro over a glued datum is one node"
+      ;; `#2A(' is an array and `#2A (' is not, so the reader keeps the two
+      ;; together instead of leaving a `#' atom behind.
+      (call-with-values (lambda () (read-source-string "#1=(a . #1#)"))
+        (lambda (ast errors)
+          (assert-equal #:expect '() #:got errors)
+          (let ((node (car (filter node-data? ast))))
+            (assert-equal #:expect 'prefix #:got (node-kind node))
+            (assert-equal #:expect "#1=" #:got (node-token node)))))
+      (assert-same-text #:expect "#S(point :x 1)"
+                        #:got (round-trip "#S(point :x 1)")))
+
+    (test "a reader directive is a token, not a shebang"
+      (call-with-values (lambda () (read-source-string "#!r6rs\n(import (rnrs))\n"))
+        (lambda (ast errors)
+          (assert-equal #:expect '() #:got errors)
+          (let ((node (car (filter node-data? ast))))
+            (assert-equal #:expect 'atom #:got (node-kind node))
+            (assert-equal #:expect "#!r6rs" #:got (node-value node)))))
+      (assert-same-text #:expect "#!fold-case\n(a)\n"
+                        #:got (round-trip "#!fold-case\n(a)\n")))
+
+    (test "a Chez directive inside a form is an atom"
+      (assert-equal #:expect '()
+        #:got (read-errors "(lambda (x #!optional y) x)"))
+      (assert-same-text #:expect "(lambda (x #!optional y) x)"
+                        #:got (round-trip "(lambda (x #!optional y) x)")))
+
+    (test "a shebang names which Scheme is running the file"
+      (assert-equal #:expect 'scheme
+        #:got (detect-dialect #:source "#!/usr/bin/env chibi-scheme\n"))
+      (assert-equal #:expect 'scheme
+        #:got (detect-dialect #:source "#!r6rs\n(import (rnrs))\n"))
+      (assert-equal #:expect 'scheme
+        #:got (detect-dialect #:source "#!/usr/bin/env gosh\n")))
+
+    (test "a quote or a comma inside a symbol belongs to it"
+      ;; `x'' is the name Guile's own sources give their variables, and `a,b'
+      ;; is one name too: neither is a name followed by a quote.
+      (assert-equal #:expect (list 'define (string->symbol "x'") 1)
+        #:got (car (read-sexps "(define x' 1)")))
+      (assert-equal #:expect (list 'list (string->symbol "lst''")
+                                   (string->symbol "a,b"))
+        #:got (car (read-sexps "(list lst'' a,b)")))
+      (assert-same-text #:expect "(define x' 1)"
+                        #:got (round-trip "(define x' 1)")))
+
+    (test "a brace is a symbol character, not a bracket"
+      ;; Guile reads `{a b}' as the two symbols `{a' and `b}', and so does
+      ;; sift: no dialect sift reads treats a brace as a parenthesis.
+      (call-with-values (lambda () (read-source-string "{a b}"))
+        (lambda (ast errors)
+          (assert-equal #:expect '() #:got errors)
+          (assert-equal #:expect '("{a" "b}")
+            #:got (map node-value (filter node-atom? ast)))))
+      (assert-same-text #:expect "{a\nb}"
+                        #:got (round-trip "{a\nb}")))
+
     (test "every reader prefix applies to one datum"
       (assert-equal #:expect '((quote a) (quasiquote (b (unquote c) (unquote-splicing d))) (function e))
         #:got (read-sexps "'a `(b ,c ,@d) #'e")))

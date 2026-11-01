@@ -64,6 +64,17 @@
       (assert-same-text #:expect "(a b)\n"
                         #:got (format-string "(a b)\r\n" #:dialect 'cl)))
 
+    (test "a read macro keeps the datum it applies to glued to it"
+      (assert-same-text #:expect "(defparameter *a* #2A((1 2)))\n"
+                        #:got (format-string "(defparameter   *a*   #2A((1 2)))\n"
+                                             #:dialect 'cl))
+      (assert-same-text #:expect "(defparameter *c* #c(1 2))\n"
+                        #:got (format-string "(defparameter *c* #c(1 2))\n"
+                                             #:dialect 'cl))
+      (assert-same-text #:expect "(probe-file #P\"/tmp/x\")\n"
+                        #:got (format-string "(probe-file #P\"/tmp/x\")\n"
+                                             #:dialect 'cl)))
+
     (test "formatting Common Lisp is idempotent"
       (assert-idempotent #:source "(defun f (x)\n  \"Doc.\"\n  (list x))\n"
                          #:dialect 'cl))))

@@ -90,6 +90,21 @@
        #:got (format-string "(cond ((null x) 1)\n(t 2))"
                             #:dialect 'elisp #:brackets 'square)))
 
+    (test "a read macro keeps the datum it applies to glued to it"
+      (assert-same-text
+       #:expect "(defvar t #s(hash-table test equal data (\"a\" 1)))"
+       #:got (format-string "(defvar   t   #s(hash-table test equal data (\"a\" 1)))"
+                            #:dialect 'elisp))
+      (assert-same-text #:expect "(defvar c #1=(a . #1#))"
+                        #:got (format-string "(defvar c #1=(a . #1#))"
+                                             #:dialect 'elisp)))
+
+    (test "a data list whose head starts a line is not aligned past it"
+      (assert-same-text
+       #:expect "(defcustom x\n  '(\n    insert-tab))"
+       #:got (format-string "(defcustom x\n  '(\n        insert-tab))"
+                            #:dialect 'elisp)))
+
     (test "formatting Emacs Lisp is idempotent"
       (assert-idempotent #:source "(defun f (x)\n  \"Doc.\"\n  (list x))\n"
                          #:dialect 'elisp))))

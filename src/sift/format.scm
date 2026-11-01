@@ -154,6 +154,13 @@ such convention, so they keep whatever the author wrote."
     (define-syntax-rule . 2) (define-record-type . 2) (define-values . 2)
     (define-module . 2) (define-class . 2) (define-generic . 2)
     (define-method . 2) (define-inlinable . 2) (define-constant . 2)
+    ;; the library form of R6RS, and the declarations R7RS puts inside one
+    (library . 2) (define-library . 2) (import . 2) (export . 2)
+    (include . 2) (include-ci . 2) (include-library-declarations . 2)
+    ;; syntax-case and the expander forms R6RS and Guile share
+    (eval-when . 2) (with-syntax . 2) (syntax-parameterize . 2)
+    (define-syntax-parameter . 2) (identifier-syntax . 2)
+    (quasisyntax . 2) (unsyntax . 2) (unsyntax-splicing . 2)
     (let . 2) (let* . 2) (letrec . 2) (letrec* . 2) (let-values . 2)
     (let*-values . 2) (let-syntax . 2) (letrec-syntax . 2)
     (let-optionals . 2) (let-keywords . 2)
@@ -516,8 +523,8 @@ zero rather than pushed through it."
 
 A clause list of `cond' or `case' is written with the bracket style the
 dialect asks for -- square in Scheme -- and every other list keeps the
-delimiters it was read with, because `#(' and `{' are not round brackets by
-another name."
+delimiters it was read with, because `#(' is not a round bracket by another
+name."
   (let ((open (node-open node))
         (close (node-close node)))
     (if (and clause-style (round-or-square? open close))
@@ -561,7 +568,11 @@ Only Scheme brackets its clauses.  A square bracket is not Emacs Lisp syntax,
 and is not Common Lisp syntax either, so `brackets: square' in a project's
 configuration -- which reads as a choice about style -- would otherwise write
 a file its own dialect cannot read back, and a formatter that does that is
-worse than one with no opinion."
+worse than one with no opinion.
+
+A vector is never a clause list, whatever its first element is called: the
+`cond' in `#(cond a b)' is a symbol inside a literal, not the form, and
+@code{node-head-name} answers @code{#f} for it."
   (let ((head (node-head-name node))
         (brackets (ctx-brackets ctx)))
     (and (memq head (clause-taking-forms (ctx-dialect ctx)))
@@ -614,9 +625,11 @@ the first element names a condition and what follows is a body."
          (width (ctx-indent-width ctx)))
     (cond
       [(null? elements) (+ open-column open-width)]
-      [(not head-name)
-       ;; A data list -- a binding list, a `cond' clause, a vector, a quoted
-       ;; structure -- lines its elements up under the first.
+      [(or (not head-name) (node-vector? node) (node-bytevector? node))
+       ;; A data list -- a binding list, a `cond' clause, a quoted structure --
+       ;; lines its elements up under the first.  So does a vector: `#(foo
+       ;; bar)' holds two symbols and is not a call to `foo', so its elements
+       ;; line up under the first one even when that one is a symbol.
        (+ open-column open-width)]
       [else
         (let ((rule (or (ctx-rule ctx head-name)
@@ -653,7 +666,8 @@ the first element names a condition and what follows is a body."
               ;;
               ;; and a call with keyword arguments gets the same alignment
               ;; without a rule of its own.
-              (if (first-argument-on-head-line? node)
+              (if (and (head-on-open-line? node)
+                    (first-argument-on-head-line? node))
                 (alignment-column-for node open-column)
                 ;; With nothing but the operator on its line there is
                 ;; nothing to line up under, so the rest of the form goes one
@@ -671,6 +685,26 @@ where the keywords of a call belong for the same reason."
      (string-length (node-open node))
      (string-length (node-value (node-head node)))
      1))
+
+(define (head-on-open-line? node)
+  "Return @code{#t} when the first element of @var{node} is on the opener's line.
+
+An alignment column is counted from the opener, so it only means anything when
+the head it counts past is on that same line.  In
+
+  '(
+    insert-tab)
+
+the head is on the line below the opener, and lining the rest of the form up
+under an operator that starts one column in would push it fifteen columns to
+the right for no reason the author can see."
+  (let loop ((rest (node-children node)))
+    (cond
+      [(null? rest) #f]
+      [(node-whitespace? (car rest))
+       (and (zero? (node-newlines (car rest))) (loop (cdr rest)))]
+      [(node-comment? (car rest)) (loop (cdr rest))]
+      [else #t])))
 
 (define (first-argument-on-head-line? node)
   "Return @code{#t} when the second element of @var{node} is on the head's line."

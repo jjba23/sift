@@ -23,6 +23,11 @@
 (define (read-elisp source)
   (read-sexps source #:dialect 'elisp))
 
+(define (read-elisp-ast source)
+  "Return the data nodes of @var{source}, read as Emacs Lisp."
+  (call-with-values (lambda () (read-source-string source #:dialect 'elisp))
+    (lambda (ast errors) (filter node-data? ast))))
+
 (define (errors-elisp source)
   (read-errors source #:dialect 'elisp))
 
@@ -56,6 +61,39 @@
     (test "vectors are read as vectors"
       (assert-equal #:expect '(#(1 2 3))
         #:got (read-elisp "[1 2 3]")))
+
+    (test "a hash-table literal is a read macro over a list"
+      ;; Emacs prints a hash table as `#s(hash-table ...)', and the space that
+      ;; a formatter would put after the `#' would stop it being one.
+      (assert-same-text #:expect "(defvar t #s(hash-table test equal data (\"a\" 1)))"
+                        #:got (round-trip "(defvar t #s(hash-table test equal data (\"a\" 1)))")))
+
+    (test "a read-circle label is a prefix over its datum"
+      (assert-same-text #:expect "#1=(a . #1#)"
+                        #:got (round-trip "#1=(a . #1#)")))
+
+    (test "a Scheme character literal is reported, and still kept"
+      (assert-equal #:expect '((1 1 character))
+        #:got (errors-elisp "#\\a"))
+      (assert-same-text #:expect "#\\a" #:got (round-trip "#\\a")))
+
+    (test "a backslash quotes the next character of a symbol"
+      ;; `\(' is a symbol named `(': without the escape the reader would open
+      ;; a list that never closes, which is how a real Emacs Lisp file broke.
+      (assert-equal #:expect '() #:got (errors-elisp "\\( \\) a\\#b"))
+      (assert-equal #:expect '("\\(" "\\)" "a\\#b")
+        #:got (map node-value
+                   (filter node-atom? (read-elisp-ast "\\( \\) a\\#b")))))
+
+    (test "a bar is an ordinary symbol character, not an escape"
+      (assert-equal #:expect '() #:got (errors-elisp "(| a b)"))
+      (assert-equal #:expect '("|" "a" "b")
+        #:got (map node-value
+                   (node-elements (car (read-elisp-ast "(| a b)"))))))
+
+    (test "a brace is a symbol character, not a bracket"
+      (assert-equal #:expect '("{" "_" "}")
+        #:got (map node-value (filter node-atom? (read-elisp-ast "{ _ }")))))
 
     (test "a dotted pair keeps its dot"
       (assert-same-text #:expect "(a . b)" #:got (round-trip "(a . b)")))

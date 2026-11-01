@@ -84,7 +84,7 @@ columns in, it puts them where the first one is.  An operator alone on its
 line has nothing to line up under, so what follows it goes one column in from
 the opener.
 
-The same exception covers a *data list* — a binding list, a vector, a quoted
+The same exception covers a *data list* — a binding list, a quoted
 structure — whose elements line up under the first element:
 
 #+begin_src scheme
@@ -95,6 +95,13 @@ structure — whose elements line up under the first element:
 
 *Why?*  Those elements are not a body; they are a column of things, and a
 column is easier to scan when it is aligned.
+
+A *vector* is such a list even when its first element is a symbol.
+`#(foo bar)` holds two symbols and is not a call to `foo`, so its elements
+line up under the first one like the bindings above; `#u8(1 2 3)` is the same
+rule with numbers in it.  Reading a vector as a call is how a formatter ends
+up aligning `#(a b` `     c)` under the wrong column for no reason the author
+can see.
 
 A *clause* is the exception to the exception.  The clause of a `cond`,
 `case`, `handler-case` or `condition-case` is a condition and a body, so its
@@ -834,9 +841,9 @@ document.
 *SIFT008* (`empty-form`) exists because `()` reads as "the empty list" and
 evaluates as an error in Scheme: it is data that needs a quote, and the place
 it happens is almost always a forgotten `'()`.  The rule is careful not to
-fire on a *parameter* list, a binding list or quoted data — where `()` is
-exactly right — and it says nothing at all in Emacs Lisp and Common Lisp,
-where `()` is `nil`.
+fire on a *parameter* list, a binding list, the literals of a `syntax-rules` or
+`syntax-case` transformer, or quoted data — where `()` is exactly right — and
+it says nothing at all in Emacs Lisp and Common Lisp, where `()` is `nil`.
 
 *SIFT037* (`duplicate-binding`) catches `(let ((x 1) (x 2)) ...)`.  In `let*`
 it is legal and still almost always a mistake: the first binding is dead, and

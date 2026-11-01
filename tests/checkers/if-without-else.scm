@@ -30,6 +30,30 @@
       (assert-warnings #:source "(if a b c)\n" #:checker 'if-without-else
                        #:expect '()))
 
+    (test "a vector literal is data, not a form"
+      (assert-warnings #:source "(define v #(if a b))\n"
+                       #:checker 'if-without-else
+                       #:expect '()))
+
+    (test "a quasiquoted or quasisyntaxed template is data"
+      (assert-warnings #:source "(define x `(a (if b c)))\n"
+                       #:checker 'if-without-else
+                       #:expect '())
+      (assert-warnings #:source "(define x #`(if a b))\n"
+                       #:checker 'if-without-else
+                       #:expect '()))
+
+    (test "what an unquote puts back is code again"
+      (assert-warnings #:source "(define x `(a ,(if b c)))\n"
+                       #:checker 'if-without-else
+                       #:expect '((1 17)))
+      (assert-warnings #:source "(define x #`(list #,(if a b)))\n"
+                       #:checker 'if-without-else
+                       #:expect '((1 22)))
+      (assert-warnings #:source "(define x `#(1 ,(if a b)))\n"
+                       #:checker 'if-without-else
+                       #:expect '((1 18))))
+
     (test "the fix rewrites it as when"
       (assert-fix #:source "(if a b)\n" #:checker 'if-without-else
                   #:expected "(when a b)\n"))

@@ -231,6 +231,13 @@
      let-values let*-values case-lambda do guard parameterize
      with-exception-handler))
 
+;; Forms whose arguments are literals, patterns and templates rather than
+;; expressions.  `()` is the empty literals list in `(syntax-rules () ...)`
+;; and in `(syntax-case stx () ...)`, and an empty list in a template is data
+;; the macro is building -- not a value the program forgot to quote.
+(define data-argument-heads
+  '(syntax-rules syntax-case))
+
 (define (empty-form-warnings ast source dialect)
   (let ((warnings '()))
     (walk-with-ancestors
@@ -241,11 +248,12 @@
                (pair? ancestors))
          (let ((parent (car ancestors)))
            ;; `()` is suspicious as an argument to a call, and nowhere else:
-           ;; a parameter list, a binding list and quoted data all use it
-           ;; legitimately.
+           ;; a parameter list, a binding list, the literals of a transformer
+           ;; and quoted data all use it legitimately.
            (when (and (node-list? parent)
                    (node-head-name parent)
-                   (not (memq (node-head-name parent) parameter-list-heads)))
+                   (not (memq (node-head-name parent) parameter-list-heads))
+                   (not (memq (node-head-name parent) data-argument-heads)))
              (set! warnings
                    (cons (make-lint-warning 'empty-form 'warning
                                             "`()` is not a value here; Scheme's empty list needs quoting"

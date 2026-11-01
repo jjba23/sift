@@ -406,7 +406,7 @@ Both the editor-facing names and the everyday ones are accepted, so
 ;;;   kind             value                         fields
 ;;;   ---------------- ----------------------------- --------------------------
 ;;;   atom             the source text of the atom    atom-type, package-marker
-;;;   list             the list of child nodes        open, close
+;;;   list             the list of child nodes        open, close, vector
 ;;;   comment          "; ..." up to, not including,  inline
 ;;;                    the newline
 ;;;   block-comment    "#| ... |#"                   --
@@ -417,9 +417,17 @@ Both the editor-facing names and the everyday ones are accepted, so
 ;;;   opaque           text copied verbatim           --
 ;;;
 ;;; A vector is a list node whose `open' field is "#(" and a bytevector one
-;;; whose `open' is "#u8("; both close with ")".  This keeps the renderer's
-;;; one rule -- "a list is its opener, its children, its closer" -- true for
-;;; every bracketed datum.
+;;; whose `open' is "#u8(" or "#vu8("; both close with ")".  This keeps the
+;;; renderer's one rule -- "a list is its opener, its children, its closer" --
+;;; true for every bracketed datum.  The `vector' field says whether the node
+;;; is a vector literal, which the reader decides because it is the only pass
+;;; that knows the dialect: `[' is a vector in Emacs Lisp and a clause in
+;;; Scheme.
+;;;
+;;; A symbol written in the extended syntax Guile reads, `#{foo bar}#', is an
+;;; atom like any other: its value is the text between the two markers, its
+;;; type is `symbol', and the formatter copies it back unchanged.  Nothing
+;;; parses what is inside it, because what is inside it is a name.
 ;;;
 ;;; Every node carries its start and end location, so that a diagnostic can
 ;;; point at it, a fix can replace exactly it, and a verbatim node can have
@@ -472,12 +480,27 @@ without writing a lambda around every accessor."
 (define (node-shebang? node) (node-kind? node 'shebang))
 (define (node-opaque? node) (node-kind? node 'opaque))
 (define (node-vector? node)
-  "Return @code{#t} for a vector: \"#(\" in Scheme and Common Lisp, \"[\" in Emacs Lisp."
+  "Return @code{#t} for a vector literal.
+
+A vector is `#(1 2)' in every dialect sift reads, and `[1 2]' in Emacs Lisp,
+where a square bracket *is* the vector syntax.  In Scheme and Common Lisp a
+square bracket is a list written with brackets -- a `cond' clause, most of the
+time -- and is not a vector at all.
+
+The reader settles the question when it reads the opener, because that is
+where the dialect is known, and records the answer on the node; this asks the
+node."
+  (and (node-list? node) (node-field node 'vector #f)))
+
+(define (node-bytevector? node)
+  "Return @code{#t} for a bytevector, in either of its two spellings.
+
+`#u8(...)' is the one Guile and R7RS write and `#vu8(...)' the one R6RS writes;
+both name the same datum, so a checker asks this rather than comparing the
+opener itself."
   (and (node-list? node)
     (let ((open (node-open node)))
-      (or (equal? open "#(") (equal? open "[")))))
-(define (node-bytevector? node)
-  (and (node-list? node) (equal? (node-open node) "#u8(")))
+      (or (equal? open "#u8(") (equal? open "#vu8(")))))
 (define (node-stray-delimiter? node)
   (and (node-atom? node) (eq? (node-atom-type node) 'stray-delimiter)))
 (define (node-datum-comment? node)
@@ -521,7 +544,7 @@ treat it as code."
   (and (node-conditional? node) (node-field node 'guarded-form #f)))
 
 (define (node-open node)
-  "Return the opening token of a list node: \"(\", \"[\", \"{\", \"#(\" ..."
+  "Return the opening token of a list node: \"(\", \"[\", \"#(\" ..."
   (and (node-list? node) (node-field node 'open "(")))
 
 (define (node-close node)
@@ -575,9 +598,16 @@ result is the form as a program sees it."
 
 Only an unquoted, unprefixed atom names an operator: @code{('foo x)} and
 @code{(#'foo x)} have no operator, which is what the indentation table keys
-on."
+on.
+
+A vector has no operator either.  @code{#(progn a)} is a literal that holds
+two symbols; reading the first of them as an operator is how a linter ends up
+offering to replace a vector with its contents, and a formatter ends up
+indenting a literal like a call."
   (let ((head (node-head node)))
     (and head
+      (not (node-vector? node))
+      (not (node-bytevector? node))
       (node-atom? head)
       (not (node-stray-delimiter? head))
       (let ((type (node-atom-type head)))
