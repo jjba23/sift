@@ -21,6 +21,7 @@
   #:use-module (srfi srfi-13)
   #:export (test
              check
+             bench
              editors-check
              install
              uninstall
@@ -111,6 +112,31 @@ the checkout that is being developed, and the load path is passed here rather
 than exported by the caller, so `maak test' works from a clean checkout."
   (run-guile "(begin (use-modules (tests run)) (exit (run-all!)))"))
 
+(define (bench . args)
+  "Time sift's own work, and say what each part costs.
+
+What is timed is what a user waits for -- read, format, lint, and the same
+over the whole tree -- and then the parts those are made of, so a regression
+has somewhere to point.  Veritas is the runner here too: a benchmark is a task
+whose result is a `benchmark-result', which is what the reporter already knows
+how to print.
+
+The words after the task name are paths to measure instead of `src', and
+`SIFT_BENCHMARK_PATHS' does the same from the environment -- a corpus named
+with colons, since a task's arguments are its operands and a flag cannot be
+passed through this way."
+  (dsl:manifest-shell
+   (append (list "guile")
+           (guile-load-flags)
+           (list "-c"
+                 (dsl:shell-quote
+                  (format #f "(begin (use-modules (benchmarks run)) ~a(exit (run-benchmarks!)))"
+                          (if (null? args)
+                            ""
+                            (format #f "(setenv \"SIFT_BENCHMARK_PATHS\" ~s) "
+                                    (string-join args ":")))))))
+   #:verbose? #t))
+
 (define (check)
   "Compile every source and test module, so a syntax error fails the build.
 
@@ -121,7 +147,7 @@ first semicolon and run as three commands."
   (dsl:manifest-shell
    (list "sh" "-c"
          (dsl:shell-quote
-          (format #f "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
+          (format #f "set -eu\nexport GUILE_LOAD_PATH='./src:.:~a:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh"
                   (veritas-source))))
    #:verbose? #t))
 
@@ -146,7 +172,7 @@ real executable over every module in the tree."
   (dsl:manifest-shell
    (list "sh" "-c"
          (dsl:shell-quote
-          "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
+          "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift check"))
    #:verbose? #t))
 
 (define (docs)
@@ -259,7 +285,7 @@ one to trust with anyone else's."
   ;; the quotes as part of the command name and fail with \"No such file or
   ;; directory\" before the first file was read.
   (dsl:run (list "sh" "-c"
-                 "set -eu\nfind src tests -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
+                 "set -eu\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 | xargs -0 ./bin/sift format --write")
            #:verbose? #t))
 
 (define (clean)

@@ -25,6 +25,7 @@
   #:use-module (ice-9 textual-ports)
   #:use-module (sift records)
   #:use-module (sift reader)
+  #:use-module (sift pool)
   #:use-module (sift check base)
   #:use-module (sift checkers whitespace)
   #:use-module (sift checkers comments)
@@ -325,13 +326,19 @@ indentation width, the LOOP keyword style."
   "Lint every file in @var{paths}, returning one list of warnings.
 
 The warnings of the whole run are sorted together, so the report reads in
-file order and a pipeline can compare runs line by line."
-  (sort (append-map (lambda (path)
-                      (lint-file path #:dialect dialect
-                                 #:checkers checkers
-                                 #:exclude-checkers exclude-checkers
-                                 #:severity severity #:options options))
-                    paths)
+file order and a pipeline can compare runs line by line.
+
+The files are linted in parallel, because nothing one file says is anything
+another file reads, and the answer is sorted anyway -- which is what lets the
+whole thing be spread over the processors without changing a byte of it."
+  (sort (apply append
+               (map-ordered
+                (lambda (path)
+                  (lint-file path #:dialect dialect
+                             #:checkers checkers
+                             #:exclude-checkers exclude-checkers
+                             #:severity severity #:options options))
+                paths))
         lint-warning<?))
 
 ;;; ===== Fixes =====

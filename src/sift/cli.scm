@@ -33,6 +33,7 @@
   #:use-module (ice-9 textual-ports)
   #:use-module (sift records)
   #:use-module (sift reader)
+  #:use-module (sift pool)
   #:use-module (sift format)
   #:use-module (sift lint)
   #:use-module (sift lsp)
@@ -678,6 +679,53 @@ own settings would be a filter nobody could set."
   (let ((config (load-effective-config overrides state)))
     (if config (thunk config) 2)))
 
+;;; ===== Many files =====
+;;;
+;;; Every command that takes more than one file does the same thing to each of
+;;; them, and nothing it does to one file is anything another file can see.
+;;; That is the whole reason these three commands go through one function: it is
+;;; the only place that decides whether a run is spread over the processors, and
+;;; the only place that decides what "in order" means for the bytes it prints.
+;;;
+;;; A run that writes to the files it reads is the exception.  Such a run stops
+;;; at the first file it cannot read, because a formatter asked to write a tree
+;;; must not half-rewrite one and then explain itself: the files it has already
+;;; written are files the caller has to find and undo.  A run that only reads is
+;;; free to read everything at once and answer in file order.
+
+(define* (run-files files work #:key (parallel? #t))
+  "Apply @var{work} to every path of @var{files} and write what each of them said.
+
+@var{work} answers the exit status for that file, and may write to the current
+output and error ports.  Whatever it writes is written out here, in file order:
+a run over twelve processors prints the bytes a run over one processor prints.
+
+When @var{parallel?} is false the files are taken one at a time and the run
+stops at the first status 2 -- which is what a run that writes the files it
+reads asks for."
+  (cond
+    [(or (not parallel?) (null? files) (null? (cdr files)))
+     (let loop ((rest files) (status 0))
+       (cond
+         [(or (null? rest) (= status 2)) status]
+         [else (loop (cdr rest) (max status (work (car rest))))]))]
+    [else
+      (let ((results
+             (map-ordered
+              (lambda (path)
+                (let ((out (open-output-string))
+                      (err (open-output-string)))
+                  (let ((status (parameterize ((current-output-port out)
+                                               (current-error-port err))
+                                  (work path))))
+                    (list status (get-output-string out) (get-output-string err)))))
+              files)))
+        (for-each (lambda (result)
+                    (display (second result) (current-output-port))
+                    (display (third result) (current-error-port)))
+                  results)
+        (fold (lambda (result status) (max status (first result))) 0 results))]))
+
 (define (run-format config files state)
   (cond
     [(assq 'stdin state)
@@ -692,25 +740,18 @@ own settings would be a filter nobody could set."
     [(null? files)
      ;; No files and no --stdin: read standard input, as every Unix filter does.
      (format-one config #f (get-string-all (current-input-port)))]
-    [(assq 'write state)
-     (fold (lambda (path status)
-             (if (= status 2)
-               status
-               (call-with-values (lambda () (safe-read-file path))
-                 (lambda (source failure)
-                   (if failure failure
-                     (format-one config path source #:write? #t))))))
-           0 files)]
     [else
-      (fold (lambda (path status)
-              (if (= status 2)
-                status
-                (call-with-values (lambda () (safe-read-file path))
-                  (lambda (source failure)
-                    (if failure failure
-                      (format-one config path source
-                                  #:diff? (and (assq 'diff state) #t)))))))
-            0 files)]))
+      (let ((write? (and (assq 'write state) #t))
+            (diff? (and (assq 'diff state) #t)))
+        (run-files files
+                   (lambda (path)
+                     (call-with-values (lambda () (safe-read-file path))
+                       (lambda (source failure)
+                         (if failure
+                           failure
+                           (format-one config path source
+                                       #:write? write? #:diff? diff?)))))
+                   #:parallel? (not write?)))]))
 
 ;;; ===== check =====
 
@@ -764,28 +805,31 @@ names the buffer it piped in."
 
 A source sift could not read is not a formatting finding: the reader says what
 is wrong with it, and a diff of a file with a missing parenthesis would be a
-guess at where the parenthesis goes."
-  (append-map
-   (lambda (pair)
-     (let ((path (car pair))
-           (source (cdr pair)))
-       (call-with-values
-         (lambda ()
-           (format-with config (dialect-for config path source) path source))
-         (lambda (formatted errors)
-           (if (or (pair? errors) (string=? formatted source))
-             '()
-             (list (formatting-finding path)))))))
-   pairs))
+guess at where the parenthesis goes.  The sources are asked about in parallel:
+two of them have nothing to say to each other."
+  (apply append
+         (map-ordered
+          (lambda (pair)
+            (let ((path (car pair))
+                  (source (cdr pair)))
+              (call-with-values
+                (lambda ()
+                  (format-with config (dialect-for config path source) path source))
+                (lambda (formatted errors)
+                  (if (or (pair? errors) (string=? formatted source))
+                    '()
+                    (list (formatting-finding path)))))))
+          pairs)))
 
 (define* (lint-findings config pairs)
   "Return every lint finding of every source in @var{pairs}."
-  (append-map
-   (lambda (pair)
-     (call-with-values
-       (lambda () (lint-text config (cdr pair) #:path (car pair)))
-       (lambda (warnings dialect status) warnings)))
-   pairs))
+  (apply append
+         (map-ordered
+          (lambda (pair)
+            (call-with-values
+              (lambda () (lint-text config (cdr pair) #:path (car pair)))
+              (lambda (warnings dialect status) warnings)))
+          pairs)))
 
 (define* (report-findings config pairs #:key (lint? #f) (formatting? #t))
   "Render the findings of the whole run once, and answer the exit status.
@@ -813,15 +857,14 @@ makes `ci --format=sarif' one document that holds both answers."
   (if (or stdin? (null? files))
     (let ((source (get-string-all (current-input-port))))
       (format-one config #f source #:check? #t #:label label))
-    (fold (lambda (path status)
-            (if (= status 2)
-              status
-              (call-with-values (lambda () (safe-read-file path))
-                (lambda (source failure)
-                  (if failure failure
-                    (let ((this (format-one config path source #:check? #t)))
-                      (max status this)))))))
-          0 files)))
+    (run-files
+     files
+     (lambda (path)
+       (call-with-values (lambda () (safe-read-file path))
+         (lambda (source failure)
+           (if failure
+             failure
+             (format-one config path source #:check? #t))))))))
 
 (define (command-check args)
   (let* ((state (parse-options args)))
@@ -863,13 +906,20 @@ makes `ci --format=sarif' one document that holds both answers."
         (cons 'max-positional (config-ref config 'max-positional))
         (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
 
-(define* (lint-text config source #:key (path #f) (label #f))
-  "Lint one source, returning @code{(values warnings dialect status)}."
+(define* (lint-text config source #:key (path #f) (label #f) (severity #f))
+  "Lint one source, returning @code{(values warnings dialect status)}.
+
+@var{severity} overrides the project's threshold, and is what the fixing
+commands pass: a fixer fixes everything it can, because `severity' is a
+statement about what a *report* is worth reading rather than about what a
+rewrite is worth making.  A project that says `severity: warning' has said that
+its informational findings are not worth failing a build over, not that they are
+not worth tidying up when someone asks for a tidy-up."
   (let* ((dialect (dialect-for config path source #:label label))
          (warnings (lint-source source #:dialect dialect #:file path
                                 #:checkers (config-ref config 'checkers)
                                 #:exclude-checkers (config-ref config 'exclude-checkers)
-                                #:severity (config-ref config 'severity)
+                                #:severity (or severity (config-ref config 'severity))
                                 #:options (lint-options config))))
     (values warnings dialect 0)))
 
@@ -899,7 +949,10 @@ makes `ci --format=sarif' one document that holds both answers."
     (if (or (assq 'stdin state) (null? files))
       (let* ((label (or (assq-ref state 'label) (and (pair? files) (car files))))
              (source (get-string-all (current-input-port))))
-        (call-with-values (lambda () (lint-text config source #:path label))
+        (call-with-values (lambda ()
+                            (lint-text config source #:path label
+                                       ;; a fixer fixes what it can find
+                                       #:severity (and fix? 'info)))
           (lambda (warnings dialect status)
             (cond
               ;; A buffer that is not a program is left alone: the refusal has
@@ -924,26 +977,29 @@ makes `ci --format=sarif' one document that holds both answers."
                 (max status (if (findings? warnings) 1 0))]))))
       ;; the status of the *run* is the worst status any file produced, so
       ;; the accumulator is what carries it from one file to the next
-      (fold (lambda (path run-status)
-              (if (= run-status 2)
-                run-status
-                (call-with-values (lambda () (safe-read-file path))
-                  (lambda (source failure)
-                    (if failure failure
-                      (call-with-values
-                        (lambda () (lint-text config source #:path path))
-                        (lambda (warnings dialect file-status)
-                          (cond
-                            [fix?
-                              (max run-status
-                                   (lint-with-fixes config path source warnings))]
-                            [else
-                              (report-warnings config warnings #:files 1)
-                              (max run-status
-                                   (max file-status
-                                        (if (findings? warnings) 1 0)))]))))))))
-            0
-            files))))
+      (run-files
+       files
+       (lambda (path)
+         (call-with-values (lambda () (safe-read-file path))
+           (lambda (source failure)
+             (if failure
+               failure
+               (call-with-values
+                 (lambda ()
+                   (lint-text config source #:path path
+                              ;; a fixer fixes what it can find
+                              #:severity (and fix? 'info)))
+                 (lambda (warnings dialect file-status)
+                   (cond
+                     [fix?
+                       (lint-with-fixes config path source warnings)]
+                     [else
+                       (report-warnings config warnings #:files 1)
+                       (max file-status
+                            (if (findings? warnings) 1 0))])))))))
+       ;; a run that fixes the files it reads stops at the first one it cannot
+       ;; read, for the reason `run-format' gives
+       #:parallel? (not fix?)))))
 
 (define (fix-refused config path warnings)
   "Return @code{#t} when @var{warnings} say @var{path} is not a program.

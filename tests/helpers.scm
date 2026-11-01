@@ -276,17 +276,24 @@ about: whether the reader said \"unterminated\", \"unmatched\" or nothing."
 
 The question is asked with `lstat', because a dangling symlink neither exists
 nor is a directory: `file-exists?' says no, so a tree holding one could not be
-taken apart, and the failure read as a test that would not clean up."
+taken apart, and the failure read as a test that would not clean up.
+
+A path that goes away between the question and the answer is a path that is
+gone.  A cleanup that raises on that turns one test's leftovers into another
+test's failure, and the report then names a test that was working."
   (let ((info (catch #t (lambda () (lstat path)) (lambda (key . args) #f))))
     (when info
-      (if (eq? (stat:type info) 'directory)
-        (begin
-          (for-each (lambda (name)
-                      (unless (member name '("." ".."))
-                        (remove-tree (string-append path "/" name))))
-                    (or (scandir path) '()))
-          (rmdir path))
-        (delete-file path)))))
+      (catch #t
+             (lambda ()
+               (if (eq? (stat:type info) 'directory)
+                 (begin
+                   (for-each (lambda (name)
+                               (unless (member name '("." ".."))
+                                 (remove-tree (string-append path "/" name))))
+                             (or (scandir path) '()))
+                   (rmdir path))
+                 (delete-file path)))
+             (lambda (key . args) #f)))))
 
 (define temp-name-counter 0)
 
