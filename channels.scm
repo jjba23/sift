@@ -20,16 +20,14 @@
        (branch "trunk")
        ;; The release this configuration is built against: lambdock 0.21.1,
        ;; heks-toon 0.3.2, maak 0.14.0, veritas 0.9.0, scriba 0.4.5, sift
-       ;; 1.11.1, and the rest of the collection, at the same revision.  The
-       ;; sift bump is the release its own `maak release' cut: a declaration is
-       ;; no longer read as a call (`use-modules`, `#:export`, a `defpackage`
-       ;; and a parameter list all stop being counted as positional
-       ;; arguments), `#:use-module` is an import the unused-import rule reads,
-       ;; SIFT062 (`unused-definition`) names the definitions nothing can
-       ;; reach, and 1.11.1 stops that import rule from reading a quasiquote as
-       ;; a datum -- which is what let 1.11.0 talk this tree out of an import
-       ;; its renderer needs.
-       (commit "6832263d15081294222f600270506e58ccac2909")
+       ;; 1.13.0, and the rest of the collection, at the same revision.  This
+       ;; is the bump to sift 1.13.0 itself: the language server names each
+       ;; positional argument with an inlay hint and takes its settings from the
+       ;; editor as well as from `sift.yaml', SIFT063 (`sxml-empty-element')
+       ;; reports the markup element that carries attributes and no children,
+       ;; and SIFT032 stops counting the fields of a Guix `package' or
+       ;; `operating-system' as positional arguments.
+       (commit "6874be6e35fd6f1852e2f11f8513cb2a1beeb2e1")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
