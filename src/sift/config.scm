@@ -57,6 +57,7 @@
             trust-config-file!
             trusted-config-file?
             scheme-config?
+            config-file-names
             config-error?
             config-error->string
             with-config-error-handler

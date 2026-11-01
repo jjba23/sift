@@ -951,8 +951,9 @@ from the editor's side.
 |------------------------------------------------------+---------+-----------------------------------------------------------------------------------|
 | ~initialize~, ~shutdown~, ~exit~                     | yes     | the capabilities below, and the exit status the protocol asks for                 |
 | ~textDocument/didOpen~, ~didChange~, ~didClose~       | yes     | full synchronisation: the buffer is linted on every change                        |
-| ~textDocument/didSave~                               | yes     | findings published, and the file read again for the index                         |
-| ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away        |
+| ~textDocument/didSave~                               | yes     | the file is read again for the index, and every open buffer is checked against it |
+| ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away; the open buffers are checked again |
+| ~workspace/didChangeConfiguration~                   | yes     | the settings are read again -- sift.yaml, the user's, the command line -- and every open buffer is checked against them |
 | ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page                    |
 | ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; honours ~context.only~ |
 | ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
@@ -966,6 +967,7 @@ from the editor's side.
 | ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
 | ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
+| ~window/logMessage~ (server to client)              | yes     | what the server did: the root it serves, the dialect of each buffer, the findings a report carries, every re-read |
 | ~$/cancelRequest~, ~$/setTrace~                      | ignored | a request is answered before a cancel could reach it; nothing is traced           |
 | ~textDocument/signatureHelp~                         | yes     | the formal list and the docstring of the definition the head resolves to          |
 | ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
@@ -975,15 +977,18 @@ from the editor's side.
 | ~textDocument/foldingRange~                          | no      | the formatter has no opinion about what to fold                                   |
 | ~textDocument/rangeFormatting~, ~onTypeFormatting~   | no      | sift formats a whole buffer or nothing                                            |
 | ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
-| ~workspace/didChangeConfiguration~                   | no      | a setting belongs in ~sift.yaml~; restart the server after changing one            |
 | ~workspace/didChangeWorkspaceFolders~                | no      | the root is read once, at ~initialize~                                            |
 
 Two limits belong next to the table rather than in an issue.  A reference is
 matched *by name, within one dialect*: sift expands no macro, follows no
 ~define-module~ import and reads no ~defpackage~, so a name a macro invents is
 invisible to ~references~ and to ~rename~.  And the project is read once per
-session, on the first request that needs it, so a file changed outside the
-editor without a ~didSave~ is seen when the server is restarted.
+session, on the first request that needs it: what refreshes it afterwards is
+the client saying so -- a ~didSave~, a file changed on disk, a configuration
+edited and saved -- which is why the server asks for ~openClose~, a full change
+and ~save~ in its synchronisation options instead of the bare change kind ~1~.
+An editor that sends none of those is an editor sift can only answer from what
+it read when the session started.
 
 The code actions are the three things sift can do without being told what to
 call anything: fix the finding under the cursor (~quickfix~), fix every safe

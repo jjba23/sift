@@ -15,6 +15,9 @@
 ;; it:
 ;;
 ;;   textDocument/didOpen, didChange   lint the buffer, publish the findings
+;;   textDocument/didSave              re-read the project, check it all again
+;;   workspace/didChangeWatchedFiles   the same, for a file nobody has open
+;;   workspace/didChangeConfiguration  read the settings again, check again
 ;;   textDocument/codeAction           each finding's fix, fix-all, format this definition
 ;;   textDocument/formatting           format the buffer
 ;;   textDocument/hover                a symbol's definition, or the rule under it
@@ -39,11 +42,27 @@
 ;; no inlay hints.  A server that answered every request an editor can make
 ;; would be a server that lies about half of them.
 ;;
-;; Documents are kept whole and replaced whole (`textDocumentSync' 1).  An
-;; incremental edit would mean patching a string by character offsets that the
-;; editor computed in UTF-16, and the formatter's promise -- read everything,
-;; write everything back -- is only kept if the text it reads is the text the
-;; editor has.
+;; Documents are kept whole and replaced whole (`change: 1' in the sync
+;; options).  An incremental edit would mean patching a string by character
+;; offsets that the editor computed in UTF-16, and the formatter's promise --
+;; read everything, write everything back -- is only kept if the text it reads
+;; is the text the editor has.
+;;
+;; A finding is a function of the text *and of the project*, and most of what
+;; this server does is arranged around that: a save and a watched file refresh
+;; the index that jumps and references read, a changed configuration is read
+;; again and every open buffer is re-checked against it, and the findings of
+;; every open buffer -- not only the one that changed -- go out again, because
+;; a finding can name a definition in a file nobody is looking at.  What the
+;; server asks of the client is the half of that it cannot do alone:
+;; `openClose', a full `change', and `save', which is the news that the file on
+;; disk is the buffer.
+;;
+;; It also says what it is doing, over `window/logMessage': the root it serves,
+;; the dialect each buffer is read as, the findings each report carries, and
+;; every re-read it was asked for.  Eglot shows those lines in the *EGLOT
+;; events* buffer, and without them "nothing to report" and "not running" look
+;; exactly alike.
 
 (define-module (sift lsp)
   ;; The server is not declarative: it hands the definition accessors to
@@ -242,23 +261,34 @@ from sending one bad message."
   (language-id document-language-id)
   (version document-version set-document-version!)
   (dialect document-dialect)
-  ;; the findings last sent to the editor, so that the same ones are not sent
-  ;; again: an editor re-renders every diagnostic it is given, and a buffer
-  ;; being typed in has most of its findings unchanged from one keystroke to
-  ;; the next
+  ;; what the editor was last told, and about which text, as
+  ;; `(diagnostics . text)' -- see `publish!' for why the text is kept beside
+  ;; the findings rather than the findings alone
   (published document-published set-document-published!))
 
 (define (new-document uri text language-id version dialect)
   "Return a document about which nothing has been published yet."
   (make-document uri text language-id version dialect #f))
 
+(define (client-version value)
+  "Return @var{value} as a document version, or @code{#f} when it is not one.
+
+The protocol says a version is an integer, and a client that sends a JSON
+@code{null} -- or a string, or nothing at all -- is a client sift should keep
+answering rather than one whose document is stored under a version no
+comparison can use."
+  (and (number? value) value))
+
 (define (dialect-of language-id uri)
   "Return the dialect a buffer is read as.
 
 The client's language identifier is the first word; the file's own extension
-answers when the identifier is something sift has never seen."
-  (or (and language-id (string->dialect language-id))
-    (and uri (detect-dialect #:file (strip-uri uri)))
+answers when the identifier is something sift has never seen -- and when it is
+not a string at all, which is what a client that has no language for the file
+sends.  A server that raised here would have no document to answer about for
+the rest of the session."
+  (or (and (string? language-id) (string->dialect language-id))
+    (and (string? uri) (detect-dialect #:file (strip-uri uri)))
     'scheme))
 
 (define (strip-uri uri)
@@ -446,12 +476,19 @@ has to be right now, and a lazy entry would only defer the work by a moment."
 
 FNV-1a, because a cache file's name has to be the same on the next run and a
 hash table's order is not a promise about anything; the path is also stored
-inside the file, so a collision costs a reread and never a wrong answer."
+inside the file, so a collision costs a reread and never a wrong answer.
+
+The exclusive or is `logxor', which is what Guile calls it: `bitwise-xor' is
+not a binding in this Guile at all, and a name that only looks like the right
+one raises the moment a project has a root to cache.  That would be the whole
+of navigation -- definition, references, completion, rename -- failing on the
+first request of a real editor session, which is why this function is tested
+against a workspace rather than only against itself."
   (let loop ((characters (string->list text)) (hash 14695981039346656037))
     (if (null? characters)
       (number->string hash 16)
       (loop (cdr characters)
-            (modulo (* (bitwise-xor hash (char->integer (car characters)))
+            (modulo (* (logxor hash (char->integer (car characters)))
                        1099511628211)
                     18446744073709551616)))))
 
@@ -1194,10 +1231,11 @@ No `context.only' means the client has no preference and takes everything."
              (field "documentChanges"
                     (vector
                      (json-object
-                      (field "textDocument"
-                             (json-object
-                              (field "uri" uri)
-                              (field "version" version)))
+                      ;; `text-document-of' and not a version written out by
+                      ;; hand: a version sift does not know is left out rather
+                      ;; than written as JSON `false', which a client compares
+                      ;; against the buffer and refuses.
+                      (field "textDocument" (text-document-of uri version))
                       (field "edits"
                              (vector
                               (json-object
@@ -1524,8 +1562,19 @@ typed, and the findings for the part that could be read are still reported."
   (json-object
    (field "capabilities"
           (json-object
-           ;; 1 is "full": the editor sends the whole buffer after every change.
-           (field "textDocumentSync" 1)
+           ;; Synchronisation is named field by field rather than as the bare
+           ;; number 1, because the bare number says only how a change is
+           ;; spelled.  A client reads a missing `save' as "this server does
+           ;; not want saves", and `didSave' is how sift hears that the file
+           ;; on disk is the buffer -- without it the index it answers jumps
+           ;; from is never refreshed, and a definition added a minute ago is
+           ;; still a definition sift cannot find.  1 under `change' is still
+           ;; "full": the editor sends the whole buffer after every change.
+           (field "textDocumentSync"
+                  (json-object
+                   (field "openClose" #t)
+                   (field "change" 1)
+                   (field "save" (json-object (field "includeText" #f)))))
            (field "documentFormattingProvider" #t)
            (field "codeActionProvider"
                   (json-object
@@ -1569,9 +1618,14 @@ typed, and the findings for the part that could be read are still reported."
   (started? session-started? set-session-started!)
   (shutdown? session-shutdown? set-session-shutdown!)
   (watchers? session-watchers? set-session-watchers!)
-  (registered? session-registered? set-session-registered!))
+  (registered? session-registered? set-session-registered!)
+  ;; the configuration every finding is computed from, and the thunk that
+  ;; reads it again: a project that edits its own `sift.yaml' in the editor it
+  ;; is linting from should not have to restart the server to be heard
+  (config session-config set-session-config!)
+  (reload session-reload set-session-reload!))
 
-(define (new-session)
+(define* (new-session #:key config reload)
   (let ((session (make-session)))
     (set-session-started! session #f)
     (set-session-shutdown! session #f)
@@ -1580,6 +1634,8 @@ typed, and the findings for the part that could be read are still reported."
     ;; answers with an error sift would then have to ignore twice.
     (set-session-watchers! session #f)
     (set-session-registered! session #f)
+    (set-session-config! session config)
+    (set-session-reload! session reload)
     session))
 
 (define (client-supports-watchers? params)
@@ -1590,7 +1646,22 @@ typed, and the findings for the part that could be read are still reported."
                               "didChangeWatchedFiles")
                     "dynamicRegistration")))
 
-(define (register-watchers! out session dialect)
+(define (config-files-patterns)
+  "Return a watcher glob for each name a project's configuration may have.
+
+A settings file is not a program sift indexes, and a client that watches only
+`**/*.scm' would never say that `sift.yaml' was saved.  The configuration is
+part of what a finding means -- the line length, the severity floor, which
+rules run -- so a change to it is a change to every finding in the project."
+  (map (lambda (name) (string-append "**/" name)) config-file-names))
+
+(define (watcher-globs)
+  "Return the glob patterns sift asks a client to watch."
+  (append (map (lambda (extension) (string-append "**/*" extension))
+               lisp-extensions)
+          (config-files-patterns)))
+
+(define (register-watchers! out session)
   "Ask the client to watch the files sift indexes, once per session."
   (unless (session-registered? session)
     (set-session-registered! session #t)
@@ -1610,12 +1681,10 @@ typed, and the findings for the part that could be read are still reported."
                                     (json-object
                                      (field "watchers"
                                             (list->vector
-                                             (map (lambda (extension)
+                                             (map (lambda (glob)
                                                     (json-object
-                                                     (field "globPattern"
-                                                            (string-append "**/*"
-                                                                           extension))))
-                                                  lisp-extensions))))))))))))))
+                                                     (field "globPattern" glob)))
+                                                  (watcher-globs)))))))))))))))
 
 ;;; --- writing ------------------------------------------------------------
 
@@ -1651,41 +1720,116 @@ that answers with nothing looks like a request that worked."
                   (field "type" type)
                   (field "message" message))))))
 
+(define (log-message! out type message)
+  "Write @var{message} to the editor's log, at the protocol's @var{type}.
+
+`window/showMessage' is for the person in front of the editor; this is for the
+log they open when they want to know what the server did -- Eglot's *EGLOT
+events* buffer is where a `window/logMessage' lands.  A server that says
+nothing about its own work leaves a user with no way to tell \"it has nothing
+to report\" from \"it is not running\", which is the question a quiet linter
+raises most often.
+
+@var{type} is 1 for an error, 2 a warning, 3 information and 4 a plain log
+line; everything sift has to say about a step it took is information."
+  (send! out
+         (json-object
+          (field "jsonrpc" "2.0")
+          (field "method" "window/logMessage")
+          (field "params"
+                 (json-object
+                  (field "type" type)
+                  (field "message" message))))))
+
+(define (notice! out message)
+  "Log an information-level @var{message} in the editor."
+  (log-message! out 3 message))
+
+(define (document-name document)
+  "Return the short name of @var{document}, for a log line."
+  (let ((path (strip-uri (document-uri document))))
+    (let ((slash (string-rindex path #\/)))
+      (if slash (substring path (+ slash 1)) path))))
+
+(define (findings-sentence diagnostics)
+  "Return what a log line says about @var{diagnostics}."
+  (let ((count (vector-length diagnostics)))
+    (case count
+      [(0) "no findings"]
+      [(1) "1 finding"]
+      [else (format #f "~a findings" count)])))
+
 (define (publish-diagnostics! out uri version diagnostics)
-  "Tell the editor what @var{diagnostics} the document at @var{uri} has."
+  "Tell the editor what @var{diagnostics} the document at @var{uri} has.
+
+The version is written only when it is one: `json-write' turns @code{#f} into
+JSON `false', and a client comparing `false' against the version of its buffer
+either refuses the report or errors on the comparison.  A report with no
+version is one a client applies to whatever it has, which is the right answer
+for a document whose version sift was never told."
   (send! out
          (json-object
           (field "jsonrpc" "2.0")
           (field "method" "textDocument/publishDiagnostics")
           (field "params"
-                 (json-object
-                  (field "uri" uri)
-                  (field "version" version)
-                  (field "diagnostics" diagnostics))))))
+                 (apply json-object
+                        (append
+                         (list (field "uri" uri))
+                         (if (number? version)
+                           (list (field "version" version))
+                           '())
+                         (list (field "diagnostics" diagnostics))))))))
 
-(define* (publish! config out document)
-  "Send the diagnostics of @var{document} to the editor, if they changed.
+(define* (publish! config out document #:key (force #f))
+  "Send the diagnostics of @var{document} to the editor, unless nothing changed.
 
 A buffer that does not parse is a buffer with findings -- the reader's own,
 with severity `error` and the code `reader` -- so this works the same way
 whether the text is a program or half of one.
 
-An editor re-renders every diagnostic it is handed, and most keystrokes in a
-file leave its findings exactly as they were: sending the same array again makes
-the editor redraw every squiggle, and makes a backend that is being asked to
-report about text that has already moved on say so.  The findings last sent are
-kept on the document, and finding them unchanged is the one case where saying
-nothing is the right answer."
-  (let ((diagnostics (lsp-diagnostics config
-                                      (document-text document)
-                                      #:dialect (document-dialect document)
-                                      #:uri (document-uri document))))
-    (unless (equal? diagnostics (document-published document))
-      (set-document-published! document diagnostics)
+What is remembered is the text the last report was about, not the findings it
+carried.  \"The findings are the same as last time\" is not the same question
+as \"the editor already has this report\": an editor drops a
+`publishDiagnostics' whose version is not the version of the buffer it is
+showing (Eglot returns early from `eglot--flymake-handle-push' when the two
+disagree), so a report sift withheld because it looked familiar can be a
+report the editor never took, and the squiggle it described stays under a line
+that no longer says that.  The text, on the other hand, is exactly what the
+editor and the server can agree on: the same text has the same findings, and a
+report about text the editor already has is the one report worth not sending
+again.
+
+@var{force} says the findings may differ even though the text did not -- the
+project it was read against changed -- which is what a save or a configuration
+reload asks for."
+  (let* ((text (document-text document))
+         (diagnostics (lsp-diagnostics config
+                                       text
+                                       #:dialect (document-dialect document)
+                                       #:uri (document-uri document))))
+    (unless (and (not force)
+              (document-published document)
+              (string=? (cdr (document-published document)) text))
+      (set-document-published! document (cons diagnostics text))
+      (notice! out
+               (format #f "sift: ~a in ~a"
+                       (findings-sentence diagnostics) (document-name document)))
       (publish-diagnostics! out
                             (document-uri document)
                             (document-version document)
                             diagnostics))))
+
+(define* (publish-all! config out documents #:key (force #f))
+  "Send the findings of every open document to the editor.
+
+Used where what changed is the project rather than a buffer -- a save, a file
+changed on disk, a configuration reload.  A finding can be about a file the
+editor is not looking at (`unused-definition', a library that is not
+installed), so the buffer whose text is unchanged is exactly the buffer that
+has to be asked again."
+  (hash-for-each (lambda (uri document)
+                   (publish! config out document #:force force))
+                 documents))
 
 ;;; --- reading a change ---------------------------------------------------
 ;;;
@@ -1720,9 +1864,93 @@ nothing is the right answer."
       text
       (loop (+ index 1) (apply-change text (vector-ref changes index))))))
 
+;;; --- the project's configuration -----------------------------------------
+;;;
+;;; Every finding is a function of the text and of the settings it was read
+;;; against, and the settings come from files the reader may be editing in
+;;; this very session.  So the configuration is a value the session holds and
+;;; can replace, never a constant a server was started with.
+
+(define (config-path? path)
+  "Return @code{#t} when @var{path} is one of the names a project's settings
+may have."
+  (let ((name (let ((slash (string-rindex path #\/)))
+                (if slash (substring path (+ slash 1)) path))))
+    (and (member name config-file-names) #t)))
+
+(define (forget-workspace! workspace)
+  "Forget everything the index knows, so the next question reads the project.
+
+A configuration decides which files are sift's to read -- `file-filter' -- so
+a session that kept its index through a settings change could be answering
+about a file the project has just excluded, or missing one it has just
+included."
+  (hash-clear! (workspace-files workspace))
+  (set-workspace-scanned! workspace #f))
+
+(define (reload-config! session workspace out documents)
+  "Read the configuration again, and check the open buffers against it.
+
+A reload that cannot be had -- the file was saved mid-edit and does not parse,
+or there is no reloader because the server was started without one -- is not
+a reason to change what the session already knows: the previous configuration
+is the last one that worked, and a linter that forgot its settings because of
+one bad save would go quiet at the worst moment."
+  (let* ((reload (session-reload session))
+         (config (and reload (reload))))
+    (cond
+      [config
+        (set-session-config! session config)
+        (set-workspace-filter! workspace (config-ref config 'file-filter))
+        (forget-workspace! workspace)
+        (let ((open (hash-count (const #t) documents)))
+          (notice! out
+                   (format #f "sift: re-read the configuration; ~a open buffer~a to check"
+                           open (if (= 1 open) "" "s"))))
+        ;; The text did not change but the yardstick did, so what sift last
+        ;; said about that text is not what it would say now.
+        (publish-all! config out documents #:force #t)]
+      [reload
+        (notice! out (string-append
+                      "sift: the configuration could not be read; "
+                      "keeping the one the session started with"))
+        ;; The files may still have changed in a way that matters even when
+        ;; they could not be understood -- a save is a save.
+        (publish-all! (session-config session) out documents #:force #t)]
+      [else
+        ;; No reloader: the caller of `lsp-serve' owns the configuration, so
+        ;; checking the buffers again is all that can be said about a change.
+        (notice! out
+                 (string-append "sift: this session cannot re-read its"
+                                " configuration; checking the open buffers"))
+        (publish-all! (session-config session) out documents #:force #t)])))
+
+(define (refresh-changed-files! workspace changes)
+  "Re-read the files @var{changes} names, from disk.
+
+Two values: how many files were read again, and whether one of them was a
+configuration file -- which is not a program sift indexes, but the yardstick
+every finding is measured with, so a change to one is a change to all of
+them."
+  (let loop ((rest changes) (refreshed 0) (settings? #f))
+    (if (null? rest)
+      (values refreshed settings?)
+      (let ((uri (json-ref (car rest) "uri" #f)))
+        (cond
+          [(not (and (string? uri) (string-prefix? "file://" uri)))
+           (loop (cdr rest) refreshed settings?)]
+          [(config-path? (strip-uri uri))
+           (loop (cdr rest) refreshed #t)]
+          ;; A project sift has not read yet needs no refreshing: whatever it
+          ;; is asked next reads the disk as it is at that moment.
+          [(not (workspace-scanned? workspace)) (loop (cdr rest) refreshed settings?)]
+          [else
+            (workspace-refresh! workspace (strip-uri uri))
+            (loop (cdr rest) (+ refreshed 1) settings?)])))))
+
 ;;; --- the handlers -------------------------------------------------------
 
-(define* (handle config session workspace documents message out)
+(define* (handle session workspace documents message out)
   "Answer one message, and return @code{'exit} or @code{'continue}.
 
 Notifications -- messages without an id -- are answered with nothing at all:
@@ -1734,7 +1962,11 @@ dead server."
     (json-ref message "params" (json-object)))
   (define (document-of)
     (hash-ref documents (json-ref (json-ref (params) "textDocument") "uri" "")))
-  (let ((method (json-ref message "method" ""))
+  ;; The configuration lives on the session rather than in this call, because
+  ;; it is the one thing a message can replace: `workspace/didChangeConfiguration'
+  ;; says the project's settings are not the ones the session started with.
+  (let ((config (session-config session))
+        (method (json-ref message "method" ""))
         (id (json-ref message "id")))
     (cond
       [(string=? method "initialize")
@@ -1744,6 +1976,10 @@ dead server."
        ;; an editor that names none still gets its open buffers searched.
        (set-workspace-root! workspace (workspace-root-of (params)))
        (reply! out id (initialize-result))
+       (notice! out
+                (format #f "sift ~a: serving ~a"
+                        sift-version
+                        (or (workspace-root workspace) "the open buffers")))
        'continue]
 
       [(string=? method "exit")
@@ -1760,8 +1996,14 @@ dead server."
       [(string=? method "initialized")
        ;; The watcher is registered after the client says it is ready: a
        ;; request sent before that is a request the client may drop.
-       (when (session-watchers? session)
-         (register-watchers! out session 'scheme))
+       (if (session-watchers? session)
+         (begin
+           (register-watchers! out session)
+           (notice! out
+                    "sift: watching the project's Lisp files and its configuration"))
+         (notice! out (string-append
+                       "sift: this client does not watch files; "
+                       "a save is the only news I get about the project")))
        'continue]
 
       [(and (request?) (not (json-ref message "method" #f)))
@@ -1782,9 +2024,12 @@ dead server."
               (document (new-document uri
                                       (json-ref item "text" "")
                                       language
-                                      (json-ref item "version" #f)
+                                      (client-version (json-ref item "version" #f))
                                       (dialect-of language uri))))
          (hash-set! documents uri document)
+         (notice! out
+                  (format #f "sift: opened ~a as ~a"
+                          (document-name document) (document-dialect document)))
          (publish! config out document)
          'continue)]
 
@@ -1794,8 +2039,9 @@ dead server."
            (set-document-text! document
                                (apply-changes (document-text document)
                                               (json-ref (params) "contentChanges" (vector))))
-           (set-document-version! document
-                                  (json-ref (json-ref (params) "textDocument") "version" #f))
+           (set-document-version!
+            document
+            (client-version (json-ref (json-ref (params) "textDocument") "version" #f)))
            (publish! config out document))
          'continue)]
 
@@ -1810,27 +2056,47 @@ dead server."
 
       [(string=? method "textDocument/didSave")
        ;; A save is the editor telling sift the file on disk is this buffer:
-       ;; the copy in the index is now a session out of date.
+       ;; the copy in the index is now out of date, and so is every finding
+       ;; that was computed against it -- in this buffer and in the others,
+       ;; because a finding can name a definition that lives in a file the
+       ;; reader is not looking at.
        (let ((document (document-of)))
          (when document
            (let ((uri (document-uri document)))
              (when (and (workspace-scanned? workspace)
                      (string-prefix? "file://" uri))
-               (workspace-refresh! workspace (strip-uri uri))))
-           (publish! config out document)))
+               (workspace-refresh! workspace (strip-uri uri))
+               (notice! out (format #f "sift: re-read ~a after a save"
+                                    (document-name document)))))
+           (publish-all! config out documents #:force #t)))
        'continue]
 
       [(string=? method "workspace/didChangeWatchedFiles")
        ;; A file changed, appeared or went away without the editor opening it:
        ;; the watcher sift asked for is the reason it hears about it.
        (let ((changes (json-ref (params) "changes" (vector))))
-         (when (and (workspace-scanned? workspace) (vector? changes))
-           (for-each
-            (lambda (change)
-              (let ((uri (json-ref change "uri" #f)))
-                (when (and uri (string-prefix? "file://" uri))
-                  (workspace-refresh! workspace (strip-uri uri)))))
-            (vector->list changes))))
+         (when (vector? changes)
+           (call-with-values
+             (lambda () (refresh-changed-files! workspace (vector->list changes)))
+             (lambda (refreshed settings?)
+               (when (positive? refreshed)
+                 (notice! out
+                          (format #f "sift: ~a file~a changed on disk"
+                                  refreshed (if (= refreshed 1) "" "s"))))
+               ;; A configuration file is not a program: what changed is what
+               ;; a finding means, so the settings are read again rather than
+               ;; only the file.
+               (cond
+                 [settings? (reload-config! session workspace out documents)]
+                 [(positive? refreshed)
+                  (publish-all! config out documents #:force #t)])))))
+       'continue]
+
+      [(string=? method "workspace/didChangeConfiguration")
+       ;; A client that says the settings changed is a client whose next
+       ;; finding can be a different finding; read the project's own files
+       ;; again rather than trusting the ones the session started with.
+       (reload-config! session workspace out documents)
        'continue]
 
       [(string=? method "textDocument/codeAction")
@@ -2046,11 +2312,11 @@ dead server."
 ;;; go on.  That is the difference between a server that loses one request and
 ;;; one that loses the session.
 
-(define (serve-one config session workspace documents message out)
+(define (serve-one session workspace documents message out)
   "Answer @var{message}, turning a raised condition into an error response."
   (let ((id (json-ref message "id" *no-id*)))
     (catch #t
-           (lambda () (handle config session workspace documents message out))
+           (lambda () (handle session workspace documents message out))
            (lambda (key . arguments)
              (let ((reason (format #f "sift: internal error (~a)~@[: ~a~]"
                                    key (and (pair? arguments) (car arguments)))))
@@ -2063,11 +2329,17 @@ dead server."
 
 ;;; --- the loop -----------------------------------------------------------
 
-(define* (lsp-serve config #:key (in #f) (out #f))
+(define* (lsp-serve config #:key (in #f) (out #f) (reload #f))
   "Serve one editor until it says `exit'.
 
 @var{in} and @var{out} are the binary ports of the conversation, standard
 input and standard output by default.
+
+@var{reload} is a thunk that returns the configuration as the project's files
+now describe it, or @code{#f} when they cannot be read.  It is called when the
+editor says the settings changed and when a watched configuration file is
+saved; a server started without one keeps the configuration it was given and
+says so rather than pretending to have re-read it.
 
 The return value is the status the protocol asks for: 0 when the editor said
 `exit` after a `shutdown`, 1 when it said `exit` without one, and 0 when the
@@ -2083,7 +2355,7 @@ should show a finding."
         (port-out (or out (current-output-port)))
         (documents (make-hash-table))
         (workspace (new-workspace config))
-        (session (new-session)))
+        (session (new-session #:config config #:reload reload)))
     (let loop ((status 0))
       (let ((frame (read-message port-in)))
         (cond
@@ -2094,7 +2366,7 @@ should show a finding."
            (reply-error! port-out json-null -32700 (cdr frame))
            (loop status)]
           [else
-            (let ((outcome (serve-one config session workspace documents
+            (let ((outcome (serve-one session workspace documents
                                       (cdr frame) port-out)))
               (if (eq? outcome 'exit)
                 (if (session-shutdown? session) 0 1)

@@ -89,6 +89,36 @@ on one save is two round trips and two undo entries for one keystroke.
 | =C-d= on a finding     | Eglot's own key: the rule's description, and its page   |
 | =C-c s f=              | format with the command instead, if you prefer          |
 
+The server asks its client for three things, and each of them is a moment it
+checks the buffer again:
+
+| What the client sends   | What sift does with it                                |
+|-------------------------+-------------------------------------------------------|
+| =didOpen=, =didChange=   | lints the buffer, and publishes the findings          |
+| =didSave=                | re-reads the saved file, then checks *every* open buffer again: a finding can name a definition in a file nobody has open |
+| =didChangeWatchedFiles=  | the same, for a file changed or deleted outside the editor |
+| =didChangeConfiguration= | reads =sift.yaml= again -- the line length, the severity floor, which rules run -- and checks every open buffer against it |
+
+So editing =sift.yaml= takes effect in the session you are already in: save it,
+and the findings come back measured against the new settings.  So does adding a
+definition in one buffer and jumping to it from another -- the jump is answered
+from an index the save refreshed, not from the one the server started with.
+
+The server also says what it is doing, at information level, over
+~window/logMessage~: the root it serves, the dialect each buffer is read as, how
+many findings each report carries, and every re-read it was asked for.  Eglot
+shows those lines in its own events buffer (=M-x eglot-events-buffer=), so a
+buffer with no squiggles can be told apart from a server that is not running:
+
+#+begin_example
+sift 1.11.1: serving /home/you/src/project
+sift: watching the project's Lisp files and its configuration
+sift: opened core.scm as scheme
+sift: 2 findings in core.scm
+sift: re-read core.scm after a save
+sift: 1 finding in core.scm
+#+end_example
+
 The server is `sift lsp` by default.  If the program is not on your ~PATH~,
 `sift-executable` and `sift-eglot-command` say where it is; `sift-eglot-contact`
 is what Eglot calls, and it says so plainly when the program is missing.
@@ -180,6 +210,8 @@ The server itself is written to keep answering:
 | a handler that raises       | answers ~-32603~ (or a ~showMessage~ for a notification) and keeps serving |
 | the input closes            | exits 0: an editor that closed the file is not a failure |
 | ~exit~ without ~shutdown~    | exits 1, which is how an editor tells a goodbye from a crash |
+| a buffer with no language identifier | reads the dialect from the file's own extension, rather than failing to read the buffer at all |
+| ~sift.yaml~ saved mid-session, and it does not parse | keeps the configuration it has, says so in the log, and goes on checking the buffers |
 
 The tests for all of that are in ~tests/lsp.scm~, and they talk to the process
 the way an editor does: a session is a list of messages on its standard input

@@ -137,6 +137,41 @@ server that handles one."
    (field "method" "textDocument/didClose")
    (field "params" (json-object (field "textDocument" (text-document))))))
 
+(define (save)
+  "Return a `didSave' message for `buffer-uri'."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "textDocument/didSave")
+   (field "params" (json-object (field "textDocument" (text-document))))))
+
+(define (configuration-changed)
+  "Return a `workspace/didChangeConfiguration' notification."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "workspace/didChangeConfiguration")
+   (field "params" (json-object (field "settings" (json-object))))))
+
+(define* (watched-change uri #:optional (type 2))
+  "Return a `workspace/didChangeWatchedFiles' notification for @var{uri}.
+
+2 is the protocol's \"changed\": 1 is created and 3 deleted, and the server
+has to survive all three."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "workspace/didChangeWatchedFiles")
+   (field "params"
+          (json-object
+           (field "changes"
+                  (vector (json-object (field "uri" uri) (field "type" type))))))))
+
+(define (publications messages uri)
+  "Return how many times @var{messages} publishes findings for @var{uri}."
+  (length (filter (lambda (message)
+                    (and (equal? (json-ref message "method")
+                                 "textDocument/publishDiagnostics")
+                      (equal? (json-ref (json-ref message "params") "uri") uri)))
+                  messages)))
+
 (define (exit-message)
   (json-object (field "jsonrpc" "2.0") (field "method" "exit")))
 
@@ -176,6 +211,31 @@ bug; the server has to survive it."
 (define (initialize-request id)
   (request id "initialize"
            (json-object (field "capabilities" (json-object)))))
+
+(define (initialize-with-root id root-uri)
+  "Return an `initialize' message whose workspace is @var{root-uri}.
+
+A client that names a root is asking about a project, not only about the
+buffers it has open, and the server answers it from the files on disk."
+  (request id "initialize"
+           (json-object (field "rootUri" root-uri)
+                        (field "capabilities" (json-object)))))
+
+(define (with-cache-home directory thunk)
+  "Call @var{thunk} with the index cache kept inside @var{directory}.
+
+The cache is a file named after a hash of the workspace root, so a session
+with a root writes one; keeping it in the test's own temporary directory means
+the test can see it, and that nothing is left in the user's cache afterwards."
+  (let ((previous (getenv "XDG_CACHE_HOME")))
+    (setenv "XDG_CACHE_HOME" (string-append directory "/cache"))
+    (dynamic-wind
+      (lambda () #f)
+      thunk
+      (lambda ()
+        (if previous
+          (setenv "XDG_CACHE_HOME" previous)
+          (unsetenv "XDG_CACHE_HOME"))))))
 
 (define (signature-request id line character)
   (request id "textDocument/signatureHelp"
@@ -308,8 +368,14 @@ bug; the server has to survive it."
                                      "capabilities")))
         (assert-equal #:expect 0 #:got (car result))
         (assert-equal #:expect 1
-          #:got (json-ref capabilities "textDocumentSync")
+          #:got (json-ref (json-ref capabilities "textDocumentSync") "change")
           #:name "a change replaces the whole buffer")
+        (assert-equal #:expect 'true
+          #:got (json-ref (json-ref capabilities "textDocumentSync") "openClose")
+          #:name "the server hears about a buffer opening and closing")
+        (assert-true
+          (json-object? (json-ref (json-ref capabilities "textDocumentSync") "save"))
+          #:name "and about a save, which is what refreshes the project")
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "documentFormattingProvider")
           #:name "the server formats")
@@ -365,10 +431,11 @@ bug; the server has to survive it."
         (assert-equal #:expect 0 #:got (vector-length diagnostics)
           #:name "the clean text has nothing to report")))
 
-    (test "findings that have not changed are not published again"
-      ;; An editor re-renders every diagnostic it is handed, and most
-      ;; keystrokes in a file leave its findings exactly as they were: the
-      ;; same array sent again makes the editor redraw every squiggle.
+    (test "the same text is not checked twice"
+      ;; An editor re-renders every diagnostic it is handed, and the text the
+      ;; last report was about is the one thing sift and the editor can agree
+      ;; on: a change that carries the same text leaves the findings exactly
+      ;; where the editor already has them.
       (let* ((result (session (list (initialize-request 1)
                                     (open unclean)
                                     ;; the same text again: the findings are
@@ -378,6 +445,96 @@ bug; the server has to survive it."
                                         "textDocument/publishDiagnostics")))
         (assert-equal #:expect 1 #:got (length published*)
           #:name "one buffer, one publication")))
+
+    (test "new text is checked again even when its findings look the same"
+      ;; A report is dropped by an editor whose buffer has moved on (Eglot
+      ;; ignores a `publishDiagnostics' whose version is not its own), so the
+      ;; findings being familiar is not the same thing as the editor having
+      ;; them.  The text differing is the question worth asking.
+      (let* ((result (session (list (initialize-request 1)
+                                    (open unclean)
+                                    ;; the same findings, one comment richer
+                                    (change (string-append ";; kept\n" unclean)
+                                            #:version 2))))
+             (diagnostics (published (cdr result) buffer-uri))
+             (if-diagnostic (find (lambda (diagnostic)
+                                    (equal? "SIFT012" (diagnostic-code diagnostic)))
+                                  (vector->list diagnostics))))
+        (assert-equal #:expect 2 #:got (publications (cdr result) buffer-uri)
+          #:name "the new text was reported")
+        (assert-equal #:expect 2 #:got (json-ref (start-of if-diagnostic) "line")
+          #:name "and the finding moved with the text around it")))
+
+    (test "a save asks the server to look at the buffer again"
+      ;; A save is the moment the project changed: the index sift answers
+      ;; jumps from is now stale, and a finding can be about a file nobody has
+      ;; open.  The buffer's own text did not change, which is exactly why
+      ;; this is a question the client has to be able to ask.
+      (let ((result (session (list (initialize-request 1)
+                                   (open unclean)
+                                   (save)))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect 2 #:got (publications (cdr result) buffer-uri)
+          #:name "the buffer is reported, and reported again after the save")))
+
+    (test "a file changed on disk is a reason to check the open buffers"
+      (let ((result (session (list (initialize-request 1)
+                                   (open unclean)
+                                   (watched-change lib-uri)))))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-true (>= (publications (cdr result) buffer-uri) 1)
+          #:name "the open buffer is still answered for")))
+
+    (test "the settings are read again when the client says they changed"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open unclean)
+                                    (configuration-changed))))
+             (logs (notifications (cdr result) "window/logMessage")))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect 2 #:got (publications (cdr result) buffer-uri)
+          #:name "the buffer was checked against the new settings")
+        (assert-true
+          (and (find (lambda (message)
+                       (string-contains (json-ref-path message "params" "message")
+                                        "configuration"))
+                     logs)
+            #t)
+          #:name "and the editor can see that it happened")))
+
+    (test "the server says what it did in the editor's log"
+      ;; A linter with nothing to say reads exactly like a linter that is not
+      ;; running; the findings going out are worth a line in the log an editor
+      ;; keeps for exactly this.
+      (let* ((result (session (list (initialize-request 1) (open unclean))))
+             (logs (notifications (cdr result) "window/logMessage"))
+             (messages (map (lambda (message)
+                              (json-ref-path message "params" "message"))
+                            logs)))
+        (assert-true (pair? logs) #:name "the server logged something")
+        (assert-equal #:expect 3
+          #:got (json-ref-path (car logs) "params" "type")
+          #:name "as information, not as a complaint")
+        (assert-true
+          (and (find (lambda (message)
+                       (and message (string-contains message "finding")))
+                     messages)
+            #t)
+          #:name "and named the findings it published")))
+
+    (test "a client with no language for the file still gets its findings"
+      ;; `languageId' is what tells sift which Lisp it is reading, and a
+      ;; client that has none for the file sends a null.  A server that raised
+      ;; on it would have no document to answer about for the rest of the
+      ;; session, which looks like a linter that does nothing.
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at buffer-uri unclean #:language json-null)
+                                    (change unclean #:version 2))))
+             (diagnostics (published (cdr result) buffer-uri)))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-true (and diagnostics (> (vector-length diagnostics) 0))
+          #:name "the finding was published from the file's own extension")
+        (assert-true (null? (notifications (cdr result) "window/showMessage"))
+          #:name "and nothing was wrong enough to interrupt anybody")))
 
     (test "closing a buffer takes its findings away"
       (let* ((result (session (list (initialize-request 1)
@@ -821,6 +978,40 @@ bug; the server has to survive it."
           #:got (json-ref (vector-ref locations 0) "uri")
           #:name "the jump leaves the buffer it started in")
         (assert-equal #:expect 9 #:got (json-ref start "character"))))
+
+    (test "a jump is answered from the project when the client names a root"
+      ;; A root is what turns "the project" from this session's buffers into
+      ;; the files on disk, and it is reached through an index kept in a cache
+      ;; file named by a hash of that root.  A test without a root never walks
+      ;; that path, and neither does anything else in a session that has none
+      ;; -- which is how a hash function naming a variable Guile does not have
+      ;; (`bitwise-xor' for `logxor') could leave every jump in a real editor
+      ;; answering "internal error" while the suite was green.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/other.scm")
+                  "(define (neighbour x)\n  (* x x))\n")
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.scm"))
+                   (result (session (list (initialize-with-root 1 root)
+                                          (open-at here "(neighbour 2)\n")
+                                          (definition-request 2 here 0 2))))
+                   (locations (json-ref (answer-to (cdr result) 2) "result"))
+                   (answer (and (vector? locations)
+                             (> (vector-length locations) 0)
+                             (vector-ref locations 0))))
+              (assert-equal #:expect 0 #:got (car result))
+              (assert-true (and answer #t)
+                #:name "the file that defines the name was found")
+              (when answer
+                (assert-equal #:expect (string-append root "/other.scm")
+                  #:got (json-ref answer "uri")
+                  #:name "and it is the file on disk, not a buffer")
+                (assert-equal #:expect 0
+                  #:got (json-ref (start-of answer) "line")))))))))
 
     (test "references list every mention in the project"
       (let* ((result (session (list (initialize-request 1)

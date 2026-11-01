@@ -1115,7 +1115,12 @@ message would stop speaking to the server."
       (exit 0))
     (with-config overrides state
                  (lambda (config)
-                   (lsp-serve config)))))
+                   ;; The server can be told, mid-session, that the project's
+                   ;; settings changed -- and it is the same configuration
+                   ;; every other command reads, so it is read the same way.
+                   (lsp-serve config
+                              #:reload (lambda ()
+                                         (load-effective-config overrides state)))))))
 
 ;;; ===== install-hooks =====
 
