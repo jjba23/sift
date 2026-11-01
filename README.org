@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.11.1-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.13.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
@@ -205,7 +205,7 @@ is doing:
 
 #+begin_src shell
 $ sift doctor
-sift 1.11.1
+sift 1.13.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
   rules       53
@@ -1030,7 +1030,7 @@ name: sift
 on: [push, pull_request]
 jobs:
   sift:
-    uses: jjba23/sift/.github/workflows/sift.yml@v1.11.1
+    uses: jjba23/sift/.github/workflows/sift.yml@v1.13.0
 #+end_src
 
 That annotates the diff with what it found and uploads the SARIF document to
@@ -1040,7 +1040,7 @@ same repository also publishes a composite action, for a job that wants sift
 as one step among its own:
 
 #+begin_src yaml
-- uses: jjba23/sift@v1.11.1
+- uses: jjba23/sift@v1.13.0
   with:
     paths: src/ tests/
     severity: warning
@@ -1090,7 +1090,7 @@ project can pick the one it wants:
 #+begin_src yaml
 repos:
   - repo: https://github.com/jjba23/sift
-    rev: v1.11.1
+    rev: v1.13.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
