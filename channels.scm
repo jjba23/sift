@@ -20,12 +20,10 @@
        (branch "trunk")
        ;; The release this configuration is built against: lambdock 0.21.1,
        ;; heks-toon 0.3.2, maak 0.14.0, veritas 0.9.0, scriba 0.4.5, sift
-       ;; 1.14.0, and the rest of the collection, at the same revision.  This
-       ;; is the bump to sift 1.14.0 itself: `inlay-hints' is the list of
-       ;; hint kinds -- `parameters' names each positional argument, `types'
-       ;; says what type a literal states outright -- and a project chooses
-       ;; them in `sift.yaml' or sends them from its editor.
-       (commit "fbb3bc21dd41a08374662f10f763cadd771b539d")
+       ;; 1.14.1, and the rest of the collection, at the same revision.  This
+       ;; is the bump to sift 1.14.1 itself: a pass over its README, and the
+       ;; three stale facts it turned up.
+       (commit "3df1c8cf59a620f714c643a3879e272aef5111ac")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
