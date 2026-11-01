@@ -262,6 +262,11 @@ one to trust with anyone else's."
 (define version-quotations
   '(("emacs/sift.el" . "Version: ~a")
     ("README.org" . "v~a")
+    ;; The release badge at the top of the README is the version as a reader
+    ;; sees it first, and it is the one quotation nobody remembers to bump:
+    ;; the shield URL spells it `release-1.4.0', with no `v' for a shape to
+    ;; match, so it gets a shape of its own.
+    ("README.org" . "release-~a")
     ;; The `sift doctor' transcript a reader compares their own machine to, and
     ;; the name of the extension the packaging command writes: both are the
     ;; version as a reader sees it, not as a tag.

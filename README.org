@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.1.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-53-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.4.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://codeberg.org/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-53-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace — and it does that without ever losing a comment, a blank line or
@@ -541,6 +541,26 @@ yet, and its fix swaps the two delimiter characters and nothing else.
              :height 20)
 #+end_src
 
+One form is in the table for this reason alone, and it is the one Emacs Lisp
+file everybody writes: ~use-package~.  Its arguments are clauses —
+~:ensure~, ~:init~, ~:config~, ~:bind~, ~:hook~ — and each clause owns what
+follows it, so the keyword and its body belong in one column, two columns in
+from the opener:
+
+#+begin_src elisp
+(use-package evil
+  :ensure t
+  :init
+  (setq evil-want-integration t)
+  :config
+  (evil-mode 1))
+#+end_src
+
+That is where ~TAB~ puts them, because the macro declares
+~(declare (indent defun))~ itself.  The generic rule would put the keywords
+under the package name instead — thirteen columns in for ~(use-package evil~ —
+and a file formatted that way would have two indentation schemes in it.
+
 A project's own macros are not something sift can know, so it asks.  In
 ~sift.yaml~:
 
@@ -768,14 +788,14 @@ guessing.
 :END:
 
 Emacs knows every macro in the buffer, because each one carries a
-~lisp-indent-function~ property.  sift knows the standard forms and whatever
-you list in ~indent-rules~, and nothing else.  So in an Emacs Lisp buffer,
-~sift-format-buffer~ may disagree with ~TAB~ on a form headed by a third-party
-macro.  The order of adoption that works: turn on ~sift-flymake-mode~ (or
-Eglot) for the rules, use ~sift-fix-buffer~ for the fixes, and leave formatting
-on save off unless your macros are in ~indent-rules~.  In Scheme and Common
-Lisp there is no such ambiguity, because the editor has no better information
-than sift does.
+~lisp-indent-function~ property.  sift knows the standard forms, ~use-package~,
+and whatever you list in ~indent-rules~, and nothing else.  So in an Emacs Lisp
+buffer, ~sift-format-buffer~ may disagree with ~TAB~ on a form headed by a
+third-party macro.  The order of adoption that works: turn on
+~sift-flymake-mode~ (or Eglot) for the rules, use ~sift-fix-buffer~ for the
+fixes, and leave formatting on save off unless your macros are in
+~indent-rules~.  In Scheme and Common Lisp there is no such ambiguity, because
+the editor has no better information than sift does.
 
 * In other editors
 :PROPERTIES:

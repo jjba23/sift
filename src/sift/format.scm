@@ -128,6 +128,25 @@ such convention, so they keep whatever the author wrote."
 ;;; Every form that can appear with its operator alone on the first line is
 ;;; listed, because the generic rule would otherwise indent it from the
 ;;; operator's column and drift away from the community style.
+;;;
+;;; `use-package' is the clearest case of that in Emacs Lisp, and the reason it
+;;; has an entry of its own: its arguments are not arguments but clauses --
+;;; `:ensure', `:init', `:config', `:bind' and the rest -- each with its own
+;;; values under it.  Emacs indents the form like a `defun', because
+;;; `use-package' says so itself (`(declare (indent defun))'), which puts every
+;;; keyword, and every body form under `:init' or `:config', two columns in
+;;; from the opener:
+;;;
+;;;   (use-package evil
+;;;     :ensure t
+;;;     :config
+;;;     (evil-mode 1))
+;;;
+;;; That is how the community writes it, and it is the form a reader's eye is
+;;; looking for.  Without the entry the generic rule would line the keywords up
+;;; under the package name -- thirteen columns in for `(use-package evil' --
+;;; which is what a call does with its arguments and what a form made of
+;;; clauses is not.
 
 (define scheme-indent-rules
   '((lambda . 2) (lambda* . 2) (case-lambda . 2)
@@ -179,6 +198,7 @@ such convention, so they keep whatever the author wrote."
     (with-silent-modifications . 2) (with-demoted-errors . 2)
     (lambda . 2) (quote . 2) (function . 2) (backquote . 2)
     (interactive . 2) (declare . 2) (require . 2) (provide . 2)
+    (use-package . 2)
     (add-hook . 2) (remove-hook . 2) (setq . 2) (setq-default . 2)
     (ert-deftest . 2) (should . 2) (should-error . 2) (should-not . 2)
     (cl-letf . 2) (dolist-with-progress-reporter . 2)))

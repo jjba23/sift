@@ -7,8 +7,11 @@
 ;;
 ;; Emacs Lisp indents by two from the opening parenthesis for the forms the
 ;; Emacs Lisp Reference Manual documents, and a docstring is a value like any
-;; other, so it is never reflowed.  Both are asserted here, next to the three
-;; passes over the corpus.
+;; other, so it is never reflowed.  `use-package' is asserted next to them
+;; because it is the one third-party macro common enough to be in the table,
+;; and because it says how it is indented itself -- `(declare (indent defun))'
+;; -- so a formatter that disagrees with Emacs on it is simply wrong.  All of
+;; that sits here, next to the three passes over the corpus.
 
 (define-module (tests format-elisp)
   #:declarative? #t
@@ -52,6 +55,25 @@
       (assert-same-text
        #:expect "(with-current-buffer buf\n  (goto-char (point-min)))"
        #:got (format-string "(with-current-buffer buf\n(goto-char (point-min)))"
+                            #:dialect 'elisp)))
+
+    ;; `use-package' says `(declare (indent defun))', so Emacs puts its
+    ;; keywords, and the bodies under them, two columns in from the opener.
+    ;; sift has to agree, because the point of the table is that the formatter
+    ;; and the editor do not disagree about a form as common as this one.
+    (test "a use-package form puts its keywords and their bodies two columns in"
+      (assert-same-text
+       #:expect "(use-package evil\n  :ensure t\n  :init\n  (setq evil-want-integration t)\n  :config\n  (evil-mode 1))"
+       #:got (format-string "(use-package evil\n:ensure t\n:init\n(setq evil-want-integration t)\n:config\n(evil-mode 1))"
+                            #:dialect 'elisp)))
+
+    ;; The generic rule -- arguments line up under the first one -- would line
+    ;; the keywords up under the package name, which is what a call does and
+    ;; what a `use-package' form does not.
+    (test "use-package keywords do not line up under the package name"
+      (assert-same-text
+       #:expect "(use-package magit\n  :ensure t\n  :bind\n  (\"C-x g\" . magit-status))"
+       #:got (format-string "(use-package magit\n             :ensure t\n             :bind\n             (\"C-x g\" . magit-status))"
                             #:dialect 'elisp)))
 
     (test "strings, escapes and characters are preserved"

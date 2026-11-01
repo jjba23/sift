@@ -215,6 +215,34 @@ indent-rules:
 A project rule wins over the built-in table, so a local convention can be
 expressed without patching the tool.
 
+`use-package` is the one third-party macro already in the table, because it is
+the form an Emacs configuration is written in:
+
+#+begin_src elisp
+(use-package evil
+  :ensure t
+  :init
+  (setq evil-want-integration t)
+  :config
+  (evil-mode 1))
+#+end_src
+
+*Why?*  A `use-package` form is not a call with arguments; it is a sequence of
+clauses — `:ensure`, `:init`, `:config`, `:bind`, `:hook`, `:custom` and the
+rest — and each clause owns what follows it.  The macro says so itself, with
+`(declare (indent defun))`, which is why Emacs puts every keyword, and every
+body form under `:init` or `:config`, two columns in from the opener.  Every
+configuration written by someone who pressed `TAB` looks like the form above.
+
+The generic rule would do something else: the first argument — the package
+name — is on the operator's line, so everything after it would line up under
+the name, thirteen columns in for `(use-package evil`.  That is what a call
+does with its arguments, and what a form made of clauses is not: a file
+written that way has two indentation schemes in it, thirteen columns for the
+configuration and two for everything else.  A form this common is not a case
+for `indent-rules` in every project's `sift.yaml`; it is a fact about the
+macro, and it belongs in the table.
+
 ** No reflowing
 :PROPERTIES:
 :CUSTOM_ID: no-reflow
