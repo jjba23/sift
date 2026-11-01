@@ -217,8 +217,8 @@ step, so packaging it is one command:
 
 #+begin_src shell
 cd editors/vscode
-npx @vscode/vsce package     # writes sift-1.5.0.vsix
-code --install-extension sift-1.5.0.vsix
+npx @vscode/vsce package     # writes sift-1.6.0.vsix
+code --install-extension sift-1.6.0.vsix
 #+end_src
 
 The settings:
@@ -265,7 +265,7 @@ With the [[https://pre-commit.com][pre-commit]] framework, the repository's
 #+begin_src yaml
 repos:
   - repo: https://github.com/jjba23/sift
-    rev: v1.5.0
+    rev: v1.6.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
@@ -292,7 +292,7 @@ name: sift
 on: [push, pull_request]
 jobs:
   sift:
-    uses: jjba23/sift/.github/workflows/sift.yml@v1.5.0
+    uses: jjba23/sift/.github/workflows/sift.yml@v1.6.0
 #+end_src
 
 The workflow takes inputs, all of them optional:
@@ -320,7 +320,7 @@ is a composite action a job can use beside its other steps:
 
 #+begin_src yaml
 - uses: actions/checkout@v4
-- uses: jjba23/sift@v1.5.0
+- uses: jjba23/sift@v1.6.0
   with:
     paths: src/ tests/
     severity: warning
@@ -403,7 +403,7 @@ layer decided it:
 
 #+begin_src shell
 $ sift doctor
-sift 1.5.0
+sift 1.6.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
   rules       39

@@ -2,7 +2,7 @@
   "name": "sift",
   "displayName": "sift",
   "description": "Formatting, linting and quickfixes for Scheme, Emacs Lisp and Common Lisp, from the sift executable.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "publisher": "jjba23",
   "license": "MIT",
   "engines": {
