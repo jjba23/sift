@@ -393,16 +393,28 @@ run is going on."
 ;;; ===== What a file mentions =====
 
 (define (quoted-node? node)
-  (and (node-prefix? node)
-    (let ((token (node-token node)))
-      (and (string? token) (member token '("'" "`" ",@" ",")) #t))))
+  "Return @code{#t} when @var{node} is a quote, `(quote x)' or its shorthand.
+
+Only a quote is skipped, and the reason is what a quasiquote turned out to be.
+A quote is a datum in every Lisp sift reads, so a name inside one is not a
+mention and an import it alone names is an import nothing uses.  A *quasiquote*
+is not so simple: `,(f)' inside one is evaluated, and a templating library --
+this configuration's renderer writes the symbol `unquote' in front of a form --
+turns the whole template into code at run time.  A rule that skipped a
+quasiquote would call an import unused because the file only shows it inside a
+template, which is exactly the mistake that took a live import out of
+heks-linux's wezterm module."
+  (or (and (node-prefix? node) (equal? (node-token node) "'"))
+    (list-headed-by? node 'quote)))
 
 (define (referenced-names ast)
   "Return a hash of every name @var{ast} mentions outside its imports.
 
 An import form names the very names it imports, so counting there would call
-every import used; a quote is data rather than a mention, so it is not
-entered.  A datum comment is code the reader was told not to read."
+every import used; a quote is data rather than a mention, so it is not entered.
+A datum comment is code the reader was told not to read.  A quasiquote *is*
+entered, because what it holds is a template and the forms inside it are what
+the template evaluates (see `quoted-node?')."
   (let ((names (make-hash-table)))
     (define (walk node)
       (cond
@@ -413,6 +425,10 @@ entered.  A datum comment is code the reader was told not to read."
          (let ((name (element-name node)))
            (when (and name (eq? (node-atom-type node) 'symbol))
              (hash-set! names name #t)))]
+        ;; a prefix is a parent like any other: what follows a quasiquote or an
+        ;; unquote is where the code is, and a reader that stops at the mark
+        ;; never reaches it
+        [(node-prefix? node) (let ((child (node-child node))) (when child (walk child)))]
         [(node-list? node) (for-each walk (node-children node))]
         [(node-conditional? node)
          (let ((feature (node-feature node))

@@ -63,6 +63,22 @@
        #:source "(import (only (srfi 1) car))\n(display '(car))\n"
        #:checker 'unused-import #:expect '((1 1))))
 
+    ;; A quasiquote is a template, not a datum: `,(f)' is evaluated, and a
+    ;; templating library can write `unquote' in front of a form instead of a
+    ;; comma, in which case the whole form is code the reader cannot see
+    ;; through.  Counting a name inside one as a mention is the answer that
+    ;; cannot be wrong about a live reference.
+    (test "a name used inside a quasiquote counts as used"
+      (assert-warnings
+       #:source "(import (only (srfi 1) car))\n(display `(a ,(car b)))\n"
+       #:checker 'unused-import #:expect '()))
+
+    (test "a name used inside a template that spells unquote counts as used"
+      ;; the spelling a renderer reads: the symbol `unquote', not a comma
+      (assert-warnings
+       #:source "(import (only (srfi 1) car))\n(define (settings)\n  `((first unquote (car b))))\n"
+       #:checker 'unused-import #:expect '()))
+
     (test "a plain import of a library sift cannot read is left alone"
       (assert-warnings
        #:source "(import (scheme base) (srfi 1))\n(display 1)\n"
