@@ -749,9 +749,23 @@ otherwise.
 A few rules deliberately have no fix.  SIFT004 (~unmatched-parens~) will not
 guess where a missing ~)~ belongs, SIFT031 (~wrap-in-let~) will not invent the
 name of the binding it suggests, the naming rules (SIFT040–042 and SIFT053)
-will not rename anything, and the layout rules (SIFT051 and SIFT052) will not
-re-level a comment or delete a line: deciding how to split or name a piece of
-code is the author's work.
+will not rename anything, and SIFT052 (~blank-line-in-body~) will not delete a
+line: deciding how to split or name a piece of code is the author's work.
+
+SIFT051 (~comment-semicolons~) does have one, because the half of it that a
+machine can decide is decided by position rather than by intent: how many
+semicolons a comment takes is one at the end of a line, two inside a form, and
+three at top level (four is a heading, and a heading is left alone), and where
+the comment sits is something the reader knows.  What the comment is *for* is
+still the author's, so the fix re-levels a comment and puts a space after its
+semicolons, and `sift fix` over a whole buffer does exactly that to every
+comment the rule reports.  A project whose ~severity~ is ~warning~ sees none of
+them, so ~sift fix --severity=info~ is how a tidy-up run asks for them.
+
+Fixing is not filtered by ~severity~: a project that says ~severity: warning~
+has said which findings are worth failing a build over, not which are worth
+tidying up when someone asks for a tidy-up, so ~sift fix~ applies the fixes of
+every rule it can see and reports what is left at the project's threshold.
 
 ** Silencing a rule
 :PROPERTIES:
@@ -1074,6 +1088,30 @@ repos:
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
+* Running sift in parallel
+:PROPERTIES:
+:CUSTOM_ID: parallel
+:END:
+
+A run over a project is a run over one file at a time, and nothing a checker
+reads in one file is anything it reads in another, so ~lint~, ~format~,
+~check~ and ~ci~ spread the files over the processors.  The answers come back
+in file order and are printed in file order, so a parallel run writes exactly
+the bytes a sequential one writes; only the wall clock differs.
+
+Nothing needs to be configured.  ~SIFT_JOBS~ is the one knob, and it exists to
+make a parallel run comparable with a sequential one:
+
+#+begin_src shell
+SIFT_JOBS=1 sift ci .    # one thread, same bytes: for profiling, and for
+                         # checking that a difference in the output is a bug
+SIFT_JOBS=4 sift ci .    # four workers, on a machine that has twelve
+#+end_src
+
+Two runs are never parallel: ~format --write~ and ~lint --fix~, which write the
+files they read.  Such a run stops at the first file it cannot read instead of
+half-rewriting a tree and then explaining itself.
+
 * Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
@@ -1172,7 +1210,34 @@ maak check         # compile every module, so a syntax error fails the build
 maak self-check    # sift's own sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips, byte for byte
 maak docs          # regenerate doc/rules.org from the rules
+maak bench         # time the reader, the formatter and every checker
 #+end_src
+
+~maak bench~ is Veritas too: a benchmark is a task whose result is a
+~benchmark-result~, so it is printed by the same reporter as everything else,
+and the table it ends with is sorted worst-first.  What it times is what a user
+waits for -- reading a file, formatting it, linting it, and the same over the
+whole tree -- and then the parts those are made of, so a regression has
+somewhere to point.  It reports two numbers per benchmark, and both are the
+point: the milliseconds, and the bytes allocated, because a pass that conses a
+list per node makes every other pass slower and the allocation count is how
+that shows up even when the clock happens to look fine.
+
+#+begin_src shell
+$ maak bench
+lint the tree (28 files, 14896 lines)       337ms, 160.7 MiB allocated
+check the tree (28 files): format           253ms,  59.0 MiB allocated
+lint (lsp.scm, every checker)               171ms,  19.2 MiB allocated
+read the tree (28 files)                    143ms,  44.7 MiB allocated
+checker: unused-argument                      9ms, 793.0 KiB allocated
+...
+#+end_src
+
+#+begin_src shell
+maak bench tests   # time the test suite's sources instead of src
+SIFT_BENCHMARK_PATHS=src:benchmarks maak bench
+#+end_src
+
 
 The editors are tested with the test framework each editor ships:
 
@@ -1209,6 +1274,7 @@ src/sift/
   format.scm        the pipeline, the indentation tables, the renderer
   check/base.scm    walking a tree, reading a form, line arithmetic
   checkers/         one module per family of rules
+  pool.scm          the work spread over the processors, answered in order
   lint.scm          run, suppress, filter, sort, fix, re-lint
   render.scm        human, JSON, GitHub, null, SARIF, list-checkers, explain, diff
   config.scm        <config>, discovery, merging, provenance, trust
@@ -1218,6 +1284,8 @@ src/sift/
   lsp.scm           diagnostics, actions, formatting, hover, and navigation
   catalogue.scm     the rule catalogue, generated from the records
   cli.scm           args-fold, dispatch, exit codes
+tests/              one Veritas suite per rule, per module and per command
+benchmarks/         the benchmarks, run by Veritas and printed by its reporter
 emacs/              the Emacs package and its ERT suite
 editors/            the Neovim, Vim and VS Code integrations, with their tests
 assets/             the logo and the demo recording
@@ -1249,6 +1317,32 @@ that refuses to say anything about a file it could not fully parse is useless
 exactly when it is needed.  The language server lives off the same property: a
 buffer being typed is a buffer with a broken tail, and it still gets the
 findings for everything before it.
+
+** One walk, and the answers kept
+:PROPERTIES:
+:CUSTOM_ID: one-walk
+:END:
+
+Three questions dominated the cost of a lint, and all three were answered by
+walking something again.  Whether a node is code or data -- it is data inside a
+quote, inside a vector literal, in the datum of a `case` clause, in a parameter
+list -- was decided by walking *up* the ancestors for every node of every
+checker's walk, which is a walk per node per level.  What a form is called, and
+which of its children carry a datum, was recomputed by walking its children
+every time any of the twenty-five checkers asked.  And where the lines of a
+file begin was worked out afresh for every finding, by consing the list of
+every line in the file.
+
+Each is now computed once and carried or kept: the data-or-code answer is
+carried *down* by the walk that asks it, the two questions about a node are
+answered on its first asking and kept in a cache slot on the node (a node never
+changes, so the cache can never be stale), and a text's line starts are kept
+until a different text is asked about.  Together they took a lint of this
+repository from twenty-five seconds to under one, and the allocation per lint
+from a gigabyte and a half to a hundred and forty megabytes -- which is also
+what makes [[#parallel][the parallel run]] worth anything at all: Guile's garbage
+collector stops every thread, so a lint that allocates less is a lint that
+parallelises better.
 
 ** Fuzzy formatting, not pretty-printing
 :PROPERTIES:
