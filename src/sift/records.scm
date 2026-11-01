@@ -357,7 +357,10 @@ cannot move when the list is re-sorted."
     (cond-else-not-last . "SIFT056")
     (duplicate-case-datum . "SIFT057")
     (too-many-arguments . "SIFT058")
-    (defcustom-without-type . "SIFT059")))
+    (defcustom-without-type . "SIFT059")
+    ;; the rules about what a file claims to use
+    (unused-import . "SIFT060")
+    (library-not-found . "SIFT061")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

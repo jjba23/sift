@@ -16,6 +16,7 @@
   #:use-module (ice-9 format)
   #:use-module (sift records)
   #:use-module (sift format)
+  #:use-module (sift imports)
   #:use-module (sift check base)
   #:export (scheme-checkers
             internal-define-checker
@@ -24,7 +25,9 @@
             quasiquote-unquote-constant-checker
             clause-brackets-checker
             docstring-texinfo-checker
-            unused-binding-checker))
+            unused-binding-checker
+            unused-import-checker
+            library-not-found-checker))
 
 ;;; ===== internal-define =====
 
@@ -436,6 +439,208 @@ in a `do' or a `let' that only declares."
            #:example '((input . "(let ((x 1) (y 2)) x)")
                        (fix . "no automatic fix; remove the binding or use it"))))
 
+;;; ===== unused-import =====
+;;
+;; An import is a claim: "this file uses what this library exports".  sift can
+;; only check the claims a file spells out -- the names in an `only' clause and
+;; the pairs in a `rename' -- plus a whole library whose own `(export ...)'
+;; sift can read, either in this file or in one beside it.  Everything else,
+;; which is every plain `(import (some lib))' from a library sift cannot see,
+;; is left alone: a rule that guessed there would fire on every file that
+;; imports more than it uses, which is most of them.
+
+(define (source-file-of ast)
+  "Return the file @var{ast} was read from, or @code{#f} when it was a string."
+  (let ((nodes (filter node-data? ast)))
+    (and (pair? nodes) (source-location-file (node-start (car nodes))))))
+
+(define (import-name-string node)
+  "Return the name an atom in an import spec spells."
+  (and node (node-atom? node) (node-value node)))
+
+(define (import-label spec)
+  "Return the library @var{spec} imports, ready to print."
+  (let ((name (spec-library spec)))
+    (and name (format #f "(~a)" (library-key name)))))
+
+(define (single-line text)
+  "Return @var{text} with every run of whitespace collapsed to one space.
+
+A finding is printed on one line -- that is what an editor's problem list and
+a `grep' both want -- and an import spec written across three lines is still
+one spec."
+  (let loop ((characters (string->list text)) (space? #f) (out '()))
+    (cond
+      [(null? characters) (list->string (reverse out))]
+      [(char-whitespace? (car characters))
+       (loop (cdr characters) #t out)]
+      [else
+        (loop (cdr characters) #f
+              (if (and space? (pair? out))
+                (cons (car characters) (cons #\space out))
+                (cons (car characters) out)))])))
+
+(define (line-end-of source index)
+  "Return the index a deletion should stop at, given the end of a removed form.
+
+A form alone on its line takes the line with it: an import the whole fix
+deletes should not leave the blank line it was written on.  Anything else
+after the form on that line is the author's and stops the deletion."
+  (let loop ((at index))
+    (cond
+      [(>= at (string-length source)) at]
+      [(char=? (string-ref source at) #\newline) (+ at 1)]
+      [(memv (string-ref source at) '(#\space #\tab)) (loop (+ at 1))]
+      [else index])))
+
+(define (source-text source node)
+  "Return @var{node} as it is written, on one line."
+  (single-line (substring source (node-index node) (node-end-index node))))
+
+(define (library-exports-of key ast project)
+  "Return what @var{key} exports, from this file first and the project second."
+  (or (assoc-ref (declared-libraries ast) key)
+    (assoc-ref project key)))
+
+(define (report-unused-spec form specs spec source warnings)
+  "Report @var{spec} as unused, cutting the form when it is the only spec.
+
+A form left with no spec would be `(import)', which no Scheme reads, so the
+last spec takes the form with it -- one finding, one deletion, and a file that
+still parses."
+  (let* ((alone? (= 1 (length specs)))
+         (node (if alone? form spec))
+         (span (if alone?
+                 (cons (node-index form) (line-end-of source (node-end-index form)))
+                 (or (deletion-range specs spec)
+                   (cons (node-index spec) (node-end-index spec))))))
+    (cons (make-lint-warning/range
+           'unused-import 'info
+           (format #f "`~a` imports nothing this file uses"
+                   (source-text source node))
+           (node-start node) (car span) (cdr span)
+           (lambda (text from to) ""))
+          warnings)))
+
+(define (unused-import-warnings ast source dialect)
+  (let* ((used (referenced-names ast))
+         (file (source-file-of ast))
+         (project (project-libraries (and file (dirname file))))
+         (warnings '()))
+    (for-each
+     (lambda (form)
+       (let ((specs (import-specs form)))
+         (for-each
+          (lambda (spec)
+            (case [spec-kind spec]
+              [(only)
+               (let* ((names (spec-name-nodes spec))
+                      (unused (remove (lambda (node)
+                                        (used? used (import-name-string node)))
+                                      names)))
+                 (cond
+                   [(null? unused) #f]
+                   ;; every name unused: the clause itself is the finding, and
+                   ;; the fix deletes it rather than leaving `(only lib)'.
+                   [(= (length unused) (length names))
+                    (set! warnings (report-unused-spec form specs spec source warnings))]
+                   [else
+                     (for-each
+                      (lambda (node)
+                        (let ((range (deletion-range (cddr (data-elements spec)) node)))
+                          (when range
+                            (set! warnings
+                                  (cons (make-lint-warning/range
+                                         'unused-import 'info
+                                         (format #f "`~a` is imported from `~a` and never used"
+                                                 (import-name-string node)
+                                                 (import-label spec))
+                                         (node-start node) (car range) (cdr range)
+                                         (lambda (source from to) ""))
+                                        warnings)))))
+                      unused)]))]
+              [(rename)
+               (for-each
+                (lambda (pair)
+                  (let* ((elements (data-elements pair))
+                         (fresh (and (>= (length elements) 2) (list-ref elements 1)))
+                         (name (and fresh (import-name-string fresh))))
+                    (unless (used? used name)
+                      (let ((range (deletion-range (cddr (data-elements spec)) pair)))
+                        (when range
+                          (set! warnings
+                                (cons (make-lint-warning/range
+                                       'unused-import 'info
+                                       (format #f "`~a` is imported from `~a` under a new name and never used"
+                                               name (import-label spec))
+                                       (node-start pair) (car range) (cdr range)
+                                       (lambda (source from to) ""))
+                                      warnings)))))))
+                (rename-pair-nodes spec))]
+              [(library)
+               (let* ((key (library-key (spec-library spec)))
+                      (exports (library-exports-of key ast project)))
+                 ;; only a library whose exports sift can read can be called
+                 ;; unused as a whole, and only when none of them is used
+                 (when (and (pair? exports)
+                         (not (any (lambda (name) (used? used name)) exports)))
+                   (set! warnings (report-unused-spec form specs spec source warnings))))]
+              [else #f]))
+          specs)))
+     (import-forms ast))
+    (reverse warnings)))
+
+(define unused-import-checker
+  (checker 'unused-import
+           "A name or a library an `import` brings in that the file never uses"
+           '(scheme)
+           unused-import-warnings
+           #:severity 'info
+           #:example '((input . "(import (only (srfi 1) fold car))\n(display (fold + 0 '(1 2)))")
+                       (fix . "delete `car` from the `only` clause"))))
+
+;;; ===== library-not-found =====
+
+(define (library-not-found-warnings ast source dialect)
+  (let* ((declared (declared-libraries ast))
+         (file (source-file-of ast))
+         (project (project-libraries (and file (dirname file))))
+         (known (append declared project))
+         (warnings '()))
+    ;; With no library anywhere to compare against there is nothing to say:
+    ;; a project whose libraries live outside its own tree would otherwise get
+    ;; a finding for every import it has.
+    (when (pair? known)
+      (for-each
+       (lambda (form)
+         (for-each
+          (lambda (spec)
+            (let* ((name (spec-library spec))
+                   (node (spec-library-node spec))
+                   (key (and name (library-key name))))
+              (when (and node key
+                      (not (well-known-library? name))
+                      (not (assoc-ref known key)))
+                (set! warnings
+                      (cons (make-lint-warning
+                             'library-not-found 'warning
+                             (format #f "`~a` is imported but no file of this project declares it"
+                                     (import-label spec))
+                             (node-start node))
+                            warnings)))))
+          (import-specs form)))
+       (import-forms ast)))
+    (reverse warnings)))
+
+(define library-not-found-checker
+  (checker 'library-not-found
+           "An `import` of a library that neither the file nor the project declares"
+           '(scheme)
+           library-not-found-warnings
+           #:severity 'warning
+           #:example '((input . "(import (my helpers))\n")
+                       (fix . "no automatic fix; name the library the project declares, or add it"))))
+
 ;;; ===== The list =====
 
 (define scheme-checkers
@@ -445,4 +650,6 @@ in a `do' or a `let' that only declares."
         quasiquote-unquote-constant-checker
         clause-brackets-checker
         docstring-texinfo-checker
-        unused-binding-checker))
+        unused-binding-checker
+        unused-import-checker
+        library-not-found-checker))
