@@ -161,6 +161,12 @@ such convention, so they keep whatever the author wrote."
     (eval-when . 2) (with-syntax . 2) (syntax-parameterize . 2)
     (define-syntax-parameter . 2) (identifier-syntax . 2)
     (quasisyntax . 2) (unsyntax . 2) (unsyntax-splicing . 2)
+    ;; Guix: a package record, a gexp, and the vocabulary of a build
+    (package . 2) (package/inherit . 2) (origin . 2)
+    (gexp . 2) (ungexp . 2) (ungexp-splicing . 2)
+    (modify-phases . 2) (add-before . 2) (add-after . 2)
+    (replace . 2) (delete . 2) (substitute* . 2)
+    (with-imported-modules . 2) (with-extensions . 2)
     (let . 2) (let* . 2) (letrec . 2) (letrec* . 2) (let-values . 2)
     (let*-values . 2) (let-syntax . 2) (letrec-syntax . 2)
     (let-optionals . 2) (let-keywords . 2)

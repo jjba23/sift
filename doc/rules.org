@@ -12,14 +12,19 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 63 rules in sift 1.17.1.
+There are 92 rules in sift 1.18.0.
 
 * Summary
 
 | Name | Code | Dialects | Severity | What it says |
 |------+------+----------+----------+--------------|
+| append-nothing | SIFT068 | scheme, elisp, cl | info | An ~append~ with the empty list among its arguments |
+| apply-of-list | SIFT064 | scheme, elisp, cl | info | ~apply~ of a ~list~, or of the empty list, where a call says it once |
+| assoc-ref-outputs | SIFT080 | scheme | warning | ~(assoc-ref %outputs "out")~ inside a gexp, where ~#$output~ says it |
 | beta-reduction | SIFT046 | scheme, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
 | blank-line-in-body | SIFT052 | all | info | A blank line in the middle of a body, where one paragraph belongs |
+| call-arity | SIFT088 | scheme, elisp, cl | info | A call that passes fewer arguments than the definition in this file requires |
+| case-literal-datum | SIFT069 | scheme, cl | warning | A ~case~ datum that ~eqv?~ cannot decide, such as a string |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
 | clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
 | comment-semicolons | SIFT051 | all | info | A comment's semicolon level does not say where it belongs |
@@ -28,6 +33,7 @@ There are 63 rules in sift 1.17.1.
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
 | defcustom-without-type | SIFT059 | elisp | warning | A ~defcustom~ whose value Customize cannot render for lack of ~:type~ |
+| defpackage-use | SIFT071 | cl | warning | A ~defpackage~ that ~:use~s a package other than ~:cl~ |
 | defun-no-docstring | SIFT028 | cl | info | ~defun~, ~defmacro~ or ~defgeneric~ without a docstring |
 | docstring-arguments | SIFT034 | elisp | info | An Emacs Lisp docstring that does not mention one of its arguments |
 | docstring-before-interactive | SIFT038 | elisp | warning | A docstring that is not the first form in the body, so Emacs never reads it |
@@ -39,24 +45,39 @@ There are 63 rules in sift 1.17.1.
 | duplicate-binding | SIFT037 | all | warning | The same name bound twice in one binding list |
 | duplicate-case-datum | SIFT057 | scheme, elisp, cl | warning | A ~case~ datum matched by an earlier clause |
 | duplicate-keyword | SIFT009 | all | warning | A keyword argument given more than once in the same call |
+| ecase-otherwise | SIFT072 | cl | warning | A default clause in ~ecase~, ~etypecase~, ~ccase~ or ~ctypecase~ |
 | empty-body | SIFT005 | all | warning | A ~cond~, ~let~ or ~lambda~ form with no body |
 | empty-form | SIFT008 | scheme | warning | ~()~ used where a value is expected |
+| eq-nil | SIFT067 | scheme, elisp, cl | warning | ~eq?~ or ~equal?~ against ~nil~, where ~null~ asks the question |
+| eq-non-symbol | SIFT092 | scheme, elisp, cl | warning | ~eq~/~eq?~ of a literal that identity cannot decide, where the value predicate can |
 | eq-on-literal | SIFT055 | scheme, elisp, cl | warning | ~eq?~ asked about a number or a string, where identity is not the question |
 | eta-reduction | SIFT045 | scheme | info | A lambda that only passes its argument on, where the procedure itself would do |
+| gexp-output-script | SIFT079 | scheme | warning | A ~#$output~ in a gexp that makes a file rather than a derivation |
+| gexp-quoted | SIFT077 | scheme | warning | A gexp written under a quote, where what is quoted is the form |
 | if-without-else | SIFT012 | scheme | warning | ~if~ with no else branch, where ~when~ expresses the intent |
+| inputs-label-alist | SIFT087 | scheme | warning | An ~inputs~ written as a labelled alist instead of a list of packages |
+| interactive-without-arguments | SIFT076 | elisp | warning | A command with required parameters whose ~interactive~ form supplies none |
 | interactive-without-docstring | SIFT021 | elisp | warning | An ~interactive~ command without a docstring |
 | internal-define | SIFT011 | scheme | warning | ~define~ inside a procedure body, after the first expression |
 | keyword-arguments | SIFT032 | all | info | A call with more positional arguments than a reader can keep in mind |
+| let-sibling | SIFT065 | scheme, elisp, cl | warning | A ~let~ initializer that refers to a name the same ~let~ binds |
 | let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
+| letrec-init-reference | SIFT070 | scheme | warning | A ~letrec~ initializer that refers to a binding the form has not assigned yet |
 | letrec-single-binding | SIFT015 | scheme | info | ~letrec~ with a single binding that does not need recursive scope |
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
 | library-not-found | SIFT061 | scheme | warning | An ~import~ of a library that neither the file nor the project declares |
 | line-length | SIFT003 | all | warning | Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp) |
 | loop-keyword-style | SIFT029 | cl | info | Symbolic LOOP keywords where the project style asks for literal ~:keywords~ |
+| mixed-lambda-list | SIFT073 | cl | warning | A lambda list with both ~&optional~ and ~&key~ |
 | naming-convention | SIFT040 | all | warning | An underscore or camelCase in the name of a definition |
+| needless-let* | SIFT066 | scheme, elisp, cl | info | A ~let*~ none of whose initializers depends on an earlier binding |
 | negated-if | SIFT033 | scheme, elisp, cl | warning | ~if~ or ~when~ with a negated test, which ~unless~ says directly |
 | nesting-depth | SIFT044 | all | warning | A definition whose body nests deeper than the configured limit |
+| number-literal-argument | SIFT090 | scheme, elisp, cl | warning | A string passed to an operator whose arguments are numbers |
+| package-description-literal | SIFT085 | scheme | warning | A description built by ~string-append~ rather than written as one string |
 | package-prefix | SIFT025 | cl | warning | Exported symbols referenced without a package prefix |
+| package-synopsis | SIFT084 | scheme | warning | A synopsis that opens with an article, ends with a period, or starts in lower case |
+| phase-name-quoting | SIFT082 | scheme | warning | A phase named by an unquoted symbol or a string in ~modify-phases~ |
 | predicate-name | SIFT041 | all | info | A procedure that answers a question but is not named like one |
 | provide-missing | SIFT023 | elisp | warning | The file defines a package but has no final ~(provide 'feature)~ |
 | quasiquote-unquote-constant | SIFT016 | scheme | info | ~(quasiquote (unquote constant))~ can be simplified |
@@ -64,8 +85,13 @@ There are 63 rules in sift 1.17.1.
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
+| require-cl | SIFT074 | elisp | warning | A ~require~ of the deprecated ~cl~ library instead of ~cl-lib~ |
+| save-excursion-set-buffer | SIFT075 | elisp | warning | A ~set-buffer~ inside ~save-excursion~, where ~with-current-buffer~ belongs |
+| sha256-base32 | SIFT086 | scheme | warning | A ~sha256~ that is not ~(base32 "...")~ of 52 lower-case characters |
 | single-letter-name | SIFT053 | all | info | A variable named with a single letter |
 | special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
+| string-append-file-append | SIFT081 | scheme | info | A gexp ~string-append~ of a package and a literal path, where ~file-append~ says it |
+| string-literal-argument | SIFT089 | scheme, elisp, cl | warning | A number or boolean passed where the operator's convention says a string |
 | sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
 | sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
 | sxml-empty-element | SIFT063 | scheme | warning | An element with attributes and no children, which serializes as a self-closing tag |
@@ -73,16 +99,79 @@ There are 63 rules in sift 1.17.1.
 | too-many-arguments | SIFT058 | scheme, elisp, cl | info | A parameter list long enough that a call site has to be looked up |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
+| ungexp-outside-gexp | SIFT078 | scheme | warning | An ~#$~, ~#$@~, ~#+~ or ~#+@~ with no gexp around it |
 | unless-without-body | SIFT014 | scheme, cl | warning | ~unless~ form with no body |
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
 | unused-argument | SIFT043 | all | info | A parameter that the definition never refers to |
 | unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
 | unused-definition | SIFT062 | scheme | info | A definition nothing in the file uses, in a module that does not export it |
 | unused-import | SIFT060 | scheme | info | A name or a library an ~import~ brings in that the file never uses |
+| unused-import-from | SIFT091 | cl | info | A name a ~defpackage~ imports with ~:import-from~ and the file never uses |
+| use-modules-in-gexp | SIFT083 | scheme | warning | A build module imported inside a gexp that ~with-imported-modules~ does not mark |
 | when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
 
 * The rules, one by one
+
+** SIFT068 append-nothing
+:PROPERTIES:
+:CUSTOM_ID: append-nothing
+:END:
+
+An ~append~ with the empty list among its arguments
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* xs
+
+#+begin_src scheme
+(append xs '())
+#+end_src
+
+#+begin_quote
+Run ~sift explain append-nothing~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT064 apply-of-list
+:PROPERTIES:
+:CUSTOM_ID: apply-of-list
+:END:
+
+~apply~ of a ~list~, or of the empty list, where a call says it once
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* (f 1 2 3)
+
+#+begin_src scheme
+(apply f 1 (list 2 3))
+#+end_src
+
+#+begin_quote
+Run ~sift explain apply-of-list~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT080 assoc-ref-outputs
+:PROPERTIES:
+:CUSTOM_ID: assoc-ref-outputs
+:END:
+
+~(assoc-ref %outputs "out")~ inside a gexp, where ~#$output~ says it
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* #~(mkdir #$output)
+
+#+begin_src scheme
+#~(mkdir (assoc-ref %outputs "out"))
+#+end_src
+
+#+begin_quote
+Run ~sift explain assoc-ref-outputs~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
 
 ** SIFT046 beta-reduction
 :PROPERTIES:
@@ -125,6 +214,48 @@ A blank line in the middle of a body, where one paragraph belongs
 
 #+begin_quote
 Run ~sift explain blank-line-in-body~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT088 call-arity
+:PROPERTIES:
+:CUSTOM_ID: call-arity
+:END:
+
+A call that passes fewer arguments than the definition in this file requires
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* (area 2 3)
+
+#+begin_src scheme
+(define (area width height) 0)
+(area 2)
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain call-arity~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT069 case-literal-datum
+:PROPERTIES:
+:CUSTOM_ID: case-literal-datum
+:END:
+
+A ~case~ datum that ~eqv?~ cannot decide, such as a string
+
+- *Dialects:* scheme, cl
+- *Severity:* warning
+- *Fix:* (cond ((string=? x "a") 1))
+
+#+begin_src scheme
+(case x (("a") 1))
+#+end_src
+
+#+begin_quote
+Run ~sift explain case-literal-datum~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -297,6 +428,26 @@ A ~defcustom~ whose value Customize cannot render for lack of ~:type~
 
 #+begin_quote
 Run ~sift explain defcustom-without-type~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT071 defpackage-use
+:PROPERTIES:
+:CUSTOM_ID: defpackage-use
+:END:
+
+A ~defpackage~ that ~:use~s a package other than ~:cl~
+
+- *Dialects:* cl
+- *Severity:* warning
+- *Fix:* (defpackage #:demo (:use #:cl) (:import-from #:alexandria #:with-gensyms))
+
+#+begin_src commonlisp
+(defpackage #:demo (:use #:cl #:alexandria))
+#+end_src
+
+#+begin_quote
+Run ~sift explain defpackage-use~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -532,6 +683,26 @@ Run ~sift explain duplicate-keyword~ at the command line, or ~M-x sift-explain-a
 #+end_quote
 
 
+** SIFT072 ecase-otherwise
+:PROPERTIES:
+:CUSTOM_ID: ecase-otherwise
+:END:
+
+A default clause in ~ecase~, ~etypecase~, ~ccase~ or ~ctypecase~
+
+- *Dialects:* cl
+- *Severity:* warning
+- *Fix:* (case x (a 1) (t 2))
+
+#+begin_src commonlisp
+(ecase x (a 1) (t 2))
+#+end_src
+
+#+begin_quote
+Run ~sift explain ecase-otherwise~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT005 empty-body
 :PROPERTIES:
 :CUSTOM_ID: empty-body
@@ -569,6 +740,46 @@ Run ~sift explain empty-body~ at the command line, or ~M-x sift-explain-at-point
 
 #+begin_quote
 Run ~sift explain empty-form~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT067 eq-nil
+:PROPERTIES:
+:CUSTOM_ID: eq-nil
+:END:
+
+~eq?~ or ~equal?~ against ~nil~, where ~null~ asks the question
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (null? x)
+
+#+begin_src scheme
+(eq? x '())
+#+end_src
+
+#+begin_quote
+Run ~sift explain eq-nil~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT092 eq-non-symbol
+:PROPERTIES:
+:CUSTOM_ID: eq-non-symbol
+:END:
+
+~eq~/~eq?~ of a literal that identity cannot decide, where the value predicate can
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (eqv? x 1)
+
+#+begin_src scheme
+(eq? x 1)
+#+end_src
+
+#+begin_quote
+Run ~sift explain eq-non-symbol~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -612,6 +823,46 @@ Run ~sift explain eta-reduction~ at the command line, or ~M-x sift-explain-at-po
 #+end_quote
 
 
+** SIFT079 gexp-output-script
+:PROPERTIES:
+:CUSTOM_ID: gexp-output-script
+:END:
+
+A ~#$output~ in a gexp that makes a file rather than a derivation
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (program-file "run.sh" #~(execl #$(file-append coreutils "/bin/ls") "ls" #f))
+
+#+begin_src scheme
+(program-file "run.sh" #~(execl #$output "x" #f))
+#+end_src
+
+#+begin_quote
+Run ~sift explain gexp-output-script~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT077 gexp-quoted
+:PROPERTIES:
+:CUSTOM_ID: gexp-quoted
+:END:
+
+A gexp written under a quote, where what is quoted is the form
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* #~(mkdir #$output)
+
+#+begin_src scheme
+'#~(mkdir #$output)
+#+end_src
+
+#+begin_quote
+Run ~sift explain gexp-quoted~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT012 if-without-else
 :PROPERTIES:
 :CUSTOM_ID: if-without-else
@@ -629,6 +880,52 @@ Run ~sift explain eta-reduction~ at the command line, or ~M-x sift-explain-at-po
 
 #+begin_quote
 Run ~sift explain if-without-else~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT087 inputs-label-alist
+:PROPERTIES:
+:CUSTOM_ID: inputs-label-alist
+:END:
+
+An ~inputs~ written as a labelled alist instead of a list of packages
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (package (inputs (list gawk)))
+
+#+begin_src scheme
+(package (inputs `(("gawk" ,gawk))))
+#+end_src
+
+#+begin_quote
+Run ~sift explain inputs-label-alist~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT076 interactive-without-arguments
+:PROPERTIES:
+:CUSTOM_ID: interactive-without-arguments
+:END:
+
+A command with required parameters whose ~interactive~ form supplies none
+
+- *Dialects:* elisp
+- *Severity:* warning
+- *Fix:* (defun my-command (arg)
+  "Do ARG."
+  (interactive "p")
+  (message "%s" arg))
+
+#+begin_src elisp
+(defun my-command (arg)
+  "Do ARG."
+  (interactive)
+  (message "%s" arg))
+#+end_src
+
+#+begin_quote
+Run ~sift explain interactive-without-arguments~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -696,6 +993,26 @@ Run ~sift explain keyword-arguments~ at the command line, or ~M-x sift-explain-a
 #+end_quote
 
 
+** SIFT065 let-sibling
+:PROPERTIES:
+:CUSTOM_ID: let-sibling
+:END:
+
+A ~let~ initializer that refers to a name the same ~let~ binds
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (let* ((a (f)) (b (g a))) b)
+
+#+begin_src scheme
+(let ((a (f)) (b (g a))) b)
+#+end_src
+
+#+begin_quote
+Run ~sift explain let-sibling~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT048 let-simplification
 :PROPERTIES:
 :CUSTOM_ID: let-simplification
@@ -713,6 +1030,26 @@ A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~
 
 #+begin_quote
 Run ~sift explain let-simplification~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT070 letrec-init-reference
+:PROPERTIES:
+:CUSTOM_ID: letrec-init-reference
+:END:
+
+A ~letrec~ initializer that refers to a binding the form has not assigned yet
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (letrec* ((a 1) (b (+ a 1))) b)
+
+#+begin_src scheme
+(letrec ((a 1) (b (+ a 1))) b)
+#+end_src
+
+#+begin_quote
+Run ~sift explain letrec-init-reference~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -818,6 +1155,26 @@ Run ~sift explain loop-keyword-style~ at the command line, or ~M-x sift-explain-
 #+end_quote
 
 
+** SIFT073 mixed-lambda-list
+:PROPERTIES:
+:CUSTOM_ID: mixed-lambda-list
+:END:
+
+A lambda list with both ~&optional~ and ~&key~
+
+- *Dialects:* cl
+- *Severity:* warning
+- *Fix:* (defun f (x &key y z) (list x y z))
+
+#+begin_src commonlisp
+(defun f (x &optional y &key z) (list x y z))
+#+end_src
+
+#+begin_quote
+Run ~sift explain mixed-lambda-list~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT040 naming-convention
 :PROPERTIES:
 :CUSTOM_ID: naming-convention
@@ -835,6 +1192,26 @@ An underscore or camelCase in the name of a definition
 
 #+begin_quote
 Run ~sift explain naming-convention~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT066 needless-let*
+:PROPERTIES:
+:CUSTOM_ID: needless-let*
+:END:
+
+A ~let*~ none of whose initializers depends on an earlier binding
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* info
+- *Fix:* (let ((a (f)) (b (g))) (+ a b))
+
+#+begin_src scheme
+(let* ((a (f)) (b (g))) (+ a b))
+#+end_src
+
+#+begin_quote
+Run ~sift explain needless-let*~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -880,6 +1257,46 @@ Run ~sift explain nesting-depth~ at the command line, or ~M-x sift-explain-at-po
 #+end_quote
 
 
+** SIFT090 number-literal-argument
+:PROPERTIES:
+:CUSTOM_ID: number-literal-argument
+:END:
+
+A string passed to an operator whose arguments are numbers
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (+ 1 2)
+
+#+begin_src scheme
+(+ 1 "2")
+#+end_src
+
+#+begin_quote
+Run ~sift explain number-literal-argument~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT085 package-description-literal
+:PROPERTIES:
+:CUSTOM_ID: package-description-literal
+:END:
+
+A description built by ~string-append~ rather than written as one string
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (package (description "Frob files."))
+
+#+begin_src scheme
+(package (description (string-append "Frob " "files.")))
+#+end_src
+
+#+begin_quote
+Run ~sift explain package-description-literal~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT025 package-prefix
 :PROPERTIES:
 :CUSTOM_ID: package-prefix
@@ -898,6 +1315,46 @@ Exported symbols referenced without a package prefix
 
 #+begin_quote
 Run ~sift explain package-prefix~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT084 package-synopsis
+:PROPERTIES:
+:CUSTOM_ID: package-synopsis
+:END:
+
+A synopsis that opens with an article, ends with a period, or starts in lower case
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (package (synopsis "File frobber"))
+
+#+begin_src scheme
+(package (synopsis "A file frobber."))
+#+end_src
+
+#+begin_quote
+Run ~sift explain package-synopsis~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT082 phase-name-quoting
+:PROPERTIES:
+:CUSTOM_ID: phase-name-quoting
+:END:
+
+A phase named by an unquoted symbol or a string in ~modify-phases~
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (modify-phases %standard-phases (delete 'configure))
+
+#+begin_src scheme
+(modify-phases %standard-phases (delete configure))
+#+end_src
+
+#+begin_quote
+Run ~sift explain phase-name-quoting~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -1044,6 +1501,66 @@ Run ~sift explain redundant-progn~ at the command line, or ~M-x sift-explain-at-
 #+end_quote
 
 
+** SIFT074 require-cl
+:PROPERTIES:
+:CUSTOM_ID: require-cl
+:END:
+
+A ~require~ of the deprecated ~cl~ library instead of ~cl-lib~
+
+- *Dialects:* elisp
+- *Severity:* warning
+- *Fix:* no automatic fix; ~cl-lib~ renames every symbol the file uses
+
+#+begin_src elisp
+(require 'cl)
+#+end_src
+
+#+begin_quote
+Run ~sift explain require-cl~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT075 save-excursion-set-buffer
+:PROPERTIES:
+:CUSTOM_ID: save-excursion-set-buffer
+:END:
+
+A ~set-buffer~ inside ~save-excursion~, where ~with-current-buffer~ belongs
+
+- *Dialects:* elisp
+- *Severity:* warning
+- *Fix:* (with-current-buffer buffer (save-excursion (goto-char (point-min))))
+
+#+begin_src elisp
+(save-excursion (set-buffer buffer) (goto-char (point-min))))
+#+end_src
+
+#+begin_quote
+Run ~sift explain save-excursion-set-buffer~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT086 sha256-base32
+:PROPERTIES:
+:CUSTOM_ID: sha256-base32
+:END:
+
+A ~sha256~ that is not ~(base32 "...")~ of 52 lower-case characters
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (origin (sha256 (base32 "0ssi1wpaf7plaswqqjwigppsg5fyh99vdlb9kzl7c9lng89ndq1i")))
+
+#+begin_src scheme
+(origin (sha256 (base32 "abc")))
+#+end_src
+
+#+begin_quote
+Run ~sift explain sha256-base32~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT053 single-letter-name
 :PROPERTIES:
 :CUSTOM_ID: single-letter-name
@@ -1081,6 +1598,46 @@ A special variable or constant whose name does not say so
 
 #+begin_quote
 Run ~sift explain special-variable-name~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT081 string-append-file-append
+:PROPERTIES:
+:CUSTOM_ID: string-append-file-append
+:END:
+
+A gexp ~string-append~ of a package and a literal path, where ~file-append~ says it
+
+- *Dialects:* scheme
+- *Severity:* info
+- *Fix:* #~(system* #$(file-append coreutils "/bin/ls"))
+
+#+begin_src scheme
+#~(system* (string-append #$coreutils "/bin/ls"))
+#+end_src
+
+#+begin_quote
+Run ~sift explain string-append-file-append~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT089 string-literal-argument
+:PROPERTIES:
+:CUSTOM_ID: string-literal-argument
+:END:
+
+A number or boolean passed where the operator's convention says a string
+
+- *Dialects:* scheme, elisp, cl
+- *Severity:* warning
+- *Fix:* (string-append "a" "1")
+
+#+begin_src scheme
+(string-append "a" 1)
+#+end_src
+
+#+begin_quote
+Run ~sift explain string-literal-argument~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 
@@ -1231,6 +1788,26 @@ Run ~sift explain trailing-whitespace~ at the command line, or ~M-x sift-explain
 #+end_quote
 
 
+** SIFT078 ungexp-outside-gexp
+:PROPERTIES:
+:CUSTOM_ID: ungexp-outside-gexp
+:END:
+
+An ~#$~, ~#$@~, ~#+~ or ~#+@~ with no gexp around it
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (list #$output)
+
+#+begin_src scheme
+(list #$output)
+#+end_src
+
+#+begin_quote
+Run ~sift explain ungexp-outside-gexp~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT014 unless-without-body
 :PROPERTIES:
 :CUSTOM_ID: unless-without-body
@@ -1355,6 +1932,51 @@ A name or a library an ~import~ brings in that the file never uses
 
 #+begin_quote
 Run ~sift explain unused-import~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT091 unused-import-from
+:PROPERTIES:
+:CUSTOM_ID: unused-import-from
+:END:
+
+A name a ~defpackage~ imports with ~:import-from~ and the file never uses
+
+- *Dialects:* cl
+- *Severity:* info
+- *Fix:* (defpackage :demo (:use :cl))
+(in-package :demo)
+
+
+#+begin_src commonlisp
+(defpackage :demo (:use :cl) (:import-from :alexandria #:curry))
+(in-package :demo)
+
+#+end_src
+
+#+begin_quote
+Run ~sift explain unused-import-from~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT083 use-modules-in-gexp
+:PROPERTIES:
+:CUSTOM_ID: use-modules-in-gexp
+:END:
+
+A build module imported inside a gexp that ~with-imported-modules~ does not mark
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* (with-imported-modules '((guix build utils))
+  #~(use-modules (guix build utils)))
+
+#+begin_src scheme
+#~(use-modules (guix build utils))
+#+end_src
+
+#+begin_quote
+Run ~sift explain use-modules-in-gexp~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

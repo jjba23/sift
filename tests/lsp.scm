@@ -46,20 +46,48 @@ server that handles one."
                  (number->string (bytevector-length (string->utf8 body)))
                  "\r\n\r\n" body))
 
+(define (byte-index-of bytes pattern start)
+  "Return where @var{pattern} begins in @var{bytes} at or after @var{start}."
+  (let ((limit (- (bytevector-length bytes) (bytevector-length pattern))))
+    (let loop ((index start))
+      (and (<= index limit)
+        (or (and (let same? ((step 0))
+                   (or (= step (bytevector-length pattern))
+                     (and (= (bytevector-u8-ref bytes (+ index step))
+                             (bytevector-u8-ref pattern step))
+                       (same? (+ step 1)))))
+              index)
+          (loop (+ index 1)))))))
+
+(define (slice bytes start end)
+  "Return @var{bytes} between @var{start} and @var{end}, as a bytevector.
+
+`(rnrs bytevectors)' gives `bytevector-copy' one argument, so the window is
+made and filled by hand."
+  (let ((copy (make-bytevector (- end start))))
+    (bytevector-copy! bytes start copy 0 (- end start))
+    copy))
+
 (define (unframe text)
-  "Return the messages in @var{text}, a run of framed messages."
-  (let loop ((index 0) (messages '()))
-    (let ((header-end (string-contains text "\r\n\r\n" index)))
-      (if (not header-end)
-        (reverse messages)
-        (let* ((header (substring text index header-end))
-               (colon (string-index header #\:))
-               (length (string->number
-                        (string-trim (substring header (+ colon 1)))))
-               (start (+ header-end 4))
-               (end (min (string-length text) (+ start length)))
-               (body (substring text start end)))
-          (loop end (cons (json-read body) messages)))))))
+  "Return the messages in @var{text}, a run of framed messages.
+
+A `Content-Length' counts bytes, so the run is walked as bytes.  Walking it as
+characters would hand the rest of a body -- or the next frame's header -- to
+`json-read' the moment a message carried a character wider than one byte."
+  (let ((bytes (string->utf8 text))
+        (separator (string->utf8 "\r\n\r\n")))
+    (let loop ((index 0) (messages '()))
+      (let ((header-end (byte-index-of bytes separator index)))
+        (if (not header-end)
+          (reverse messages)
+          (let* ((header (utf8->string (slice bytes index header-end)))
+                 (colon (string-index header #\:))
+                 (length (string->number
+                          (string-trim (substring header (+ colon 1)))))
+                 (start (+ header-end 4))
+                 (end (min (bytevector-length bytes) (+ start length)))
+                 (body (utf8->string (slice bytes start end))))
+            (loop end (cons (json-read body) messages))))))))
 
 (define* (session messages #:key (arguments '()))
   "Run `sift lsp' on @var{messages} and return @code{(status . messages)}."
@@ -733,7 +761,10 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
         (assert-equal #:expect 0 #:got (car result))
-        (assert-equal #:expect '("parent" "width" "height" "title")
+        ;; the label carries its own gap: an editor that honours `paddingLeft'
+        ;; and `paddingRight' draws the space twice, and one that ignores them
+        ;; still keeps the hint off the argument
+        (assert-equal #:expect '("parent  " "width  " "height  " "title  ")
           #:got labels
           #:name "one hint per argument, named by the definition")
         (assert-equal #:expect 2
@@ -750,7 +781,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect 3
           #:got (json-ref (json-ref hint "position") "line")
           #:name "on the line of the call, counted from zero")
-        (assert-equal #:expect "name" #:got (json-ref hint "label"))))
+        (assert-equal #:expect "name  " #:got (json-ref hint "label"))))
 
     (test "a keyword argument is not hinted"
       ;; `(greet/who "x" #:loud? #t)' says its own names from the first
@@ -763,7 +794,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (hints (json-ref (answer-to (cdr result) 13) "result"))
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
-        (assert-equal #:expect '("name") #:got labels
+        (assert-equal #:expect '("name  ") #:got labels
           #:name "only the positional argument is named")))
 
     (test "a literal's type is hinted when the project asks for it"
@@ -786,9 +817,9 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                            (filter (lambda (hint)
                                      (equal? kind (json-ref hint "kind")))
                                    hints)))))
-        (assert-equal #:expect '("parent" "width" "title") #:got (named 2)
+        (assert-equal #:expect '("parent  " "width  " "title  ") #:got (named 2)
           #:name "the parameters are named, as before")
-        (assert-equal #:expect '("number" "string") #:got (named 1)
+        (assert-equal #:expect '("number  " "string  ") #:got (named 1)
           #:name "and a literal says its own type")))
 
     (test "a name says nothing about its type"
@@ -807,7 +838,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (hints (json-ref (answer-to (cdr result) 22) "result"))
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
-        (assert-equal #:expect '("number") #:got labels
+        (assert-equal #:expect '("number  ") #:got labels
           #:name "only the argument whose type is written down")))
 
     (test "the project chooses which kinds of hint it gets"

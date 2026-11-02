@@ -10,7 +10,7 @@
 #   on: [push, pull_request]
 #   jobs:
 #     sift:
-#       uses: jjba23/sift/.github/workflows/sift.yml@v1.17.1
+#       uses: jjba23/sift/.github/workflows/sift.yml@v1.18.0
 #
 # and gets both halves of what sift has to say: annotations on the lines of the
 # pull request, and a SARIF document uploaded to code scanning so that a

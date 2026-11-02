@@ -952,6 +952,26 @@ an atom, and is read as one."
       (read-prefix r (substring (reader-source r) start end))
       (read-atom r))))
 
+(define (read-gexp-prefix r)
+  "Read a Guix gexp reader prefix and the datum it applies to.
+
+Guix extends the Scheme reader with five prefixes: `#~' for `gexp', `#$' and
+`#$@' for `ungexp' and `ungexp-splicing', and `#+' and `#+@' for the two
+native variants.  They are read the way a quote is -- as one prefix glued to
+one datum -- so the formatter keeps them against what they apply to and the
+checkers can tell a gexp from a symbol whose name happens to start with `#'.
+
+The reader does not expand them: a file is formatted and linted as written,
+and `#~(modify-phases ...)' is the shape its author chose."
+  (let* ((second (peek-at r 1))
+         (third (peek-at r 2)))
+    (cond
+      [(and (eqv? second #\$) (eqv? third #\@)) (read-prefix r "#$@")]
+      [(and (eqv? second #\+) (eqv? third #\@)) (read-prefix r "#+@")]
+      [(eqv? second #\~) (read-prefix r "#~")]
+      [(eqv? second #\$) (read-prefix r "#$")]
+      [else (read-prefix r "#+")])))
+
 (define (read-hash r)
   (let ((start (reader-index r))
         (c (peek-at r 1)))
@@ -978,6 +998,12 @@ an atom, and is read as one."
        ;; the token as written -- `#p' or `#P' -- because the reader never
        ;; respells one
        (read-prefix r (substring (reader-source r) start (+ start 2)))]
+      ;; `#~', `#$', `#$@', `#+' and `#+@' are Guix's gexp syntax.  In Common
+      ;; Lisp the same two characters open a conditional, so which reading is
+      ;; right is the dialect's question, and `#-' is a conditional in any
+      ;; case: no Scheme has a use for it.
+      [(and (memv c '(#\~ #\$ #\+)) (not (eq? (reader-dialect r) 'cl)))
+       (read-gexp-prefix r)]
       [(memv c '(#\+ #\-))
        (read-conditional r)]
       [(eqv? c #\.) (read-read-time-eval r)]

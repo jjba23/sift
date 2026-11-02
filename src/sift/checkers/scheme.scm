@@ -23,6 +23,7 @@
             internal-define-checker
             if-without-else-checker
             letrec-single-binding-checker
+            letrec-init-reference-checker
             quasiquote-unquote-constant-checker
             clause-brackets-checker
             docstring-texinfo-checker
@@ -180,6 +181,65 @@ first expression, where it silently gets the wrong scope."
            #:severity 'info
            #:example '((input . "(letrec ((x 1)) x)")
                        (fix . "no automatic fix; `let` expresses the same thing"))))
+
+;;; ===== letrec-init-reference =====
+;;;
+;;; R7RS says an initializer of `letrec' may not refer to the value of any of
+;;; the variables the form is binding: when it runs, none of them has been
+;;; assigned yet.  All-lambda initializers satisfy that automatically, which is
+;;; why the common use of `letrec' is a set of mutually recursive procedures;
+;;; an initializer that is not a lambda and that mentions a binding is a
+;;; `letrec*' written with the wrong name.
+
+(define (letrec-bindings node)
+  "Return the @code{(name . initializer)} pairs of @var{node}, or @code{'()}."
+  (let ((arguments (form-arguments node)))
+    (filter-map
+     (lambda (binding)
+       (let ((parts (form-elements binding)))
+         (and (pair? parts) (pair? (cdr parts))
+           (let ((name (atom-symbol (car parts))))
+             (and name (cons name (cadr parts)))))))
+     (or (and (pair? arguments) (node-list? (car arguments))
+           (node-elements (car arguments)))
+       '()))))
+
+(define (letrec-init-reference-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (list-headed-by? node 'letrec)
+         (let* ((bindings (letrec-bindings node))
+                (names (map car bindings)))
+           (for-each
+            (lambda (binding)
+              (let ((init (cdr binding)))
+                ;; a lambda body runs later, when every binding is assigned
+                (unless (and (node-list? init)
+                          (eq? (node-head-name init) 'lambda))
+                  (let ((referred (find (lambda (name)
+                                          (tree-contains-symbol? init name))
+                                        names)))
+                    (when referred
+                      (set! warnings
+                            (cons (make-lint-warning
+                                   'letrec-init-reference 'warning
+                                   (format #f "this initializer refers to `~a`, which `letrec` has not assigned yet; `letrec*` evaluates them in order"
+                                           referred)
+                                   (node-start init))
+                                  warnings)))))))
+            bindings))))
+     ast)
+    (reverse warnings)))
+
+(define letrec-init-reference-checker
+  (checker 'letrec-init-reference
+           "A `letrec` initializer that refers to a binding the form has not assigned yet"
+           '(scheme)
+           letrec-init-reference-warnings
+           #:severity 'warning
+           #:example '((input . "(letrec ((a 1) (b (+ a 1))) b)")
+                       (fix . "(letrec* ((a 1) (b (+ a 1))) b)"))))
 
 ;;; ===== quasiquote-unquote-constant =====
 
@@ -781,6 +841,7 @@ one, and a file with no path at all names no project to look at."
   (list internal-define-checker
         if-without-else-checker
         letrec-single-binding-checker
+        letrec-init-reference-checker
         quasiquote-unquote-constant-checker
         clause-brackets-checker
         docstring-texinfo-checker

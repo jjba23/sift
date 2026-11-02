@@ -283,7 +283,7 @@ cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
                       proc severity example))
 
-(define sift-version "1.17.1")
+(define sift-version "1.18.0")
 
 (define dialects '(scheme elisp cl))
 
@@ -364,7 +364,37 @@ cannot move when the list is re-sorted."
     (library-not-found . "SIFT061")
     (unused-definition . "SIFT062")
     ;; the rules added after the first release of the editor integration
-    (sxml-empty-element . "SIFT063")))
+    (sxml-empty-element . "SIFT063")
+    ;; the rules a survey of the three style guides asked for
+    (apply-of-list . "SIFT064")
+    (let-sibling . "SIFT065")
+    (needless-let* . "SIFT066")
+    (eq-nil . "SIFT067")
+    (append-nothing . "SIFT068")
+    (case-literal-datum . "SIFT069")
+    (letrec-init-reference . "SIFT070")
+    (defpackage-use . "SIFT071")
+    (ecase-otherwise . "SIFT072")
+    (mixed-lambda-list . "SIFT073")
+    (require-cl . "SIFT074")
+    (save-excursion-set-buffer . "SIFT075")
+    (interactive-without-arguments . "SIFT076")
+    (gexp-quoted . "SIFT077")
+    (ungexp-outside-gexp . "SIFT078")
+    (gexp-output-script . "SIFT079")
+    (assoc-ref-outputs . "SIFT080")
+    (string-append-file-append . "SIFT081")
+    (phase-name-quoting . "SIFT082")
+    (use-modules-in-gexp . "SIFT083")
+    (package-synopsis . "SIFT084")
+    (package-description-literal . "SIFT085")
+    (sha256-base32 . "SIFT086")
+    (inputs-label-alist . "SIFT087")
+    (call-arity . "SIFT088")
+    (string-literal-argument . "SIFT089")
+    (number-literal-argument . "SIFT090")
+    (unused-import-from . "SIFT091")
+    (eq-non-symbol . "SIFT092")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

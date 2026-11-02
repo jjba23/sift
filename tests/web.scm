@@ -463,7 +463,7 @@ exactly the bug that would reach a tab and no test."
              (finding (find (lambda (checker)
                               (equal? (field-of checker "name") "if-without-else"))
                             checkers)))
-        (assert-equal #:expect 63 #:got (length checkers) #:name "all of them")
+        (assert-equal #:expect 92 #:got (length checkers) #:name "all of them")
         (assert-true (if finding #t #f)
           #:name "and the one we asked about is there")
         (assert-equal #:expect "SIFT012" #:got (field-of finding "code")
@@ -556,8 +556,8 @@ exactly the bug that would reach a tab and no test."
              (hints (vector->list (field-of result "hints"))))
         (assert-equal #:expect 2 #:got (length hints)
           #:name "one per positional argument")
-        (assert-equal #:expect "width" #:got (field-of (car hints) "label")
-          #:name "named by the formal list")))
+        (assert-equal #:expect "width  " #:got (field-of (car hints) "label")
+          #:name "named by the formal list, with room after the name")))
 
     (test "a question without an offset is a usage error"
       (assert-refused #:request (asked (cons "op" "hover") (cons "source" "(a)"))

@@ -32,7 +32,10 @@
             provide-missing-checker
             declare-indent-checker
             docstring-arguments-checker
-            docstring-before-interactive-checker))
+            docstring-before-interactive-checker
+            require-cl-checker
+            save-excursion-set-buffer-checker
+            interactive-without-arguments-checker))
 
 ;;; ===== helpers =====
 
@@ -454,6 +457,134 @@ does, and what a reader does."
            #:example '((input . "(defun add (a b)\n  \"Add two numbers.\"\n  (+ a b))")
                        (fix . "(defun add (a b)\n  \"Add A and B.\"\n  (+ a b))"))))
 
+;;; ===== require-cl =====
+;;;
+;;; The `cl' library is deprecated: the Emacs Lisp Coding Conventions ask for
+;;; `cl-lib', whose names are prefixed so that they cannot collide with the
+;;; function the file was going to call, and whose macros the compiler can
+;;; inline.  Loading `cl' also defines the old unprefixed names for the whole
+;;; session, which is the part that outlives the file.
+
+(define legacy-cl-libraries '("cl" "cl-macs" "cl-seq" "cl-extra" "cl-19"))
+
+(define (library-name node)
+  "Return the library name @var{node} names, or @code{#f}."
+  (cond
+    [(node-atom? node)
+     (and (memq (node-atom-type node) '(symbol string)) (node-value node))]
+    [(node-prefix? node)
+     (let ((child (node-child node)))
+       (and child (node-atom? child) (node-value child)))]
+    [else #f]))
+
+(define (require-cl-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (list-headed-by? node 'require)
+         (let ((library (and (pair? (form-arguments node))
+                          (library-name (car (form-arguments node))))))
+           (when (and library (member library legacy-cl-libraries))
+             (set! warnings
+                   (cons (make-lint-warning
+                          'require-cl 'warning
+                          (format #f "`~a` is the deprecated Common Lisp compatibility library; `cl-lib` is the one Emacs still ships"
+                                  library)
+                          (node-start node))
+                         warnings))))))
+     ast)
+    (reverse warnings)))
+
+(define require-cl-checker
+  (checker 'require-cl
+           "A `require` of the deprecated `cl` library instead of `cl-lib`"
+           '(elisp)
+           require-cl-warnings
+           #:severity 'warning
+           #:example '((input . "(require 'cl)")
+                       (fix . "no automatic fix; `cl-lib` renames every symbol the file uses"))))
+
+;;; ===== save-excursion-set-buffer =====
+;;;
+;;; `save-excursion` saves point for the buffer that was current when it
+;;; started.  A `set-buffer` inside it changes which buffer `point' means, so
+;;; what the end of the form restores is the point of the buffer the body left
+;;; behind.  The byte compiler warns about exactly this shape, and
+;;; `with-current-buffer` says which buffer the body is about.
+
+(define (calls-somewhere? nodes name)
+  "Return the first call to @var{name} among @var{nodes}, or @code{#f}."
+  (let ((found #f))
+    (for-each-node
+     (lambda (node)
+       (when (and (not found) (list-headed-by? node name)) (set! found node)))
+     nodes)
+    found))
+
+(define (save-excursion-set-buffer-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (list-headed-by? node 'save-excursion)
+         (let ((switch (calls-somewhere? (form-arguments node) 'set-buffer)))
+           (when switch
+             (set! warnings
+                   (cons (make-lint-warning
+                          'save-excursion-set-buffer 'warning
+                          "`save-excursion` saves point for one buffer; `with-current-buffer` says which buffer this body is about"
+                          (node-start switch))
+                         warnings))))))
+     ast)
+    (reverse warnings)))
+
+(define save-excursion-set-buffer-checker
+  (checker 'save-excursion-set-buffer
+           "A `set-buffer` inside `save-excursion`, where `with-current-buffer` belongs"
+           '(elisp)
+           save-excursion-set-buffer-warnings
+           #:severity 'warning
+           #:example '((input . "(save-excursion (set-buffer buffer) (goto-char (point-min))))")
+                       (fix . "(with-current-buffer buffer (save-excursion (goto-char (point-min))))"))))
+
+;;; ===== interactive-without-arguments =====
+;;;
+;;; A command whose argument list has required parameters has to be told what
+;;; they are, and a bare `(interactive)' tells it nothing: Emacs calls the
+;;; function with no arguments and gets `wrong-number-of-arguments'.  The spec
+;;; either supplies them -- `"p"', `(list ...)' -- or the function should not
+;;; be interactive.
+
+(define (interactive-without-arguments-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (and (node-list? node) (memq (node-head-name node) '(defun cl-defun)))
+         (let* ((formals (formal-elements node))
+                (required (and formals (required-positional-formals formals)))
+                (interactive (find (lambda (element)
+                                     (list-headed-by? element 'interactive))
+                                   (body-elements node 3))))
+           (when (and interactive required (> required 0)
+                   (= 0 (argument-count interactive)))
+             (set! warnings
+                   (cons (make-lint-warning
+                          'interactive-without-arguments 'warning
+                          (format #f "this command takes ~a argument~a but `(interactive)` supplies none, so calling it interactively fails"
+                                  required (if (= required 1) "" "s"))
+                          (node-start interactive))
+                         warnings))))))
+     ast)
+    (reverse warnings)))
+
+(define interactive-without-arguments-checker
+  (checker 'interactive-without-arguments
+           "A command with required parameters whose `interactive` form supplies none"
+           '(elisp)
+           interactive-without-arguments-warnings
+           #:severity 'warning
+           #:example '((input . "(defun my-command (arg)\n  \"Do ARG.\"\n  (interactive)\n  (message \"%s\" arg))")
+                       (fix . "(defun my-command (arg)\n  \"Do ARG.\"\n  (interactive \"p\")\n  (message \"%s\" arg))"))))
+
 ;;; ===== The list =====
 
 (define elisp-checkers
@@ -466,4 +597,7 @@ does, and what a reader does."
         provide-missing-checker
         declare-indent-checker
         docstring-arguments-checker
-        docstring-before-interactive-checker))
+        docstring-before-interactive-checker
+        require-cl-checker
+        save-excursion-set-buffer-checker
+        interactive-without-arguments-checker))

@@ -898,9 +898,14 @@ label, so the hint reads as a word beside the argument instead of as part of
 it."
   (json-object
    (field "position" position)
-   (field "label" label)
+   ;; The gap is in the label as well as in the padding, because a client is
+   ;; free to ignore `paddingLeft'/`paddingRight' and most draw the label right
+   ;; against the argument when they do: `width' then reads as part of the
+   ;; number rather than as a name for it.
+   (field "label" (string-append label "  "))
    (field "kind" kind)
-   (field "paddingLeft" padding-left?)))
+   (field "paddingLeft" padding-left?)
+   (field "paddingRight" #t)))
 
 ;;; --- the type an argument states outright --------------------------------
 ;;;

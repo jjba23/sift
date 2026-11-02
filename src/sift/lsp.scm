@@ -86,6 +86,7 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 ftw)
   #:use-module (ice-9 textual-ports)
+  #:use-module (ice-9 threads)
   #:use-module (rnrs bytevectors)
   #:use-module (sift records)
   #:use-module (sift reader)
@@ -187,15 +188,29 @@ from sending one bad message."
         [else
           (loop (or (frame-length line) length))]))))
 
+(define *send-lock* (make-mutex))
+
 (define* (send! out message)
-  "Write @var{message} to @var{out} as one framed JSON-RPC message."
-  (let* ((body (string->utf8 (json-write message)))
-         (header (string->utf8
-                  (format #f "Content-Length: ~a\r\n\r\n"
-                          (bytevector-length body)))))
-    (put-bytevector out header)
-    (put-bytevector out body)
-    (force-output out)))
+  "Write @var{message} to @var{out} as one framed JSON-RPC message.
+
+The lock is what makes a report from the second pass and a report from the
+message loop one after the other rather than one inside the other: two frames
+interleaved on the wire are a protocol error, and an editor reads that as a
+dead server rather than as a finding." ;; one bytevector, one write: a header and a body written separately are two
+  ;; chances for another thread to put its frame between them, and a client
+  ;; that reads 815 bytes of two messages is a client that closes the session
+  (with-mutex *send-lock*
+              (let* ((body (string->utf8 (json-write message)))
+                     (header (string->utf8
+                              (format #f "Content-Length: ~a\r\n\r\n"
+                                      (bytevector-length body))))
+                     (header-length (bytevector-length header))
+                     (body-length (bytevector-length body))
+                     (frame (make-bytevector (+ header-length body-length))))
+                (bytevector-copy! header 0 frame 0 header-length)
+                (bytevector-copy! body 0 frame header-length body-length)
+                (put-bytevector out frame)
+                (force-output out))))
 ;;; ===== The project on disk =====
 ;;;
 ;;; A project is at most a couple of thousand files and a few hundred kilobytes
@@ -463,13 +478,33 @@ is forgotten rather than kept as a stale answer."
         (cons 'max-positional (config-ref config 'max-positional))
         (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
 
+;; The rules that need the whole file before they can say anything.  They are
+;; the ones that would make a keystroke wait, so the language server computes
+;; them in a thread of its own and publishes what they find as a second report.
+(define deep-checkers
+  '(call-arity string-literal-argument number-literal-argument
+               eq-non-symbol unused-import-from))
+
+(define* (all-warnings config text #:key (dialect 'scheme) (uri #f) (exclude '()))
+  "Return every warning @var{text} earns, leaving out @var{exclude}."
+  (with-lint-lock
+   (lambda ()
+     (lint-source text #:dialect dialect #:file (and uri (strip-uri uri))
+                  #:checkers (config-ref config 'checkers)
+                  #:exclude-checkers (append exclude
+                                             (or (config-ref config 'exclude-checkers)
+                                               '()))
+                  #:severity (config-ref config 'severity)
+                  #:options (lint-options-of config)))))
+
 (define* (warnings-for config text #:key (dialect 'scheme) (uri #f))
-  "Return the warnings @var{text} earns, as the editor should see them."
-  (lint-source text #:dialect dialect #:file (and uri (strip-uri uri))
-               #:checkers (config-ref config 'checkers)
-               #:exclude-checkers (config-ref config 'exclude-checkers)
-               #:severity (config-ref config 'severity)
-               #:options (lint-options-of config)))
+  "Return the warnings @var{text} earns, as the editor should see them.
+
+The whole-file rules are not among them: the report they belong to is the
+second one, and this is the one an editor gets while the reader is still
+typing."
+  (all-warnings config text #:dialect dialect #:uri uri
+                #:exclude deep-checkers))
 
 (define (lsp-severity severity)
   "Return the LSP number for a sift @var{severity}: errors are 1, notes 3."
@@ -1157,10 +1192,10 @@ again.
 project it was read against changed -- which is what a save or a configuration
 reload asks for."
   (let* ((text (document-text document))
-         (diagnostics (lsp-diagnostics config
-                                       text
-                                       #:dialect (document-dialect document)
-                                       #:uri (document-uri document))))
+         (warnings (warnings-for config text
+                                 #:dialect (document-dialect document)
+                                 #:uri (document-uri document)))
+         (diagnostics (diagnostics-of warnings text)))
     (unless (and (not force)
               (document-published document)
               (string=? (cdr (document-published document)) text))
@@ -1171,7 +1206,113 @@ reload asks for."
       (publish-diagnostics! out
                             (document-uri document)
                             (document-version document)
-                            diagnostics))))
+                            diagnostics)
+      ;; The editor has the findings that could be answered at once; the ones
+      ;; that had to read the whole file are computed now and published by the
+      ;; message loop when they are ready.
+      (queue-deep-pass! out config document warnings))))
+
+;;; --- the second pass -----------------------------------------------------
+;;;
+;;; Five rules need the whole file before they can say anything: a call's
+;;; arity is about the definition it resolves to, an import is unused only
+;;; when the rest of the file has been read, and a literal argument is a
+;;; question about a procedure's convention.  They are the ones that would
+;;; make a keystroke wait, so they are computed after the findings the editor
+;;; can have at once have gone out -- in a thread of their own -- and published
+;;; as a second report for the same version.  The editor draws the first
+;;; report immediately and replaces it when the second arrives.
+
+(define deep-checkers
+  '(call-arity string-literal-argument number-literal-argument
+               eq-non-symbol unused-import-from))
+
+(define *lint-lock* (make-mutex))
+(define *deep-threads* '())
+
+(define (with-lint-lock thunk)
+  "Call @var{thunk} with the linter to itself.
+
+`lint-source' keeps one cache of the lines of the text it is reading, so two
+reports computed at once could read each other's line numbers.  One mutex
+around a computation that takes milliseconds is the whole of the fix; the
+alternative is a wrong line in a finding."
+  (with-mutex *lint-lock* (thunk)))
+
+(define (diagnostics-of warnings text)
+  "Return @var{warnings} as the diagnostics an editor expects about @var{text}."
+  (list->vector (map (lambda (warning) (diagnostic-of warning text)) warnings)))
+
+(define *deep-results* '())
+
+(define (queue-deep-pass! out config document fast)
+  "Compute the whole-file rules of @var{document} in a thread of their own.
+
+Nothing is written from that thread.  What it finds is handed back through
+`*deep-results*', and the message loop -- the one writer a port needs --
+publishes it: two threads writing to one port are two chances to put one
+frame's bytes inside another's, and an editor that cannot parse the stream
+drops the connection rather than the message.
+
+Only a report that says more than the first one is queued.  The findings the
+editor already has are not news, and a second `publishDiagnostics' carrying
+the same vector is a flicker in every buffer sift checks.  What makes the
+report worth sending is a whole-file rule having something to add.
+
+A report is published only for the text it was computed from: a buffer that
+changed while the pass ran has findings of its own by now, and a report about
+an older text is one an editor would either drop or, worse, show."
+  (let ((text (document-text document))
+        (version (document-version document))
+        (uri (document-uri document))
+        (dialect (document-dialect document)))
+    (set! *deep-threads*
+          (cons (call-with-new-thread
+                 (lambda ()
+                   (catch #t
+                          (lambda ()
+                            (let ((all (all-warnings config text
+                                                     #:dialect dialect
+                                                     #:uri uri)))
+                              (when (and (> (length all) (length fast))
+                                      (string=? text (document-text document))
+                                      (equal? version (document-version document)))
+                                (with-mutex *send-lock*
+                                            (set! *deep-results*
+                                                  (cons (list uri version
+                                                              (diagnostics-of
+                                                               (sort all
+                                                                     lint-warning<?)
+                                                               text))
+                                                        *deep-results*))))))
+                          (lambda (key . arguments) #f))))
+                *deep-threads*))))
+
+(define (flush-deep-results! out)
+  "Publish the second reports the deep passes have finished."
+  (let ((pending (with-mutex *send-lock*
+                             (let ((results *deep-results*))
+                               (set! *deep-results* '())
+                               results))))
+    (for-each (lambda (result)
+                (publish-diagnostics! out (car result) (cadr result)
+                                      (caddr result)))
+              (reverse pending))))
+
+(define (join-deep-passes!)
+  "Wait for the second passes still running, so an exit does not lose one."
+  (for-each (lambda (thread)
+              (catch #t
+                     (lambda () (join-thread thread))
+                     (lambda (key . arguments) #f)))
+            *deep-threads*)
+  (set! *deep-threads* '()))
+
+(define (finish! out status)
+  "Return @var{status} once the second passes still running have finished."
+  (join-deep-passes!)
+  (flush-deep-results! out)
+  status)
 
 (define* (publish-all! config out documents #:key (force #f))
   "Send the findings of every open document to the editor.
@@ -1822,9 +1963,10 @@ should show a finding."
         (workspace (new-workspace (and config (config-ref config 'file-filter))))
         (session (new-session #:config config #:reload reload)))
     (let loop ((status 0))
+      (flush-deep-results! port-out)
       (let ((frame (read-message port-in)))
         (cond
-          [(not frame) status]
+          [(not frame) (finish! port-out status)]
           [(eq? (car frame) 'malformed)
            ;; The id of a message that could not be parsed is not known, and
            ;; the protocol says to answer with null.
@@ -1834,5 +1976,5 @@ should show a finding."
             (let ((outcome (serve-one session workspace documents
                                       (cdr frame) port-out)))
               (if (eq? outcome 'exit)
-                (if (session-shutdown? session) 0 1)
+                (finish! port-out (if (session-shutdown? session) 0 1))
                 (loop status)))])))))

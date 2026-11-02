@@ -24,7 +24,10 @@
             double-colon-checker
             defun-no-docstring-checker
             loop-keyword-style-checker
-            redundant-identity-checker))
+            redundant-identity-checker
+            defpackage-use-checker
+            ecase-otherwise-checker
+            mixed-lambda-list-checker))
 
 ;;; ===== package-prefix =====
 
@@ -232,6 +235,141 @@
            #:example '((input . "(mapcar (lambda (x) (identity x)) xs)")
                        (fix . "no automatic fix; drop the call"))))
 
+;;; ===== defpackage-use =====
+;;;
+;;; `(:use ...)' puts every external symbol of a package into the reader's
+;;; scope, so a name that arrives from it cannot be traced to the line that
+;;; chose it.  The Google style guide asks for `:import-from' instead, and
+;;; exempts `:cl' itself -- a file that has to write `cl:car' is not more
+;;; readable for it.
+
+(define (defpackage-options node)
+  "Return the options of a `defpackage` form @var{node}, or @code{'()}."
+  (if (list-headed-by? node 'defpackage) (form-arguments node) '()))
+
+(define (package-option-name node)
+  "Return the name of a `defpackage` option, with its colon dropped."
+  (atom-symbol (node-head node)))
+
+(define (defpackage-use-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-node
+     (lambda (node)
+       (for-each
+        (lambda (option)
+          (when (and (node-list? option)
+                  (eq? (package-option-name option) 'use))
+            (for-each
+             (lambda (package)
+               (let ((name (atom-symbol package)))
+                 (when (and name (not (memq name '(cl common-lisp))))
+                   (set! warnings
+                         (cons (make-lint-warning
+                                'defpackage-use 'warning
+                                (format #f "`:use` of `~a` puts every name it exports in scope; `:import-from` names them one at a time"
+                                        name)
+                                (node-start package))
+                               warnings)))))
+             (form-arguments option))))
+        (defpackage-options node)))
+     ast)
+    (reverse warnings)))
+
+(define defpackage-use-checker
+  (checker 'defpackage-use
+           "A `defpackage` that `:use`s a package other than `:cl`"
+           '(cl)
+           defpackage-use-warnings
+           #:severity 'warning
+           #:example '((input . "(defpackage #:demo (:use #:cl #:alexandria))")
+                       (fix . "(defpackage #:demo (:use #:cl) (:import-from #:alexandria #:with-gensyms))"))))
+
+;;; ===== ecase-otherwise =====
+;;;
+;;; `ecase' and `etypecase' exist so that the implementation can complain when
+;;; the clauses do not cover every case.  A default clause is the one thing
+;;; that turns that complaint off, and `case' and `typecase' are the forms
+;;; that say "there is a default" in the first place.
+
+(define (ecase-otherwise-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (head-is-one-of? node '(ecase etypecase ccase ctypecase))
+         (for-each
+          (lambda (clause)
+            (let ((head (and (node-list? clause) (node-head clause))))
+              (when (and head (node-atom? head)
+                      (memq (atom-symbol head) '(t otherwise)))
+                (set! warnings
+                      (cons (make-lint-warning
+                             'ecase-otherwise 'warning
+                             "a default clause turns off the exhaustiveness check the form exists for"
+                             (node-start clause))
+                            warnings)))))
+          (form-arguments node))))
+     ast)
+    (reverse warnings)))
+
+(define ecase-otherwise-checker
+  (checker 'ecase-otherwise
+           "A default clause in `ecase`, `etypecase`, `ccase` or `ctypecase`"
+           '(cl)
+           ecase-otherwise-warnings
+           #:severity 'warning
+           #:example '((input . "(ecase x (a 1) (t 2))")
+                       (fix . "(case x (a 1) (t 2))"))))
+
+;;; ===== mixed-lambda-list =====
+;;;
+;;; A lambda list with `&optional' before `&key' accepts both, and which kind
+;;; an argument is depends on how many the caller passed: the optional
+;;; parameters take their arguments first, so the first keyword a caller
+;;; writes is read as an optional one.  One of the two is enough.
+
+(define (lambda-list-formals node)
+  "Return the lambda list of @var{node} when it has one, or @code{#f}."
+  (let ((head (and (node-list? node) (node-head-name node))))
+    (and (memq head '(lambda defun defmacro defsubst defmethod defgeneric
+                       cl-defun cl-defmacro cl-defsubst cl-defmethod
+                       cl-defgeneric))
+      (let ((formals (formals-of-form node)))
+        (and (node-list? formals) formals)))))
+
+(define (lambda-list-marker node)
+  "Return the name of the lambda-list marker at @var{node}, or @code{#f}."
+  (and (node-atom? node) (eq? (node-atom-type node) 'symbol)
+    (let ((name (node-value node)))
+      (and (> (string-length name) 1)
+        (char=? (string-ref name 0) #\&)
+        name))))
+
+(define (mixed-lambda-list-warnings ast source dialect)
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (let ((formals (lambda-list-formals node)))
+         (when formals
+           (let ((markers (filter-map lambda-list-marker (form-elements formals))))
+             (when (and (member "&optional" markers) (member "&key" markers))
+               (set! warnings
+                     (cons (make-lint-warning
+                            'mixed-lambda-list 'warning
+                            "a lambda list with both `&optional` and `&key` reads a caller's first keyword as an optional argument"
+                            (node-start formals))
+                           warnings)))))))
+     ast)
+    (reverse warnings)))
+
+(define mixed-lambda-list-checker
+  (checker 'mixed-lambda-list
+           "A lambda list with both `&optional` and `&key`"
+           '(cl)
+           mixed-lambda-list-warnings
+           #:severity 'warning
+           #:example '((input . "(defun f (x &optional y &key z) (list x y z))")
+                       (fix . "(defun f (x &key y z) (list x y z))"))))
+
 ;;; ===== The list =====
 
 (define cl-checkers
@@ -239,4 +377,7 @@
         double-colon-checker
         defun-no-docstring-checker
         loop-keyword-style-checker
-        redundant-identity-checker))
+        redundant-identity-checker
+        defpackage-use-checker
+        ecase-otherwise-checker
+        mixed-lambda-list-checker))

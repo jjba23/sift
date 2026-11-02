@@ -747,6 +747,12 @@ grouped by dialect, with the case for each one.
 | SIFT060 | unused-import           | info     | an import the file names and never uses                    |
 | SIFT061 | library-not-found       | warning  | an import no file of the project declares                  |
 | SIFT062 | unused-definition       | info     | a definition nothing uses and the module does not export    |
+| SIFT064 | apply-of-list           | info     | `apply` of a `list`, where a call says it once             |
+| SIFT065 | let-sibling             | warning  | a `let` initializer refers to a name the same `let` binds  |
+| SIFT066 | needless-let*           | info     | a `let*` no initializer depends on                         |
+| SIFT067 | eq-nil                  | warning  | a comparison with `nil` where `null` asks the question     |
+| SIFT068 | append-nothing          | info     | an `append` with the empty list among its arguments        |
+| SIFT069 | case-literal-datum      | warning  | a `case` datum `eqv?` cannot decide, such as a string      |
 
 Why these are cross-dialect: they are about the *text* (whitespace, length,
 delimiters) or about a form all three dialects share (`if`, `when`,
@@ -789,6 +795,7 @@ means, and a project that has decided otherwise excludes them by name.
 | SIFT016 | quasiquote-unquote-constant   | info     | a constant is unquoted inside a quasiquote                |
 | SIFT035 | docstring-texinfo             | info     | a Guile docstring does not document a parameter with `@var{}` |
 | SIFT036 | clause-brackets               | warning  | a `cond` clause is written with the other kind of bracket |
+| SIFT070 | letrec-init-reference         | warning  | a `letrec` initializer refers to a binding not yet assigned |
 
 *SIFT011*: Scheme allows definitions at the head of a body, but a `define`
 in the middle of an expression defines in the wrong scope — it is almost
@@ -824,6 +831,9 @@ manual, which is what a parameter is.
 | SIFT024 | declare-indent                    | info     | `declare` is not indented two columns from the `defun`   |
 | SIFT034 | docstring-arguments               | info     | a docstring does not mention one of its arguments        |
 | SIFT038 | docstring-before-interactive      | warning  | the docstring is not the first form, so Emacs never reads it |
+| SIFT074 | require-cl                        | warning  | a `require` of the deprecated `cl` instead of `cl-lib`  |
+| SIFT075 | save-excursion-set-buffer         | warning  | `set-buffer` inside `save-excursion`                     |
+| SIFT076 | interactive-without-arguments     | warning  | a command with parameters whose spec supplies none       |
 
 These are the Emacs Lisp Reference Manual's own requirements, taken one at
 a time so a project can adopt them one at a time.  *SIFT020* is the one with
@@ -841,6 +851,9 @@ binding, which changes what a closure captures.
 | SIFT042 | special-variable-name | info     | a special variable or constant whose name does not say so  |
 | SIFT029 | loop-keyword-style    | info     | symbolic LOOP keywords where the project writes `:keywords` |
 | SIFT030 | redundant-identity    | info     | `(identity x)` or `(funcall #'foo …)` where the value would do |
+| SIFT071 | defpackage-use        | warning  | a `defpackage` that `:use`s a package other than `:cl`     |
+| SIFT072 | ecase-otherwise       | warning  | a default clause in `ecase`, which turns off its check     |
+| SIFT073 | mixed-lambda-list     | warning  | a lambda list with both `&optional` and `&key`             |
 
 *SIFT027* is the Common Lisp half of the community-style decision: the
 Google Common Lisp style guide, and every Lisp I know, keeps the closer on
@@ -853,6 +866,174 @@ world's `loop` forms is a rule that gets switched off.  Set
 
 *SIFT030*: `identity` in value position is a no-op, and `(funcall #'foo x)`
 is `(foo x)`.
+
+** Guix rules
+
+The Guix manual's packaging chapter and the manual's own G-Expressions
+chapter are the fourth style document a Scheme file can be held to, and
+sift reads them as Scheme: a `.scm` package definition is a file of forms,
+`#~(...)` is a reader prefix on a datum, and a build phase is a lambda.  Four
+of these rules are about the gexp seam itself, three about what a gexp says
+where another form would say it more plainly, and four about the package
+record's own vocabulary.
+
+| Code    | Rule                        | Severity | What it says                                             |
+|---------+-----------------------------+----------+----------------------------------------------------------|
+| SIFT077 | gexp-quoted                 | warning  | a gexp written under a quote, where what is quoted is the form |
+| SIFT078 | ungexp-outside-gexp         | warning  | `#$`, `#$@`, `#+` or `#+@` with no gexp around it        |
+| SIFT079 | gexp-output-script          | warning  | `#$output` in a gexp that makes a file rather than a derivation |
+| SIFT080 | assoc-ref-outputs           | warning  | `(assoc-ref %outputs "out")` inside a gexp, where `#$output` says it |
+| SIFT081 | string-append-file-append   | info     | a gexp `string-append` of a package and a literal path    |
+| SIFT082 | phase-name-quoting          | warning  | a phase named by an unquoted symbol or by a string        |
+| SIFT083 | use-modules-in-gexp         | warning  | a build module imported inside a gexp nothing imported it into |
+| SIFT084 | package-synopsis            | warning  | a synopsis with an article, a trailing period, or no capital |
+| SIFT085 | package-description-literal | warning  | a description built rather than written as one string     |
+| SIFT086 | sha256-base32               | warning  | a `sha256` that is not `(base32 "...")` of 52 characters |
+| SIFT087 | inputs-label-alist          | warning  | an input list written as a labelled alist                  |
+
+The gexp rules are written on the reader's shape rather than on a guess
+about evaluation, which is what makes them decidable.  *SIFT077* is the
+manual's own sentence -- "a quoted gexp is not evaluated" -- turned into a
+finding: `'#~(...)` quotes the form, so the build system receives a list
+beginning with `gexp` and does nothing with it.  *SIFT078* is the other side
+of the same seam: `#$` outside a gexp is a token no form defines, almost
+always a gexp that lost its `#~` in an edit.  *SIFT079* is the manual's
+caveat about `#$output` -- it "only makes sense for gexps passed to
+`gexp->derivation`" -- and `program-file`, `scheme-file`, `gexp->script`
+and `gexp->file` all make a store *file*, where `getenv "out"` answers
+false.
+
+*SIFT080* and *SIFT081* are the two places where Guix code written before
+g-exps still works and no longer says what the manual says.  `%outputs` was
+the alist a build read its output directory out of; inside a gexp the
+directory is `#$output`, and the fix writes it.  `(string-append #$coreutils
+"/bin/ls")` builds a file name at run time from the package's directory,
+where `#$(file-append coreutils "/bin/ls")` puts the whole absolute file
+name into the store path, so `grep` and the closure can see the file the
+script will run.  The fix is a rewrite of the whole call, `#$` included,
+because the ungexp is inside the form being replaced.
+
+*SIFT082* is `.dir-locals.el`: a `modify-phases` clause names its phase with
+a symbol, and `(delete configure)` deletes the value of a variable instead.
+*SIFT083* is the scoping rule the manual explains at length: `use-modules`
+inside a gexp is read by the builder, where only the modules
+`with-imported-modules` marked exist, and the marking is lexical -- a gexp
+returned from a procedure called inside it is not marked.
+
+The last four are the package record's own vocabulary.  *SIFT084* is the
+manual's three sentences about a synopsis: capitalised, no trailing period,
+and not opening with an article "which usually does not bring anything".
+*SIFT085* is why: xgettext extracts synopses and descriptions, and it can
+only extract a literal string -- `string-append` and `format` make a string
+the translator never sees.  *SIFT086* is the encoding: a `sha256` is
+`(base32 "...")`, and 32 bytes in base32 is 52 lower-case characters, so a
+shorter string cannot be the hash the download has.  *SIFT087* is the pre-gexp
+labels: `(("gawk" ,gawk))` names each package twice, and an input list is a
+list of packages.
+
+** Rules that read the whole file
+
+:PROPERTIES:
+:CUSTOM_ID: inference
+:END:
+
+Five rules cannot be answered by looking at one form, and each stops where the
+source stops saying: a call's arity is a fact about the definition it resolves
+to, a literal's type is a fact about the literal, a comparison's predicate is a
+fact about what it compares against, and an import is unused only once the rest
+of the file has been read.
+
+| Code    | Rule                      | Severity | What it says                                           |
+|---------+---------------------------+----------+--------------------------------------------------------|
+| SIFT088 | call-arity                | info     | a call passes fewer arguments than the definition in this file requires |
+| SIFT089 | string-literal-argument   | warning  | a number or boolean where the operator's convention says a string |
+| SIFT090 | number-literal-argument   | warning  | a string passed to an operator whose arguments are numbers |
+| SIFT091 | unused-import-from        | info     | a `:import-from` name the file never uses              |
+| SIFT092 | eq-non-symbol             | warning  | `eq`/`eq?` of a literal that identity cannot decide     |
+
+*Why these are not inferences.*  A type system would answer all five and cost
+a compiler, and a language server that guessed would be wrong in the one place
+a reader trusts it.  What every one of them reads is the source itself: `+`
+takes numbers because that is what the operator is, `string-append` takes
+strings because that is what its name says, `1` is a number, `"1"` is a
+string, `(eq? x 1)` cannot decide two numbers that were read separately, and a
+name imported into a package and never mentioned is a name nobody used.  A
+variable is not typed by any of them: `(string-append "a" b)` says nothing
+about `b`, and sift says nothing either.
+
+*Why they run after the rest.*  Each needs the file's definition table, which
+means the whole buffer has been read and, for `call-arity`, walked.  That is
+fast -- milliseconds on a file of a few thousand lines -- but it is not free,
+so the language server publishes the findings that need only the form in front
+of it first and these ones second, from a thread of its own, as a second report
+for the same buffer version.  The editor draws the first immediately and
+replaces it when the second arrives; a keystroke never waits for the second
+pass.  `lint` on the command line runs all five with the rest, because a
+command that is already reading the whole file has the whole file.
+
+** What the three communities' guides ask for
+:PROPERTIES:
+:CUSTOM_ID: guides
+:END:
+
+A survey of the documents each community writes for itself -- Riastradh's
+*Lisp Style Rules* and the R7RS report for Scheme, the Google Common Lisp
+style guide and Mallet's rule catalogue for Common Lisp, the Emacs Lisp
+Reference Manual's Coding Conventions together with `checkdoc', `package-lint'
+and `elisp-lint` for Emacs Lisp -- found the shapes below, each of which is
+about the text rather than about what the author meant.
+
+Three are simplifications the guides state as equivalences, so they carry
+fixes:
+
+#+begin_src scheme
+(apply f 1 (list 2 3))               ; SIFT064: this is (f 1 2 3)
+(f 1 2 3)
+
+(let ((a (f)) (b (g a))) b)         ; SIFT065: `a' does not exist yet
+(let* ((a (f)) (b (g a))) b)
+
+(let* ((a (f)) (b (g))) (+ a b))    ; SIFT066: nothing depends on order
+(let ((a (f)) (b (g))) (+ a b))
+
+(append xs '())                     ; SIFT068: the empty list adds nothing
+xs
+#+end_src
+
+Two are bugs the guides name outright.  *SIFT067* is the Common Lisp and
+Emacs Lisp half of "`nil' is both the empty list and false": `(eq x nil)` asks
+whether two objects are the same one, and `null` is the predicate that says
+what the code means.  *SIFT069* is Guile's own `bad-case-datum` warning by
+another name: a `case` clause is compared with `eqv?`, which cannot decide a
+string, so `(case x (("a") 1))` is a clause that can never match.
+
+*SIFT070* is R7RS's rule for `letrec`: an initializer may not refer to the
+value of any variable the form is binding, because none of them has been
+assigned when it runs.  All-lambda initializers satisfy that automatically,
+which is why `letrec` is normally a set of mutually recursive procedures;
+another initializer that mentions a binding is a `letrec*' under the wrong
+name.
+
+The Guix manual is the fourth of these documents, and the one a Scheme
+packager is held to besides the language: its packaging chapter supplies
+{ SIFT084, SIFT085, SIFT086, SIFT087 } and its G-Expressions chapter supplies
+{ SIFT077, SIFT078, SIFT079, SIFT080, SIFT081, SIFT082, SIFT083 }.  They are
+[[#rules][the Guix rules]], and the reason they are decidable is the reason
+all of these are: each names a shape -- a quoted gexp, a phase named by a
+variable, a description that is a call rather than a string -- rather than a
+belief about what the build does.
+
+The last six are dialect bookkeeping.  *SIFT071* and *SIFT073* are the Google
+guide's package and lambda-list rules: `:use` hides where a name came from and
+`&optional` before `&key` makes the first keyword a caller writes an optional
+argument.  *SIFT072* is Mallet's `wrong-otherwise`: `ecase` exists to be
+exhaustive, and a default clause is the one thing that stops it being checked.
+*SIFT074* is the Emacs Lisp manual's deprecation of `cl` in favour of
+`cl-lib`.  *SIFT075* is the warning the byte compiler already emits --
+`save-excursion` saves point for one buffer, and a `set-buffer` inside it
+changes which buffer `point` means.  *SIFT076* is the same idea read the other
+way: a command with required parameters whose `(interactive)` supplies none
+cannot be called interactively at all.
 
 ** The same meaning in fewer parentheses
 
