@@ -40,6 +40,7 @@
   #:use-module (sift records)
   #:use-module (sift reader)
   #:use-module (sift check base)
+  #:use-module (sift strings)
   #:export (import-forms
             import-sites
             import-site?
@@ -330,8 +331,34 @@ library can name it."
 (define (library-file? path)
   (any (lambda (extension) (string-suffix? extension path)) scan-extensions))
 
-(define (directory? path)
-  (eq? 'directory (false-if-exception (stat:type (stat path)))))
+;;; The filesystem, in three procedures.
+;;;
+;;; `(sift imports)' reads a project directory to answer "does this file
+;;; import a library the project does not declare?", which is a question about
+;;; files -- a question only an implementation with a filesystem can ask.
+;;; `stat', `scandir' and `call-with-input-file' are Guile's, so a build on
+;;; something that is not Guile answers "no directory, no names, no text", and
+;;; `library-not-found' simply never fires there.  That is the truth about a
+;;; buffer with no project around it and not a guess about one, and keeping the
+;;; three primitives behind these names is what makes it a paragraph of
+;;; documentation instead of a scatter of `false-if-exception' guards.
+
+(define (attempt thunk default)
+  "Return what @var{thunk} returns, or @var{default} when it raises."
+  (catch #t thunk (lambda args default)))
+
+(cond-expand
+  (guile
+   (define (directory? path)
+     (eq? 'directory (attempt (lambda () (stat:type (stat path))) #f)))
+   (define (directory-names path)
+     (or (attempt (lambda () (scandir path)) #f) '()))
+   (define (file-text path)
+     (attempt (lambda () (call-with-input-file path get-string-all)) #f)))
+  (else
+   (define (directory? path) #f)
+   (define (directory-names path) '())
+   (define (file-text path) #f)))
 
 (define (libraries-under directory)
   "Return every library declared under @var{directory}, bounded and sorted.
@@ -356,7 +383,7 @@ what the question is about, and `.git' alone would answer it more slowly."
                  [(library-file? path)
                   (set! examined (+ examined 1))
                   (set! libraries (append (libraries-in-file path) libraries))]))))
-         (or (false-if-exception (scandir here)) '()))
+         (directory-names here))
         (walk (append (reverse deeper) (cdr pending))
               (+ depth 1)
               (append libraries found)
@@ -365,13 +392,13 @@ what the question is about, and `.git' alone would answer it more slowly."
 
 (define (libraries-in-file path)
   "Return the libraries the file at @var{path} declares, if it can be read."
-  (let ((text (false-if-exception (call-with-input-file path get-string-all))))
+  (let ((text (file-text path)))
     (if (and (string? text) (< (string-length text) scan-byte-limit)
           ;; a cheap question first: a file that never says either word has no
           ;; library to declare, and reading every file of a tree to find that
           ;; out would make a lint quadratic in the project
-          (or (string-contains text "library")
-            (string-contains text "define-module")))
+          (or (string-find text "library")
+            (string-find text "define-module")))
       (call-with-values
         (lambda () (read-source #:source text #:dialect 'scheme #:file path))
         (lambda (ast errors) (declared-libraries ast)))

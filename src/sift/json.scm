@@ -28,6 +28,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
+  #:use-module (sift strings)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:export (json-read
@@ -409,6 +410,6 @@ enough digits to be read back as the same number."
      "null"]
     [else
       (let ((text (format #f "~f" number)))
-        (if (string-contains text ".")
+        (if (string-find text ".")
           (string-trim-right (string-trim-right text #\0) #\.)
           text))]))

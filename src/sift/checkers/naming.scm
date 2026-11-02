@@ -18,6 +18,7 @@
   #:declarative? #t
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
+  #:use-module (sift strings)
   #:use-module (ice-9 format)
   #:use-module (sift records)
   #:use-module (sift check base)
@@ -82,9 +83,9 @@ lowercase one, which is camelCase and not Lisp."
 
 (define (operatorish? name)
   "Return @code{#t} for a name that is punctuation rather than a word."
-  (string-every (lambda (c)
-                  (not (or (char-alphabetic? c) (char-numeric? c))))
-                name))
+  (every-char (lambda (c)
+                (not (or (char-alphabetic? c) (char-numeric? c))))
+              name))
 
 (define (naming-convention-warnings ast source dialect)
   (let ((warnings '()))

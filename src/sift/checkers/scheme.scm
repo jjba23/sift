@@ -13,6 +13,7 @@
   #:declarative? #t
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
+  #:use-module (sift strings)
   #:use-module (ice-9 format)
   #:use-module (sift records)
   #:use-module (sift format)
@@ -298,7 +299,7 @@ first expression, where it silently gets the wrong scope."
     (if formals
       (append-map (lambda (element)
                     (let ((name (and (node-atom? element) (node-value element))))
-                      (if (and name (not (string-contains name ".")))
+                      (if (and name (not (string-find name ".")))
                         (list name)
                         '())))
                   (if (pair? (node-elements formals))
@@ -317,8 +318,8 @@ first expression, where it silently gets the wrong scope."
              (let ((text (node-value doc)))
                (for-each
                 (lambda (parameter)
-                  (unless (string-contains text
-                                           (string-append "@var{" parameter "}"))
+                  (unless (string-find text
+                                       (string-append "@var{" parameter "}"))
                     (set! warnings
                           (cons (make-lint-warning 'docstring-texinfo 'info
                                                    (format #f "the docstring does not document `@var{~a}`"
@@ -602,10 +603,23 @@ leave `#:use-module' with nothing after it."
             (line-start-of source (+ 1 (node-end-index anchor))))
       (cons (node-index form) (line-end-of source (node-end-index form))))))
 
+(define (directory-of path)
+  "Return the directory part of @var{path}, or @code{\".\"} when it names none.
+
+This is Guile's @code{dirname}, written out here because it is a Guile
+procedure and not an R7RS one: a path with no directory part names the current
+one, and a file with no path at all names no project to look at."
+  (let loop ((index (- (string-length path) 1)))
+    (cond
+      [(< index 0) "."]
+      [(char=? (string-ref path index) #\/)
+       (if (= index 0) "/" (substring path 0 index))]
+      [else (loop (- index 1))])))
+
 (define (unused-import-warnings ast source dialect)
   (let* ((used (referenced-names ast))
          (file (source-file-of ast))
-         (project (project-libraries (and file (dirname file))))
+         (project (project-libraries (and file (directory-of file))))
          (warnings '()))
     (for-each
      (lambda (site)
@@ -667,7 +681,7 @@ leave `#:use-module' with nothing after it."
 (define (library-not-found-warnings ast source dialect)
   (let* ((declared (declared-libraries ast))
          (file (source-file-of ast))
-         (project (project-libraries (and file (dirname file))))
+         (project (project-libraries (and file (directory-of file))))
          (known (append declared project))
          (warnings '()))
     ;; With no library anywhere to compare against there is nothing to say:

@@ -18,6 +18,7 @@
   #:declarative? #t
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
+  #:use-module (sift strings)
   #:use-module (ice-9 format)
   #:use-module (sift records)
   #:use-module (sift check base)
@@ -161,7 +162,7 @@
   (take (string-split source #\newline) (min n (length (string-split source #\newline)))))
 
 (define (lexical-binding-present? source)
-  (any (lambda (line) (string-contains line "lexical-binding: t"))
+  (any (lambda (line) (string-find line "lexical-binding: t"))
        (first-lines source 2)))
 
 (define (lexical-binding-missing-warnings ast source dialect)
@@ -419,15 +420,7 @@ optional argument contributes @code{name}, and a marker such as
 Matching a parameter name as a substring would accept \"Add two numbers.\"
 as mentioning the argument `a`; matching it as a word is what checkdoc
 does, and what a reader does."
-  (map string-downcase
-       (remove string-null?
-               (string-split text
-                             (char-set-complement
-                              (char-set #\a #\b #\c #\d #\e #\f #\g #\h #\i #\j #\k #\l
-                                        #\m #\n #\o #\p #\q #\r #\s #\t #\u #\v #\w #\x #\y #\z
-                                        #\A #\B #\C #\D #\E #\F #\G #\H #\I #\J #\K #\L #\M
-                                        #\N #\O #\P #\Q #\R #\S #\T #\U #\V #\W #\X #\Y #\Z
-                                        #\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\- #\_))))))
+  (map string-downcase (string-words text)))
 
 (define (docstring-arguments-warnings ast source dialect)
   (let ((warnings '()))

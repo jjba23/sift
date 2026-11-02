@@ -21,6 +21,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (sift strings)
   #:export (;; --- what this is ----------------------------------------------
             sift-version
 
@@ -395,9 +396,9 @@ Both the editor-facing names and the everyday ones are accepted, so
 (define (lint-checker->string checker)
   "Render @var{checker} as one line of the @code{list-checkers} table."
   (format #f "~a ~a ~a ~a"
-          (string-pad-right (symbol->string (lint-checker-name checker)) 24)
-          (string-pad-right (format #f "~a" (lint-checker-dialects checker)) 15)
-          (string-pad-right (symbol->string (lint-checker-severity checker)) 10)
+          (pad-right (symbol->string (lint-checker-name checker)) 24)
+          (pad-right (format #f "~a" (lint-checker-dialects checker)) 15)
+          (pad-right (symbol->string (lint-checker-severity checker)) 10)
           (lint-checker-description checker)))
 
 ;;; ===== AST nodes =====

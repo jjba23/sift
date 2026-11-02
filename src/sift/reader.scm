@@ -27,6 +27,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
+  #:use-module (sift strings)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 textual-ports)
@@ -1034,24 +1035,32 @@ and the text is copied -- but they do not get bracket-aware formatting."
 
 ;;; ===== Whole-file interface =====
 
-(define* (read-source #:key (dialect 'scheme) (file #f)
-                      (port (current-input-port)) (source #f)
-                      #:allow-other-keys)
+(define (read-port-text port)
+  "Return everything @var{port} has left, as a string."
+  (call-with-output-string
+    (lambda (out)
+      (let loop ()
+        (let ((c (read-char port)))
+          (unless (eof-object? c)
+            (display c out)
+            (loop)))))))
+
+(define* (read-source #:key (dialect 'scheme) (file #f) (port #f) (source #f))
   "Read @var{source} (or all of @var{port}) and return the AST and the errors.
 
 Two values come back: a list of top-level nodes, each carrying its
 location, and a list of <lint-warning> records whose checker is `reader'.
 A file with errors still has an AST: the reader returns everything it could
-read, and never abandons the rest of the file because one form is broken."
+read, and never abandons the rest of the file because one form is broken.
+
+`port' defaults to @code{#f} and the current input port is taken in the body
+rather than in the argument list, because a default that calls a procedure is
+evaluated on every call -- including the calls that pass @var{source} and have
+no port to give -- and taking a port that will not be read is work, and can be
+a side effect, for nothing."
   (let* ((text (if source
                  source
-                 (call-with-output-string
-                   (lambda (out)
-                     (let loop ()
-                       (let ((c (read-char port)))
-                         (unless (eof-object? c)
-                           (display c out)
-                           (loop))))))))
+                 (read-port-text (or port (current-input-port)))))
          (r (make-reader text #:file file #:dialect dialect)))
     (let loop ((nodes '()))
       (let ((node (read-node r)))
@@ -1108,11 +1117,11 @@ its dialect that early has already told us what it is."
                             "\n"))
          (trimmed (string-trim-both head)))
     (cond
-      [(string-contains head "lexical-binding: t") 'elisp]
-      [(or (string-contains trimmed "(in-package")
-         (string-contains trimmed "(defpackage")) 'cl]
-      [(or (string-contains trimmed "(define-module")
-         (string-contains trimmed "(use-modules")) 'scheme]
+      [(string-find head "lexical-binding: t") 'elisp]
+      [(or (string-find trimmed "(in-package")
+         (string-find trimmed "(defpackage")) 'cl]
+      [(or (string-find trimmed "(define-module")
+         (string-find trimmed "(use-modules")) 'scheme]
       [else #f])))
 
 (define* (detect-dialect #:key file source)
@@ -1152,11 +1161,11 @@ that gets @code{#f} must ask for `--dialect' rather than guess."
     (let* ((first-line (car (source-lines source)))
            (line (string-downcase first-line)))
       (cond
-        [(any (lambda (name) (string-contains line name)) scheme-interpreters)
+        [(any (lambda (name) (string-find line name)) scheme-interpreters)
          'scheme]
-        [(or (string-contains line "sbcl")
-           (string-contains line "clisp")
-           (string-contains line "ecl")
-           (string-contains line "ccl")) 'cl]
-        [(string-contains line "emacs") 'elisp]
+        [(or (string-find line "sbcl")
+           (string-find line "clisp")
+           (string-find line "ecl")
+           (string-find line "ccl")) 'cl]
+        [(string-find line "emacs") 'elisp]
         [else #f]))))

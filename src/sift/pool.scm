@@ -25,6 +25,7 @@
   #:declarative? #t
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 threads)
+  #:use-module (scheme process-context)
   #:export (processor-count
             worker-count
             map-ordered
@@ -47,9 +48,14 @@ guess.
 More workers than items is a thread that takes no work and still has to be
 joined, and a machine with more processors than a run has files does not need
 all of them: the work here is a few hundred milliseconds, and the point is to
-stop waiting, not to saturate a machine."
-  (or (and (getenv "SIFT_JOBS")
-        (let ((n (string->number (getenv "SIFT_JOBS"))))
+stop waiting, not to saturate a machine.
+
+The variable is read with `get-environment-variable' rather than Guile's
+`getenv', because one of the two is R7RS and therefore available wherever sift
+is built, and a build with no environment at all answers @code{#f} to it --
+which is the same answer as \"unset\", and the right one."
+  (or (and (get-environment-variable "SIFT_JOBS")
+        (let ((n (string->number (get-environment-variable "SIFT_JOBS"))))
           (and n (exact? n) (> n 0) (inexact->exact n))))
     (max 1 (min total (processor-count)))))
 
