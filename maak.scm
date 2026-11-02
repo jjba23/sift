@@ -178,7 +178,7 @@ The suite loads the modules it needs; this loads the rest, so a module nothing
 imports still has to compile.  Each file is compiled on its own, which is what
 makes one broken file name itself rather than a pile of them."
   (run-script
-   (~ "set -eu\nexport GUILE_LOAD_PATH='./src:.:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 "
+   (~ "set -eu\nexport GUILE_LOAD_PATH='./src:./web:.:$GUILE_LOAD_PATH'\nfind src tests benchmarks -name '*.scm' -not -path 'tests/fixtures/*' -print0 "
       "| xargs -0 -n 1 sh -c 'guild compile -o \"$(mktemp)\" \"$1\"' sh")))
 
 (define (fixture-check)
