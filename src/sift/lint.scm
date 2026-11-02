@@ -185,7 +185,7 @@ comment in a source file outlives the code it was written for."
          (checkers (map normalise-checker-name (directive-names rest))))
     (and (>= (string-length trimmed) (string-length directive-prefix))
       (directive-prefix? directive-prefix trimmed)
-      (case (string->symbol directive)
+      (case [string->symbol directive]
         [(sift:disable-next-line) (cons 'disable-next-line checkers)]
         [(sift:disable) (cons 'disable checkers)]
         [(sift:enable) (cons 'enable checkers)]
