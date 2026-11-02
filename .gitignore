@@ -3,8 +3,14 @@ reports/
 *.go
 *.log
 
-# generated pages: a document is the source, the export is a byproduct
+# the browser build: web/build.sh writes it, and a compiled Wasm module is not
+# something to check in
+web/dist/
+
+# generated pages: a document is the source, the export is a byproduct -- but
+# the browser editor's page is the source, so it is kept
 *.html
+!web/index.html
 
 # byte-compiled copies Guile and Emacs leave next to the sources
 *.scm.go
@@ -15,3 +21,7 @@ reports/
 .nrepl-port
 *~
 \#*#
+
+# the nix build's ./result
+result
+result-*

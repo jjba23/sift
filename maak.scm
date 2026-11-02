@@ -52,6 +52,9 @@
             install
             uninstall
             clean
+            package-docker
+            push-docker-latest
+            push-docker-tag
             release))
 
 ;; ====== Maak file constants ======
@@ -74,13 +77,18 @@ done")
 ;; ====== Maak file helpers ======
 
 (define (guile-load-flags)
-  "The load path every task uses: this project's library, its tests, Veritas.
+  "The load path every task uses: this project's library, its tests, its browser
+ layer, Veritas.
 
 Guile searches `-L' directories in the order they are given, before the ones a
 Guile installation or profile contributes, so the checkout is looked in before
 any packaged copy -- which is the only way `maak test' can promise that the
-framework under development is the one the suite ran against."
-  (list "-L" "./src" "-L" "."))
+framework under development is the one the suite ran against.
+
+`./web' is on it because `(sift web)' -- the browser's facade -- lives there and
+not in `./src': the core library is what `bin/sift' is, and the browser adds a
+directory beside it rather than inside it."
+  (list "-L" "./src" "-L" "." "-L" "./web"))
 
 (define (run-guile code)
   "Run CODE, one Scheme expression, under the manifest's Guile.
@@ -303,6 +311,53 @@ source under test."
 (define (clean)
   "Remove build artefacts."
   (delete-file-recursively "reports"))
+
+;;; --- packaging ---
+;;;
+;;; The container image is the Dockerfile at the root, built by whichever engine
+;;; is installed: `podman build' and `docker build' read the same file, and a
+;;; task that insisted on one of them would be a task half the machines it runs
+;;; on cannot do.
+;;;
+;;; `package-docker' is for the person building the image, `push-docker-latest'
+;;; and `push-docker-tag' for the person publishing it -- the same two steps
+;;; maak's own file takes, because a reader who knows one of these files should
+;;; not have to learn the other.
+
+(define docker-image "jjba23/sift")
+
+(define (container-engine-script . body)
+  "Return a shell script that sets @var{engine} and then runs @var{body}.
+
+`podman' is preferred to `docker' when both are installed, which is the order
+`(maak container)' uses and the order a machine with both usually means."
+  (apply string-append
+         "set -eu\n"
+         "engine=$(command -v podman || command -v docker)\n"
+         body))
+
+(define (package-docker)
+  "Build the container image from the Dockerfile, with podman or docker."
+  (run-script
+   (container-engine-script
+    (~ "\"$engine\" build --tag ~a:latest .\n" docker-image))))
+
+(define (push-docker-latest)
+  "Push the image `package-docker' built to Docker Hub as :latest."
+  (run-script
+   (container-engine-script
+    (~ "\"$engine\" tag ~a:latest docker.io/~a:latest\n" docker-image docker-image)
+    (~ "\"$engine\" push docker.io/~a:latest\n" docker-image))))
+
+(define (push-docker-tag)
+  "Push the image as :latest and as the tag of this checkout."
+  (let ((tag (git:git-describe-tag)))
+    (run-script
+     (container-engine-script
+      (~ "\"$engine\" tag ~a:latest docker.io/~a:latest\n" docker-image docker-image)
+      (~ "\"$engine\" tag ~a:latest docker.io/~a:~a\n" docker-image docker-image tag)
+      (~ "\"$engine\" push docker.io/~a:latest\n" docker-image)
+      (~ "\"$engine\" push docker.io/~a:~a\n" docker-image tag)))))
 
 ;;; --- releasing ---
 ;;;

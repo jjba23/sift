@@ -1,0 +1,13 @@
+# sift --- the files a container build needs, and nothing else
+#
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+#
+# The image copies two directories: the launcher and the library.  Everything
+# else in the checkout -- the tests, the fixtures, the editor integrations, the
+# browser build, the git history -- would be context the daemon has to send and
+# the image would not use.
+
+*
+!bin/
+!src/
