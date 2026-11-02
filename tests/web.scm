@@ -27,6 +27,9 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 ftw)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 popen)
+  #:use-module (ice-9 rdelim)
+  #:use-module (ice-9 regex)
   #:use-module (veritas veritas)
   #:use-module (sift records)
   #:use-module (sift json)
@@ -177,6 +180,93 @@ name when a core module starts importing one that is neither."
    (string-append (test-root) "/web/compat/"
                   (string-join (map symbol->string name) "/")
                   ".scm")))
+
+;;; ===== The page, and the libraries a build finds =====
+;;;
+;;; Everything above tests what the facade *answers*.  What follows tests the
+;;; three things around it that go wrong silently: a URL that points above the
+;;; directory the page is served from, a URL that does not change when the build
+;;; does, and a stand-in library that answers something other than the library
+;;; it stands in for.
+
+(define (web-file name)
+  "Return the path of @var{name} in the browser directory."
+  (string-append (test-root) "/web/" name))
+
+(define (attribute-values attribute text)
+  "Return every value of @var{attribute} in @var{text}, in the order written."
+  (let ((pattern (make-regexp (string-append attribute "=\"([^\"]*)\""))))
+    (let loop ((start 0) (found '()))
+      (let ((match (regexp-exec pattern text start)))
+        (if match
+          (loop (match:end match 0) (cons (match:substring match 1) found))
+          (reverse found))))))
+
+(define (page-urls)
+  "Return every URL the page names: a stylesheet, an icon, a script."
+  (let ((text (slurp (web-file "index.html"))))
+    (append (attribute-values "src" text) (attribute-values "href" text))))
+
+(define (compat-load-path directory)
+  "Return the load path that puts the browser's SRFI-13 in front, as flags.
+
+The browser build puts the whole of `web/compat' there, because every library the
+target lacks needs a stand-in.  A test can put one file there: the other stand-ins
+are written as R7RS libraries, which is what Hoot reads and Guile's default
+language does not, so a Guile process can load the SRFI-13 stand-in and nothing
+else of the directory.  That is enough to ask the question, which is whether the
+eleven procedures sift calls answer what Guile's answer."
+  (append-map (lambda (where) (list "-L" where))
+              (list (string-append directory "/compat")
+                    (string-append (test-root) "/src")
+                    (string-append (test-root) "/web"))))
+
+(define (answer-over-compat request)
+  "Return what @code{(sift web)} answers to @var{request}, over the stand-in.
+
+A process of its own is the only way to ask: in this one, `(srfi srfi-13)' is
+already Guile's, and a module is loaded once.  The script and the request are
+files in a temporary directory, so nothing here depends on how a shell would
+quote a JSON document.
+
+The answer is compared with this process's, so what the test asserts is that the
+stand-in and the library agree -- and a stand-in that answers differently is
+exactly the bug that would reach a tab and no test."
+  (with-temp-directory
+   (lambda (directory)
+     (let* ((compat (string-append directory "/compat/srfi"))
+            (request-file (string-append directory "/request.json"))
+            (script (string-append directory "/ask.scm"))
+            (out-file (string-append directory "/answer.json"))
+            (err-file (string-append directory "/answer.err")))
+       (make-directories compat)
+       (spit (string-append compat "/srfi-13.scm")
+             (slurp (web-file "compat/srfi/srfi-13.scm")))
+       (spit request-file request)
+       (spit script
+             (format #f "(use-modules (ice-9 textual-ports))~@
+                          (use-modules (sift web))~@
+                          (display (web-request (call-with-input-file ~s get-string-all)))~@
+                          "
+                     request-file))
+       (let* ((line (string-join (append (list "guile")
+                                         (compat-load-path directory)
+                                         (list "-s" script))
+                                 " "))
+              (command (format #f "~a > ~a 2> ~a; echo $?"
+                               line out-file err-file))
+              (status (call-with-input-string
+                        (let ((port (open-input-pipe command)))
+                          (let ((answer (read-line port)))
+                            (close-pipe port)
+                            (or answer "1")))
+                        read)))
+         (assert-equal #:expect 0 #:got status
+           #:name (if (zero? status)
+                    "the stand-in loads and answers"
+                    (format #f "the stand-in loads and answers; it said: ~a"
+                            (string-trim-both (slurp err-file)))))
+         (slurp out-file))))))
 
 ;;; ===== The suite =====
 
@@ -498,4 +588,66 @@ name when a core module starts importing one that is neither."
                                     (member name hoot-shipped-libraries)))
                                 (ice-9-libraries-in-closure))))
         (assert-equal #:expect '() #:got unprovided
-          #:name "web/compat covers what the closure imports and the target lacks")))))
+          #:name "web/compat covers what the closure imports and the target lacks")))
+
+    ;; --- the page, and the directory it is served from -----------------
+
+    ;; https://jointhefreeworld.org/sift/ is a directory beside a blog, not a
+    ;; site of its own, and it is served with a long cache.  Two mistakes in a
+    ;; page like that are invisible until a visitor makes them: a URL from `/'
+    ;; is a 404 the moment the editor is not at the root, and a URL that does
+    ;; not change when the build does is yesterday's editor, cached.
+
+    (test "the page names no path from the root of the site"
+      (let ((absolute (filter (lambda (url)
+                                (or (string-prefix? "/" url)
+                                  (string-contains url "://")))
+                              (page-urls))))
+        (assert-equal #:expect '() #:got absolute
+          #:name "every URL is relative, so the editor works in a subdirectory")))
+
+    (test "every URL the page names carries the build stamp"
+      (assert-true (> (length (page-urls)) 0)
+        #:name "the page names something")
+      (let ((unstamped (remove (lambda (url)
+                                 (string-contains url "__SIFT_BUILD__"))
+                               (page-urls))))
+        (assert-equal #:expect '() #:got unstamped
+          #:name "a URL that does not change is a deploy a cache hides")))
+
+    (test "the editor asks for the wasm beside itself"
+      (let ((text (slurp (web-file "editor.js"))))
+        (assert-true (if (string-contains text "import.meta.url") #t #f)
+          #:name "the module's own URL is where sift.wasm is found")
+        (assert-equal #:expect #f #:got (string-contains text "\"./sift.wasm\"")
+          #:name "and not a path from wherever the page happens to be served")))
+
+    ;; --- the compatibility layer --------------------------------------
+
+    (test "the browser's SRFI-13 is the stand-in web/compat carries"
+      ;; Hoot has srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own
+      ;; srfi-13 is written with a `re-export' Hoot does not implement, so the
+      ;; core's import of it is answered here or the build fails by name.
+      (assert-true (shimmed? '(srfi srfi-13))
+        #:name "web/compat/srfi/srfi-13.scm is what a browser build finds"))
+
+    (test "the browser's SRFI-13 answers what Guile's does"
+      (for-each
+       (lambda (question)
+         (let ((request (json-write question)))
+           (assert-equal #:expect (web-request request)
+             #:got (answer-over-compat request)
+             #:name (format #f "the ~a answer is the same over the stand-in"
+                            (field-of question "op")))))
+       (list
+        ;; a directive comment, which is trimmed and indexed, over a buffer that
+        ;; is not formatted yet
+        (asked (cons "op" "format")
+               (cons "source"
+                     ";; sift:disable-next-line if-without-else\n(define (square x)\n(* x x))\n"))
+        ;; a rule that fires, so the answer carries the lint path
+        (asked (cons "op" "lint")
+               (cons "source" "(define (f)\n  (if a b))\n"))
+        ;; and a fix run, which reads the buffers it writes
+        (asked (cons "op" "fix")
+               (cons "source" "(define (f) (let ((x 1)) x))\n")))))))

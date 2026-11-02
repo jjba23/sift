@@ -25,49 +25,128 @@ and the core has never heard of ~web/~ -- and three tests hold that direction.
 
 * Building it
 
-Hoot is the compiler, and it is needed once, at build time; nothing it produces
-needs it at run time.  It wants a development Guile (the Guix package
-~guile-hoot~ pulls the right one in), the Wasm module wants a browser with the
-GC and exception-handling proposals -- Firefox 121+, Chrome 119+, Safari 26+ --
-and the build itself wants ~guild~.
+One command, from the root of the checkout:
 
 #+begin_src shell
-guix shell guile guile-hoot -- ./web/build.sh
-# or, if Hoot is already on the load path:
-./web/build.sh
+./web/build.sh            # writes web/dist/
+./web/build.sh /tmp/out   # or wherever
 #+end_src
+
+It finds a Hoot that works, or asks Guix for one, or says what is missing.  The
+first build on a machine takes a while, because ~guix shell guile-next
+guile-hoot~ may have to fetch those two; every build after it is seconds.
+~maak web~ is the same command, run through the task runner.
+
+Hoot is the compiler, and it is needed once, at build time; nothing it produces
+needs it at run time.  The Wasm module wants a browser with the GC and
+exception-handling proposals -- Firefox 121+, Chrome 119+, Safari 26+ -- and the
+build itself wants ~guild~.
+
+Finding Hoot is the only hard part of that script, and it is hard in one specific
+way worth writing down, because the failure is not the one you would guess.
+Hoot's compiled modules are bytecode, and bytecode belongs to the Guile that
+compiled it: ~guix shell guile guile-hoot~ puts Guile 3.0.9 beside a Hoot built
+for Guile 3.0.10, and what comes out is not "Hoot is missing" but ~Unbound
+variable: default-debug-level~, from inside Hoot, half way through a compile.  So
+the script does not look for ~guild~ and hope.  It compiles a two-line program,
+which is a question only a working toolchain answers, and when the answer is no
+it asks Guix for ~guile-next guile-hoot~ -- the pair ~guile-hoot~ is built
+against -- and builds there.
 
 That writes ~web/dist/~, which is a directory a static file server can serve:
 
 #+begin_src shell
-cd web/dist && python3 -m http.server 8080   # then open localhost:8080
+maak web-serve                                # http://localhost:8080/
+cd web/dist && python3 -m http.server 8080    # the same thing by hand
 #+end_src
 
 It has to be *served*, not opened from the file system: a ~file://~ page may not
 fetch the ~.wasm~ it needs, and the reflection runtime fetches its own helpers.
 
-| File            | What it is                                                          |
-|-----------------+---------------------------------------------------------------------|
-| ~index.html~    | the page                                                            |
-| ~editor.js~     | the editor: one request per keystroke, debounced                    |
-| ~editor.css~    | the look, and the two rules that keep the highlight layer aligned    |
-| ~sift.wasm~     | sift, compiled                                                      |
-| ~reflect.js~    | Hoot's JavaScript half of the reflection runtime                    |
-| ~reflect.wasm~  | and its Scheme half, beside the module that loads it                |
-| ~wtf8.wasm~     | the string encoding helper the two use                              |
+| File            | What it is                                                             |
+|-----------------+------------------------------------------------------------------------|
+| ~index.html~    | the page, with the build stamp written into every URL it names          |
+| ~editor.js~     | the editor: one request per keystroke, debounced                        |
+| ~editor.css~    | the look, and the two rules that keep the highlight layer aligned       |
+| ~favicon.png~   | the project's own icon, so a served page is a page with no 404 in a log  |
+| ~sift.wasm~     | sift, compiled                                                          |
+| ~reflect.js~    | Hoot's JavaScript half of the reflection runtime                        |
+| ~reflect.wasm~  | and its Scheme half, beside the module that loads it                    |
+| ~wtf8.wasm~     | the string encoding helper the two use                                  |
 
-*** Pointing the script at a different Guile
+The stamp is the version, the commit and the minute the build ran --
+~1.15.0-9f55646-20251102T144123Z~ -- and it is in the page's URLs because the
+server offers these files with a long ~Cache-Control~.  A URL that does not
+change is a deploy nobody sees: the browser keeps the module it has.  ~editor.js~
+reads the same stamp out of its own URL and puts it on ~sift.wasm~, and it finds
+both beside itself rather than at the root of a site, because the directory it is
+served from may be ~https://jointhefreeworld.org/sift/~ and not ~/~.  Both are
+asserted in ~tests/web.scm~, and both are what make the page work in a
+subdirectory at all.
 
-~build.sh~ uses ~guile~ and ~guild~ from ~PATH~.  If the toolchain was built for
-another Guile -- which is what happens when ~guile-hoot~ is installed next to a
-stock ~guile~ -- name it:
+** Pointing the script at a different Guile
+
+The script uses ~guile~ and ~guild~ from ~PATH~ when they can compile, and asks
+Guix when they cannot.  A machine with its own Hoot -- from Nix, or built from
+source -- names it instead, and is trusted as named:
 
 #+begin_src shell
 SIFT_HOOT_GUILE=/gnu/store/...-guile-next/bin/guile \
 SIFT_HOOT_GUILD=/gnu/store/...-guile-next/bin/guild \
-GUILE_LOAD_PATH=/gnu/store/...-guile-hoot/share/guile/site/3.0 \
   ./web/build.sh
 #+end_src
+
+| Variable           | What it does                                                     |
+|--------------------+------------------------------------------------------------------|
+| ~SIFT_HOOT_GUILE~  | the Guile to compile with, instead of the one on ~PATH~           |
+| ~SIFT_HOOT_GUILD~  | the ~guild~ beside it                                             |
+| ~SIFT_HOOT_SHELL~  | the Guix packages to ask for, instead of ~guile-next guile-hoot~  |
+
+
+* Publishing it
+
+It is served from the same machine and the same certificate as the rest of
+jointhefreeworld.org:
+
+#+begin_src shell
+maak web-deploy
+#+end_src
+
+That builds, copies ~web/dist/~ to ~/srv/http/jointhefreeworld.org/sift~ on the
+VPS over ssh, and then asks the live URL four questions:
+
+#+begin_src text
+ok    the page is served (200)
+ok    the module is wasm (application/wasm)
+ok    the page is this build (1.15.0-9f55646-20251102T144123Z)
+ok    the bare path redirects (301)
+live at https://jointhefreeworld.org/sift/
+#+end_src
+
+~maak web~ builds without publishing, and ~maak web-verify~ only asks the
+questions -- so a deploy made by hand can still be checked, and a deploy that
+went to the wrong directory says so instead of looking fine from here.  The four
+are the four ways this page breaks *quietly*, and each one is silent in a
+browser:
+
+| What the check asks               | What it means when it says no                                |
+|-----------------------------------+--------------------------------------------------------------|
+| the page is served, status 200    | the copy went somewhere the server does not serve            |
+| the module is ~application/wasm~  | nginx has no ~.wasm~ type, and ~instantiateStreaming~ refuses a module it cannot type: a blank editor, and the console is the only place that says so |
+| the page names this build's stamp | the deploy is older than the build, or a cache answered in its place |
+| ~/sift~ redirects to ~/sift/~     | every relative URL in the page resolves one directory too high, and nothing loads |
+
+Nothing in the server block had to change for any of it.  jointhefreeworld.org
+already serves ~/srv/http/<name>~ as ~https://<name>/~ with a certificate over
+HTTP/2 and HTTP/3, and its nginx already maps ~.wasm~ to ~application/wasm~ and
+compresses it, so a directory that is there is a page that is served.  The one
+thing the server does that this page has to work *with* is the cache:
+~Cache-Control: public, max-age=172800~ on ~.wasm~, ~.js~ and ~.css~.  That is
+what the build stamp is for.
+
+~SIFT_WEB_HOST~ names the ssh alias to deploy to and is ~wolk-jjba~ by default;
+the copy is ~rsync --archive --delete --rsync-path=sudo rsync~, so a deploy needs
+an ssh account that may write to that directory and nothing else.
 
 * What it can do
 
@@ -120,10 +199,15 @@ expression is that procedure:
 (values web-request)
 #+end_src
 
-so the JavaScript side is three lines:
+so the JavaScript side is four lines, and the fourth is the point of the other
+three: the module, and the wasm beside it, are wherever this module was loaded
+from, and the stamp the page put on this module's URL goes on the wasm too.
 
 #+begin_src javascript
-const [sift] = await Scheme.load_main("./sift.wasm", { reflect_wasm_dir: "." });
+const moduleUrl = new URL(import.meta.url);
+const wasmUrl = new URL("sift.wasm" + moduleUrl.search, moduleUrl).href;
+const reflectDir = new URL(".", moduleUrl).href.replace(/\/$/, "");
+const [sift] = await Scheme.load_main(wasmUrl, { reflect_wasm_dir: reflectDir });
 const answer = JSON.parse(text(sift.call(JSON.stringify(request))[0]));
 #+end_src
 
@@ -229,9 +313,9 @@ A finding is ~{"rule","code","severity","message","line","column","offset","from
 
 Hoot is not Guile: it compiles R7RS and a subset of Guile, and the difference is
 what ~web/compat/~ exists for.  It sits at the *front* of the module load path
-when building for the browser (see ~build.sh~), so a `(ice-9 ...)' import in
-sift's sources finds it, and not one line of ~src/sift/~ had to be rewritten for
-a platform without Guile.
+when building for the browser (see ~build.sh~), so an `(ice-9 ...)' or
+`(srfi ...)' import in sift's sources finds it, and not one line of
+~src/sift/~ had to be rewritten for a platform without Guile.
 
 | Shim                                  | Why                                                                |
 |---------------------------------------+---------------------------------------------------------------------|
@@ -239,8 +323,19 @@ a platform without Guile.
 | ~compat/ice-9/textual-ports.scm~      | ~get-string-all~, ~put-string~ and the rest of what sift names     |
 | ~compat/ice-9/threads.scm~            | a tab is one thread: ~current-processor-count~ answers 1, so ~(sift pool)~ takes its sequential path; every other procedure raises with a sentence |
 | ~compat/ice-9/ftw.scm~                | ~scandir~ answers the empty list: there are no directories to walk  |
+| ~compat/srfi/srfi-13.scm~             | Hoot has srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own is written with a ~re-export~ Hoot does not implement; this is the eleven procedures sift calls, written against ~(scheme base)~ |
 
-Three things were not shimmable, and the source changed instead.  Each change is
+The last one is the one worth a paragraph, because the failure it answers is not
+obvious.  The core reaches for SRFI-13 in nineteen files -- `string-join',
+`string-index', `string-trim', `string-prefix?', `string-pad-right' and the rest
+-- and a browser build that could not resolve `(srfi srfi-13)' would compile
+Guile's own file and stop at `(re-export ...)'.  So the stand-in is a file, and
+`tests/web.scm` runs the browser's copy in a second process and fails unless the
+format, lint and fix answers it gives are byte-for-byte the answers Guile's
+library gives.  A stand-in nobody compares is a second implementation, and a
+second implementation is a dialect of its own.
+
+Four things were not shimmable, and the source changed instead.  Each change is
 one a native build is no worse for, and none of them leaves the browser's name
 in the core -- which is the rule the seam above is about:
 
@@ -251,6 +346,12 @@ in the core -- which is the rule the seam above is about:
   more than it delivers cannot be completed from outside.  The module is
   portable Scheme with no target in sight, and reads as "what R7RS lacks"
   because that is what it is.
+- a ~char-set~ is not a character.  Three call sites built one --
+  `(char-set #\space #\tab)` -- because SRFI-13's trim and index procedures
+  accept a character, a predicate *or* a character set, and Guile hands
+  ~char-set~ to every module.  A character set is an object R7RS does not have,
+  so those three pass a predicate of a character instead, which Guile's SRFI-13
+  reads the same way and the stand-in reads too.
 - ~read-source~ takes its port in the body rather than as a keyword default,
   because a default that calls a procedure is evaluated on every call -- so a
   caller that passes a source and no port was taking a standard input port it

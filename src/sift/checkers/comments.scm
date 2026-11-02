@@ -100,7 +100,9 @@ comment is for."
 The sentence of the comment is left exactly as it was -- only the number of
 semicolons and the space between them and the sentence are rewritten -- so a
 fix run over a buffer changes nothing a person wrote."
-  (let ((body (string-trim (comment-text text) (char-set #\space #\tab))))
+  (let ((body (string-trim (comment-text text)
+                           (lambda (character)
+                             (memv character '(#\space #\tab))))))
     (if (string-null? body)
       (make-string level #\;)
       (string-append (make-string level #\;) " " body))))

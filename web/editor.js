@@ -614,10 +614,28 @@ findings.addEventListener("click", (event) => {
 
 // ------------------------------------------------------- boot
 
+// The page does not say where sift.wasm is; this module's own URL does.  The
+// editor is served from a directory and not from the root of a site --
+// https://jointhefreeworld.org/sift/ is a directory beside a blog -- so
+// nothing here may name a path from `/`.  `import.meta.url` is the URL this
+// module was loaded from, which makes "sift.wasm beside me" the answer wherever
+// the editor is mounted.
+//
+// Its query string is the build stamp that web/build.sh wrote into index.html,
+// carried on to the wasm: these files are served with a long cache, and a URL
+// that changes when the build does is what makes a deploy visible without
+// asking a reader to reload with the cache held down.  `reflect.wasm' and
+// `wtf8.wasm' are Hoot's and are named by Hoot relative to a directory, so the
+// directory is what is handed over -- without a trailing slash, because Hoot
+// joins the two with one.
+const moduleUrl = new URL(import.meta.url);
+const wasmUrl = new URL("sift.wasm" + moduleUrl.search, moduleUrl).href;
+const reflectDir = new URL(".", moduleUrl).href.replace(/\/$/, "");
+
 (async () => {
   try {
     const started = performance.now();
-    [sift] = await Scheme.load_main("./sift.wasm", { reflect_wasm_dir: "." });
+    [sift] = await Scheme.load_main(wasmUrl, { reflect_wasm_dir: reflectDir });
     const version = askOrThrow({ op: "version" }).version;
     status.textContent = `sift ${version} — loaded in ${Math.round(performance.now() - started)} ms`;
     drawHighlight();

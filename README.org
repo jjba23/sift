@@ -993,7 +993,7 @@ recipes, and the ready-made ones live in the repository:
 | VS Code       | ~editors/vscode/~ — an extension with no build step and no dependencies                                   |
 | Emacs         | ~emacs/sift.el~ — Flymake, or Eglot for code actions                                                      |
 | Helix         | formatting on save through ~sift format --stdin~, and the linter in the pipeline                          |
-| the browser   | [[file:web/README.org][web/]] — sift compiled to WebAssembly, so the buffer never leaves the tab                                   |
+| the browser   | [[file:web/README.org][web/]] — sift compiled to WebAssembly, so the buffer never leaves the tab; it is live at [[https://jointhefreeworld.org/sift/]] |
 | anything else | ~--format=json~, ~--format=github~, or ~sift lsp~                                                         |
 
 The human format is ~file:line:column: severity: [rule] message~, which Vim's
@@ -1012,16 +1012,28 @@ the tab; nothing is sent anywhere, because there is nowhere to send it.
 The dependency runs one way.  ~src/sift/~ is the library ~bin/sift~ installs and
 knows nothing about a browser; ~web/~ imports it and adds the request/response
 facade, the page, and a compatibility layer for the Guile libraries the target
-has not.  [[file:web/README.org][web/README.org]] explains the seam, and three tests in ~tests/web.scm~ keep
-it: one fails if a file under ~src/sift/~ so much as mentions Wasm, Hoot or a
-browser, one fails if the facade's dependency on the core grows past four
-modules, and one fails if the core imports a Guile library that ~web/compat~ has
-no stand-in for.
+has not.  [[file:web/README.org][web/README.org]] explains the seam, and five tests in ~tests/web.scm~
+keep it: one fails if a file under ~src/sift/~ so much as mentions Wasm, Hoot or
+a browser, one fails if the facade's dependency on the core grows past five
+modules, one fails if the core imports a Guile library that ~web/compat~ has no
+stand-in for, one fails if the page names a URL from the root of a site or one
+that a cache would keep, and one runs the browser's own SRFI-13 in a second
+process and fails unless it answers what Guile's answers.
+
+It is built with one command and published with another:
 
 #+begin_src shell
-guix shell guile guile-hoot -- ./web/build.sh   # writes web/dist/
-cd web/dist && python3 -m http.server 8080     # then open localhost:8080
+./web/build.sh     # writes web/dist/, and finds a Hoot that works
+maak web-serve     # then open http://localhost:8080/
+maak web-deploy    # or publish it, and check the live URL answers
 #+end_src
+
+It is live at [[https://jointhefreeworld.org/sift/]] — the same page, served from
+the VPS that serves the rest of jointhefreeworld.org, over the certificate that
+is already there.  A deploy answers four questions the browser would not: that
+the page is served, that the module is served as ~application/wasm~, that the
+page is *this* build, and that ~/sift~ redirects to ~/sift/~.  [[file:web/README.org][web/README.org]]
+has what each of them catches.
 
 What it does not do is anything about a project: there is no directory to walk
 and no ~sift.yaml~ to read, so ~library-not-found~ never fires and

@@ -61,8 +61,11 @@
   #:use-module (srfi srfi-13)
   ;; `guard' is R7RS, so it is in `(scheme base)' and not in `(guile)'; the
   ;; selective import is what keeps the two from colliding over everything
-  ;; else they share.
-  #:use-module ((scheme base) #:select (guard))
+  ;; else they share.  `truncate' is R7RS too, and it is named here for the
+  ;; same reason in reverse: Guile's default environment has it and a build
+  ;; for a target without one does not, so the library that defines it says
+  ;; so at the top of the file rather than at the bottom of a stack trace.
+  #:use-module ((scheme base) #:select (guard truncate))
   #:use-module (sift records)
   #:use-module (sift json)
   #:use-module (sift format)

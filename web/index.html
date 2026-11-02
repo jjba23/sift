@@ -4,12 +4,22 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>sift — Scheme, Emacs Lisp and Common Lisp in the browser</title>
-    <link rel="stylesheet" href="editor.css">
+    <!-- Every URL here is relative and every one carries the build stamp:
+         relative, because the editor is served from a directory and not from
+         the root of a site (https://jointhefreeworld.org/sift/ is a directory
+         beside a blog); stamped, because those assets are served with a long
+         cache and a URL that does not change is a deploy nobody sees.
+         `__SIFT_BUILD__' is replaced by web/build.sh; editor.js reads the same
+         stamp out of its own URL and puts it on sift.wasm. -->
+    <link rel="stylesheet" href="editor.css?v=__SIFT_BUILD__">
+    <!-- The icon the project already has, so that a server's log does not carry
+         a 404 for a site with no favicon. -->
+    <link rel="icon" type="image/png" href="favicon.png?v=__SIFT_BUILD__">
     <!-- Hoot's reflection runtime: it is what turns a WebAssembly instance into
          Scheme values JavaScript can hold.  It must be loaded before editor.js,
          and it looks for reflect.wasm beside this page. -->
-    <script type="text/javascript" src="reflect.js"></script>
-    <script type="module" src="editor.js"></script>
+    <script type="text/javascript" src="reflect.js?v=__SIFT_BUILD__"></script>
+    <script type="module" src="editor.js?v=__SIFT_BUILD__"></script>
   </head>
   <body>
     <header>

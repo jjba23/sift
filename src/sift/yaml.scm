@@ -316,10 +316,16 @@ what a key means."
 
 ;;; ===== Writing =====
 
+;; The characters a YAML plain scalar may not start with, as a predicate
+;; rather than as a `char-set': a character set is an object R7RS does not have,
+;; and this list is the same list under either spelling.
+(define quoting-characters
+  '(#\: #\# #\" #\' #\[ #\] #\{ #\} #\, #\&
+    #\* #\? #\| #\- #\< #\> #\= #\! #\% #\@))
+
 (define (needs-quotes? text)
   (or (string-null? text)
-    (string-index text (char-set #\: #\# #\" #\' #\[ #\] #\{ #\} #\, #\&
-                                 #\* #\? #\| #\- #\< #\> #\= #\! #\% #\@))
+    (string-index text (lambda (character) (memv character quoting-characters)))
     (string-prefix? " " text)
     (string-suffix? " " text)
     (string->number text)

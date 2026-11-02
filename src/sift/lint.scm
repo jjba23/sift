@@ -132,7 +132,8 @@ No checker name means every checker.  Suppression is deliberately
 line-oriented and form-scoped: there is no range syntax, because a range
 comment in a source file outlives the code it was written for."
   (let* ((trimmed (string-trim (string-trim-both text)
-                               (char-set #\; #\space #\tab)))
+                               (lambda (character)
+                                 (memv character '(#\; #\space #\tab)))))
          (space (string-index trimmed #\space)))
     (and (>= (string-length trimmed) (string-length directive-prefix))
       (string-prefix? directive-prefix trimmed)
