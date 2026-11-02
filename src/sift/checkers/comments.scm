@@ -93,6 +93,27 @@ asks for, because deciding that a comment is a heading is deciding what the
 comment is for."
   (if inside? 2 3))
 
+(define (comment-pad? character)
+  "Return @code{#t} for the characters a comment may be padded with."
+  (memv character '(#\space #\tab)))
+
+(define (trim-comment-body text)
+  "Return @var{text} without the spaces and tabs in front of it.
+
+Only the front: the trailing spaces of a comment are the author's, and the fix
+leaves them alone, exactly as @code{string-trim} did.
+
+Written out here rather than taken from that library because an embedded
+runtime supplies it from a shim whose predicate search traps at run time, and
+trimming the body of a comment is on the path of every lint of a file that
+starts with one."
+  (let* ((length (string-length text))
+         (start (let loop ((i 0))
+                  (if (and (< i length) (comment-pad? (string-ref text i)))
+                    (loop (+ i 1))
+                    i))))
+    (substring text start length)))
+
 (define (normalise-comment text level)
   "Return @var{text} with @var{level} semicolons and a space after them.
 
@@ -100,9 +121,7 @@ comment is for."
 The sentence of the comment is left exactly as it was -- only the number of
 semicolons and the space between them and the sentence are rewritten -- so a
 fix run over a buffer changes nothing a person wrote."
-  (let ((body (string-trim (comment-text text)
-                           (lambda (character)
-                             (memv character '(#\space #\tab))))))
+  (let ((body (trim-comment-body (comment-text text))))
     (if (string-null? body)
       (make-string level #\;)
       (string-append (make-string level #\;) " " body))))

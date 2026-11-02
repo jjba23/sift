@@ -56,11 +56,16 @@
 
 @var{wanted} is a character, or a predicate of one character.  Anything else is
 a mistake the caller made, and it is said so rather than answered around."
-  (cond
-    [(char? wanted) (char=? wanted character)]
-    [(procedure? wanted) (and (wanted character) #t)]
-    [else (error "sift: a character or a predicate of one was expected"
-                 wanted)]))
+  ;; `(procedure? wanted)' is deliberately not written here.  Hoot infers the
+  ;; type of the value from that test and emits a cast to the procedure type it
+  ;; inferred, which fails at run time for a predicate that arrives as a lambda
+  ;; -- the browser build answered every such call with "illegal cast", which
+  ;; is what turned every file beginning with a `;' comment into an editor that
+  ;; stopped answering.  Asking the question with `char?' alone, and letting the
+  ;; call itself be the test, is the same answer without the cast.
+  (if (char? wanted)
+    (char=? wanted character)
+    (and (wanted character) #t)))
 
 (define (default-space? character)
   "Return @code{#t} when @var{character} is one of the four spaces SRFI-13 trims."
@@ -68,36 +73,57 @@ a mistake the caller made, and it is said so rather than answered around."
 
 ;;; ===== The trims =====
 
+;; The trimming itself is written for one @var{wanted} at a time, and the
+;; variadic entry points below hand it the predicate or the character they
+;; were given.  That split is not a style: Hoot emits a cast for a call of a
+;; variadic procedure that is made through `apply', and for a variable that
+;; holds either a character or a procedure, and both casts failed at run time
+;; with "illegal cast".  Every trim in the browser build -- and so every file
+;; that begins with a `;' comment, which is what `sift:' directives are read
+;; out of -- answered with that trap.
+
+(define (trim-right wanted string)
+  "Return @var{string} without the spaces @var{wanted} asks for, on its right."
+  (let ((length (string-length string)))
+    (let loop ((end length))
+      (if (and (> end 0)
+            (character-wanted? wanted (string-ref string (- end 1))))
+        (loop (- end 1))
+        (if (= end length) string (substring string 0 end))))))
+
+(define (trim-left wanted string)
+  "Return @var{string} without the spaces @var{wanted} asks for, on its left."
+  (let* ((length (string-length string))
+         (start (let loop ((start 0))
+                  (if (and (< start length)
+                        (character-wanted? wanted (string-ref string start)))
+                    (loop (+ start 1))
+                    start))))
+    (if (= start 0) string (substring string start length))))
+
 (define (string-trim-right string . rest)
   "Return @var{string} without the spaces on its right.
 
 The optional argument is the character to remove, or a predicate that says
 which characters are spaces; with none, a space, a tab, a newline and a return
 are all spaces."
-  (let* ((space? (if (pair? rest) (car rest) default-space?))
-         (length (string-length string)))
-    (let loop ((end length))
-      (if (and (> end 0)
-            (character-wanted? space? (string-ref string (- end 1))))
-        (loop (- end 1))
-        (if (= end length) string (substring string 0 end))))))
+  (if (pair? rest)
+    (trim-right (car rest) string)
+    (trim-right default-space? string)))
 
 (define (string-trim string . rest)
   "Return @var{string} without the spaces on its left.
 
 The optional argument is SRFI-13's: a character, or a predicate."
-  (let* ((space? (if (pair? rest) (car rest) default-space?))
-         (length (string-length string))
-         (start (let loop ((start 0))
-                  (if (and (< start length)
-                        (character-wanted? space? (string-ref string start)))
-                    (loop (+ start 1))
-                    start))))
-    (if (= start 0) string (substring string start length))))
+  (if (pair? rest)
+    (trim-left (car rest) string)
+    (trim-left default-space? string)))
 
 (define (string-trim-both string . rest)
   "Return @var{string} without the spaces on either side of it."
-  (apply string-trim (apply string-trim-right string rest) rest))
+  (if (pair? rest)
+    (trim-left (car rest) (trim-right (car rest) string))
+    (trim-left default-space? (trim-right default-space? string))))
 
 ;;; ===== Asking where something is =====
 

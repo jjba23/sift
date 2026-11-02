@@ -119,6 +119,53 @@ dialect is not an error -- it simply runs nothing for that dialect."
 
 (define directive-prefix "sift:")
 
+;; Reading a directive is written with `(scheme base)' alone, and deliberately
+;; not with `(srfi srfi-13)': an embedded runtime supplies that library from a
+;; shim whose trims and predicate searches trap at run time, which turned every
+;; file that begins with a `;' comment into an editor that stopped answering.
+;; Nothing here is longer than a comment line, so the plain spelling costs
+;; nothing and the code reads identically under Guile and in the editor.
+
+(define (directive-space? character)
+  "Return @code{#t} when @var{character} is one a directive is padded with."
+  (memv character '(#\; #\space #\tab)))
+
+(define (directive-trim text)
+  "Return @var{text} without the `;' and space it is padded with."
+  (let* ((length (string-length text))
+         (start (let loop ((i 0))
+                  (if (and (< i length) (directive-space? (string-ref text i)))
+                    (loop (+ i 1))
+                    i)))
+         (end (let loop ((i length))
+                (if (and (> i start) (directive-space? (string-ref text (- i 1))))
+                  (loop (- i 1))
+                  i))))
+    (substring text start end)))
+
+(define (directive-first-space text)
+  "Return the index of the first space of @var{text}, or @code{#f}."
+  (let loop ((i 0))
+    (if (>= i (string-length text))
+      #f
+      (if (char=? (string-ref text i) #\space) i (loop (+ i 1))))))
+
+(define (directive-prefix? prefix text)
+  "Return @code{#t} when @var{prefix} begins @var{text}."
+  (and (<= (string-length prefix) (string-length text))
+    (string=? prefix (substring text 0 (string-length prefix)))))
+
+(define (directive-names text)
+  "Return the checker names written in @var{text}, split on spaces and commas."
+  (let loop ((i 0) (start 0) (names '()))
+    (cond
+      [(>= i (string-length text))
+       (reverse (if (> i start) (cons (substring text start i) names) names))]
+      [(memv (string-ref text i) '(#\space #\, #\tab))
+       (loop (+ i 1) (+ i 1)
+             (if (> i start) (cons (substring text start i) names) names))]
+      [else (loop (+ i 1) start names)])))
+
 (define (parse-directive text)
   "Return @code{(kind . checkers)} for a `sift:` comment, or @code{#f}.
 
@@ -131,26 +178,18 @@ The three forms are the ones the manual documents:
 No checker name means every checker.  Suppression is deliberately
 line-oriented and form-scoped: there is no range syntax, because a range
 comment in a source file outlives the code it was written for."
-  (let* ((trimmed (string-trim (string-trim-both text)
-                               (lambda (character)
-                                 (memv character '(#\; #\space #\tab)))))
-         (space (string-index trimmed #\space)))
+  (let* ((trimmed (directive-trim text))
+         (space (directive-first-space trimmed))
+         (directive (if space (substring trimmed 0 space) trimmed))
+         (rest (if space (directive-trim (substring trimmed (+ space 1))) ""))
+         (checkers (map normalise-checker-name (directive-names rest))))
     (and (>= (string-length trimmed) (string-length directive-prefix))
-      (string-prefix? directive-prefix trimmed)
-      (let* ((directive (if space (substring trimmed 0 space) trimmed))
-             (rest (if space
-                     (string-trim-both (substring trimmed (+ space 1)))
-                     ""))
-             (names (filter (lambda (s) (not (string-null? s)))
-                            (append-map (lambda (part)
-                                          (string-split part #\,))
-                                        (string-split rest #\space))))
-             (checkers (map normalise-checker-name names)))
-        (case [string->symbol directive]
-          [(sift:disable-next-line) (cons 'disable-next-line checkers)]
-          [(sift:disable) (cons 'disable checkers)]
-          [(sift:enable) (cons 'enable checkers)]
-          [else #f])))))
+      (directive-prefix? directive-prefix trimmed)
+      (case (string->symbol directive)
+        [(sift:disable-next-line) (cons 'disable-next-line checkers)]
+        [(sift:disable) (cons 'disable checkers)]
+        [(sift:enable) (cons 'enable checkers)]
+        [else #f]))))
 
 (define (suppression-directives ast)
   "Return the suppression directives in @var{ast}, in document order.

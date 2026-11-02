@@ -391,10 +391,32 @@ so that the caller can say where the bad message came from."
        [(#\page) (display "\\f" out)]
        [else
          (if (char<? c #\space)
-           (format out "\\u~4,'0x" (char->integer c))
+           (write-unicode-escape c out)
            (display c out))]))
    string)
   (display "\"" out))
+
+(define (write-unicode-escape character out)
+  "Write @var{character} as the six characters of a JSON \\uXXXX escape.
+
+The digits are spelled here rather than through `format' because an embedded
+runtime supplies `(ice-9 format)' from a shim in which `~4,'0x' -- hexadecimal
+in a field of four, zero padded -- came out unpadded: a control character in a
+buffer turned into `\\u1b', which is not JSON, and the editor lost the whole
+answer."
+  (define digits "0123456789abcdef")
+  (let* ((code (char->integer character))
+         (high (quotient code 4096))
+         (rest (- code (* high 4096)))
+         (third (quotient rest 256))
+         (rest (- rest (* third 256)))
+         (second (quotient rest 16))
+         (first (- rest (* second 16))))
+    (display "\\u" out)
+    (display (string (string-ref digits high)) out)
+    (display (string (string-ref digits third)) out)
+    (display (string (string-ref digits second)) out)
+    (display (string (string-ref digits first)) out)))
 
 (define (json-number->string number)
   "Return @var{number} the way JSON wants to read it back.

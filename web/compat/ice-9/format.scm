@@ -51,7 +51,13 @@
       "Return the value of the parameter written RAWS, or #f when it was empty."
       (cond
         [(string=? raw "") #f]
-        [(char=? (string-ref raw 0) #\') (string-ref raw 1)]
+        ;; `scan-param' marks a quoted character with a leading `q' and puts
+        ;; the character after it, so the mark is what says "this parameter
+        ;; is a character" -- `~4,'0x' is the hex `x' directive zero-padded.
+        ;; Looking for the quote here instead made every such parameter #f,
+        ;; and the JSON writer's escape for a control character came out
+        ;; unpadded (`\u1b' rather than `\u001b'), which is not JSON.
+        [(char=? (string-ref raw 0) #\q) (string-ref raw 1)]
         [else (string->number raw)]))
 
     (define (scan-param template i)
