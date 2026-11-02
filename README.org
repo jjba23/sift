@@ -1025,15 +1025,17 @@ It is built with one command and published with another:
 #+begin_src shell
 ./web/build.sh     # writes web/dist/, and finds a Hoot that works
 maak web-serve     # then open http://localhost:8080/
-maak web-deploy    # or publish it, and check the live URL answers
+maak web-deploy    # or copy it to the directory nginx serves
 #+end_src
 
 It is live at [[https://jointhefreeworld.org/sift/]] — the same page, served from
 the VPS that serves the rest of jointhefreeworld.org, over the certificate that
-is already there.  A deploy answers four questions the browser would not: that
-the page is served, that the module is served as ~application/wasm~, that the
-page is *this* build, and that ~/sift~ redirects to ~/sift/~.  [[file:web/README.org][web/README.org]]
-has what each of them catches.
+is already there.  Publishing is a copy into
+~/srv/http/jointhefreeworld.org/sift~ on the machine that serves, the way the
+rest of that site is published: no ssh, no rsync, no server to reload.
+[[file:web/README.org][web/README.org]] has the two things the server contributes (a ~.wasm~ type and a
+trailing-slash redirect) and the one it has to be worked with (a two-day cache,
+which is what the build stamp is for).
 
 What it does not do is anything about a project: there is no directory to walk
 and no ~sift.yaml~ to read, so ~library-not-found~ never fires and

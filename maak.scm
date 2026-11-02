@@ -50,7 +50,6 @@
             web
             web-serve
             web-deploy
-            web-verify
             fmt
             repl
             install
@@ -284,25 +283,20 @@ source under test."
 ;;; --- the browser build ---
 ;;;
 ;;; Three tasks, and a fourth that is not a task: `web' builds, `web-serve'
-;;; serves what was built, `web-deploy' builds and publishes, and `web-verify'
-;;; asks the live URL whether the deploy arrived.  The build itself is
-;;; `web/build.sh', which is one command on purpose -- it is the step that has
-;;; to work outside Maak too, on a machine with no Guix on it, and a task that
-;;; reimplemented it would be a second build to keep correct.
+;;; serves what was built, and `web-deploy' builds and publishes.  The build
+;;; itself is `web/build.sh', which is one command on purpose -- it is the step
+;;; that has to work outside Maak too, on a machine with no Guix on it, and a
+;;; task that reimplemented it would be a second build to keep correct.
 
 (define web-dist "web/dist")
 
-;; Where the build lands on the VPS, and the host it lands on.  jointhefreeworld
-;; serves /srv/http/<name> as https://<name>/, so this is a directory under that
-;; root and nothing about the server block has to change: the page is served
-;; because it is there, over the certificate that is already there.  The two
-;; facts the server does have to get right are nginx's own -- a `.wasm' served
-;; as anything but `application/wasm' is a module the browser refuses to
-;; instantiate, and a directory requested without its trailing slash has to
-;; redirect to the slash -- and `web-verify' below asks about both.
-(define web-destination "/srv/http/jointhefreeworld.org/sift")
-(define web-host (or (getenv "SIFT_WEB_HOST") "wolk-jjba"))
-(define web-url "https://jointhefreeworld.org/sift/")
+;; Where the build goes.  jointhefreeworld.org serves /srv/http/<name> as
+;; https://<name>/, so publishing the editor is putting a directory there: the
+;; certificate, the redirect for the bare path and the `application/wasm' type
+;; are the server's business, and they were settled when the directory first
+;; appeared.  Nothing about the server has to be told that the page exists.
+(define web-deploy-directory
+  "/srv/http/jointhefreeworld.org/sift")
 
 (define (web)
   "Build the browser build into web/dist.
@@ -313,11 +307,13 @@ the commit, and says what it laid out."
   (run (list "sh" "web/build.sh") #:verbose? #t))
 
 (define* (web-serve #:optional (port "8080"))
-  "Serve web/dist on localhost, for a look before deploying.
+  "Serve web/dist on localhost, to look at the page before publishing it.
 
-The page has to be served rather than opened from the filesystem -- a file://
-page may not fetch the wasm it needs -- which is why `web-serve' exists instead
-of a sentence in a README that says to remember the port number."
+This is not part of deploying and it is not a server sift grows: it is Python's
+one-line static file server, which every machine has and which sends the
+`application/wasm' type the module needs.  The page has to be *served* rather
+than opened from the filesystem -- a file:// page may not fetch the wasm beside
+it -- and that is the whole of why this task exists."
   (unless (file-exists? (~ "~a/index.html" web-dist))
     (task-error "~a is not built; run `maak web' first" #:args (list web-dist)))
   (with-directory web-dist
@@ -325,99 +321,24 @@ of a sentence in a README that says to remember the port number."
                     (log-info "serving ~a at http://localhost:~a/" web-dist port)
                     (run (list "python3" "-m" "http.server" port) #:verbose? #t))))
 
-(define (web-stamp)
-  "Return the build stamp this checkout's web/dist page carries.
-
-The stamp is the version, the commit and the minute the build ran, written into
-every URL the page names; its job is to be different after every deploy, so
-reading it back is how a deploy is checked against the build rather than
-against what a cache remembered."
-  (let* ((text (call-with-input-file (~ "~a/index.html" web-dist) get-string-all))
-         (found (string-match "editor\\.js\\?v=([^\"&]+)" text)))
-    (and found (match:substring found 1))))
-
-(define (curl . arguments)
-  "Return what `curl' prints when it is given @var{arguments}.
-
-`capture' joins its words into one command line, so every word is quoted: a URL
-whose query string has an `&' in it stays one word, and a `%{http_code}' the
-shell did not eat is the format curl was asked for."
-  (capture (string-join (map shell-quote (cons "curl" arguments)) " ")))
-
-(define (http-answer url)
-  "Return the HTTP status @var{url} answers with, following no redirect."
-  (string-trim-both
-   (curl "--silent" "--show-error" "--output" "/dev/null"
-         "--write-out" "%{http_code}" url)))
-
-(define (http-body url)
-  "Return what @var{url} answers with."
-  (curl "--silent" "--show-error" "--location" url))
-
-(define (http-content-type url)
-  "Return the Content-Type @var{url} is served with, or #f."
-  (let* ((headers (curl "--silent" "--show-error" "--location" "--head" url))
-         (found (string-match "[Cc]ontent-[Tt]ype:[ \t]*([^;\r\n]+)" headers)))
-    (and found (string-trim-both (match:substring found 1)))))
-
-(define (web-verify)
-  "Ask the live URL what it answers, and stop when a deploy did not arrive.
-
-Four questions, because four things break quietly: the page is not there (a
-copy that went to the wrong directory), the page is there and old (a build that
-did not run), the module is served as `application/octet-stream' (nginx without
-an `application/wasm' mapping, which is a browser that refuses to instantiate
-it), and `/sift' without its trailing slash is not redirected (a page whose
-every relative URL then points above it).  Each one is silent in a browser, so
-each one is a check here."
-  (let* ((stamp (web-stamp))
-         (expecting (or stamp "the stamp this build wrote"))
-         (page (http-body web-url))
-         (checks
-          (list
-           (list "the page is served" "200" (http-answer web-url))
-           (list "the module is wasm" "application/wasm"
-                 (or (http-content-type (~ "~asift.wasm?v=~a" web-url stamp)) "none"))
-           (list "the page is this build" expecting
-                 (if (and stamp (string-contains page (~ "editor.js?v=~a" stamp)))
-                   expecting
-                   "an older build"))
-           (list "the bare path redirects" "301"
-                 (http-answer "https://jointhefreeworld.org/sift"))))
-         (failed (filter (lambda (check) (not (equal? (cadr check) (caddr check))))
-                         checks)))
-    (for-each (lambda (check)
-                (log-info "~a  ~a (~a)"
-                          (if (equal? (cadr check) (caddr check)) "ok  " "FAIL")
-                          (car check)
-                          (caddr check)))
-              checks)
-    (if (null? failed)
-      (log-info "live at ~a" web-url)
-      (task-error "~a did not answer as the build expects; see the lines above"
-                  #:args (list (caar failed))))))
-
 (define (web-deploy)
-  "Build the browser build and publish it to the VPS.
+  "Build the browser build and publish it to the web directory.
 
-The copy is `rsync' over ssh into the directory the server already serves, so a
-deploy is one command and needs nothing on the server but an ssh account that
-may write there.  `--delete' is not tidiness: a file this build does not have is
-a file the editor no longer has, and without it a renamed or removed asset stays
-on the server beside the new one.  The last word is `web-verify', which asks the
-live URL what it answers, because a copy that succeeded is not the same claim as
-a page that works.
+Deployment is a copy, the way the rest of jointhefreeworld.org is deployed: the
+directory is emptied and the fresh build is put in its place, so a file this
+build does not have does not linger on the server beside the one that replaced
+it.  It runs where that directory is -- on the machine that serves, or in the CI
+job that runs there -- and that is all it needs: no ssh, no rsync, and no server
+to reload, because a file that is there is a file that is served.
 
-SIFT_WEB_HOST names the ssh alias to deploy to; `wolk-jjba' is the machine the
-rest of jointhefreeworld.org is deployed from."
+The build is removed afterwards the way `maak deploy' removes the documentation
+it published: what the tree keeps is the source, and a build directory left
+behind is a build directory the next deploy might copy."
   (web)
-  (log-info "publishing ~a to ~a:~a" web-dist web-host web-destination)
-  (run (list "rsync" "--archive" "--delete" "--chmod=D755,F644"
-             "--rsync-path=sudo rsync"
-             (~ "~a/" web-dist)
-             (~ "~a:~a/" web-host web-destination))
-       #:verbose? #t)
-  (web-verify))
+  (log-info "publishing ~a to ~a" web-dist web-deploy-directory)
+  (delete-file-recursively web-deploy-directory)
+  (cp web-dist web-deploy-directory)
+  (delete-file-recursively web-dist))
 
 ;;; --- installing ---
 ;;;

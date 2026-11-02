@@ -62,6 +62,8 @@ cd web/dist && python3 -m http.server 8080    # the same thing by hand
 
 It has to be *served*, not opened from the file system: a ~file://~ page may not
 fetch the ~.wasm~ it needs, and the reflection runtime fetches its own helpers.
+~maak web-serve~ is that and nothing more -- Python's static file server, which
+every machine has -- and no part of publishing uses it.
 
 | File            | What it is                                                             |
 |-----------------+------------------------------------------------------------------------|
@@ -106,47 +108,32 @@ SIFT_HOOT_GUILD=/gnu/store/...-guile-next/bin/guild \
 * Publishing it
 
 It is served from the same machine and the same certificate as the rest of
-jointhefreeworld.org:
+jointhefreeworld.org, so publishing it is a copy:
 
 #+begin_src shell
 maak web-deploy
 #+end_src
 
-That builds, copies ~web/dist/~ to ~/srv/http/jointhefreeworld.org/sift~ on the
-VPS over ssh, and then asks the live URL four questions:
+That builds the page and puts it at ~/srv/http/jointhefreeworld.org/sift~, which
+is what nginx serves as https://jointhefreeworld.org/sift/.  The directory is
+emptied first, so a file this build does not have does not linger beside the file
+that replaced it, and the build directory is removed afterwards the way
+~maak deploy~ in Maak's own file removes the documentation it publishes.
 
-#+begin_src text
-ok    the page is served (200)
-ok    the module is wasm (application/wasm)
-ok    the page is this build (1.15.0-9f55646-20251102T144123Z)
-ok    the bare path redirects (301)
-live at https://jointhefreeworld.org/sift/
-#+end_src
+It runs where that directory is: on the machine that serves, or in the CI job
+that runs there.  There is no ssh in it, no rsync, and no server to reload,
+because a file that is there is a file that is served.
 
-~maak web~ builds without publishing, and ~maak web-verify~ only asks the
-questions -- so a deploy made by hand can still be checked, and a deploy that
-went to the wrong directory says so instead of looking fine from here.  The four
-are the four ways this page breaks *quietly*, and each one is silent in a
-browser:
-
-| What the check asks               | What it means when it says no                                |
-|-----------------------------------+--------------------------------------------------------------|
-| the page is served, status 200    | the copy went somewhere the server does not serve            |
-| the module is ~application/wasm~  | nginx has no ~.wasm~ type, and ~instantiateStreaming~ refuses a module it cannot type: a blank editor, and the console is the only place that says so |
-| the page names this build's stamp | the deploy is older than the build, or a cache answered in its place |
-| ~/sift~ redirects to ~/sift/~     | every relative URL in the page resolves one directory too high, and nothing loads |
-
-Nothing in the server block had to change for any of it.  jointhefreeworld.org
-already serves ~/srv/http/<name>~ as ~https://<name>/~ with a certificate over
-HTTP/2 and HTTP/3, and its nginx already maps ~.wasm~ to ~application/wasm~ and
-compresses it, so a directory that is there is a page that is served.  The one
-thing the server does that this page has to work *with* is the cache:
-~Cache-Control: public, max-age=172800~ on ~.wasm~, ~.js~ and ~.css~.  That is
-what the build stamp is for.
-
-~SIFT_WEB_HOST~ names the ssh alias to deploy to and is ~wolk-jjba~ by default;
-the copy is ~rsync --archive --delete --rsync-path=sudo rsync~, so a deploy needs
-an ssh account that may write to that directory and nothing else.
+Nothing about the server had to be arranged for it either.
+jointhefreeworld.org already serves ~/srv/http/<name>~ as ~https://<name>/~ with
+a certificate over HTTP/2 and HTTP/3, so a directory that is there is a page that
+is up.  Three things the page depends on and does not configure: nginx maps
+~.wasm~ to ~application/wasm~ (a module it types as anything else is one the
+browser refuses to instantiate), it redirects a directory requested without its
+trailing slash (without which every relative URL in the page resolves one level
+too high), and it compresses the module.  The one behaviour it has to be worked
+*with* is the cache -- ~Cache-Control: public, max-age=172800~ on ~.wasm~,
+~.js~ and ~.css~ -- which is what the build stamp is for.
 
 * What it can do
 
