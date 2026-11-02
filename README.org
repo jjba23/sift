@@ -324,12 +324,64 @@ nix-build -E 'with import <nixpkgs> {}; callPackage ./default.nix { }'
 ./result/bin/sift version
 #+end_src
 
+It also carries a flake, which is the same derivation with the ways in
+attached — a package, an app, a development shell, and a container image:
+
+#+begin_src shell
+nix run .#sift -- version        # in a checkout
+nix run git+https://github.com/jjba23/sift -- version
+nix build .#sift                 # ./result/bin/sift
+nix develop                      # a shell with sift on PATH
+nix build .#docker               # a loadable image, on Linux
+#+end_src
+
+The flake builds on Linux *and* on macOS (~x86_64-darwin~, ~aarch64-darwin~),
+because sift is Guile and Scheme and nothing else: on a Mac, ~nix run
+github:jjba23/sift~ is the shortest way to a sift that works.  The image is the
+one thing that is Linux only, and it is simply absent on Darwin rather than
+broken there.
+
 The [[https://github.com/jjba23/nix-jointhefreeworld][nix-jointhefreeworld]] flake carries the same package, built from this
 repository's own ~default.nix~:
 
 #+begin_src shell
 nix run git+https://github.com/jjba23/nix-jointhefreeworld#sift -- version
 #+end_src
+
+** In a container
+:PROPERTIES:
+:CUSTOM_ID: install-docker
+:END:
+
+The image is Debian's Guile, the library and the launcher, and nothing else —
+there is no build step in it because a Scheme program has none.  Build it from
+the checkout, or pull it:
+
+#+begin_src shell
+docker build --tag sift .                  # or: podman build --tag sift .
+docker run --rm --volume "$PWD:/src" sift check .
+#+end_src
+
+The container's working directory is ~/src~, so a volume mounted there is the
+tree sift reads; the entry point is ~sift~ itself, so the arguments after the
+image are sift's arguments.  A whole-project run, a patch, a lint and the
+language server (on standard input and output) all work the same way:
+
+#+begin_src shell
+docker run --rm --volume "$PWD:/src" sift ci .
+docker run --rm --interactive --volume "$PWD:/src" sift lsp
+#+end_src
+
+~maak package-docker~ is the first command with the tags already on, and
+~maak push-docker-latest~ / ~maak push-docker-tag~ publish it — the same three
+tasks maak's own file has.  The image is also a flake output for a machine with
+Nix and no engine: ~nix build .#docker~ writes a tarball that
+~docker load < result~ loads.
+
+Why a container at all, when sift needs only Guile: because the *other* end is
+the one that decides.  On macOS there is no Guile that a script can count on,
+and no Guix; there is Docker Desktop.  One image that works is worth more than
+three install instructions.
 
 ** The Emacs package
 :PROPERTIES:
@@ -941,10 +993,41 @@ recipes, and the ready-made ones live in the repository:
 | VS Code       | ~editors/vscode/~ — an extension with no build step and no dependencies                                   |
 | Emacs         | ~emacs/sift.el~ — Flymake, or Eglot for code actions                                                      |
 | Helix         | formatting on save through ~sift format --stdin~, and the linter in the pipeline                          |
+| the browser   | [[file:web/README.org][web/]] — sift compiled to WebAssembly, so the buffer never leaves the tab                                   |
 | anything else | ~--format=json~, ~--format=github~, or ~sift lsp~                                                         |
 
 The human format is ~file:line:column: severity: [rule] message~, which Vim's
 ~:make~, Emacs's ~compilation-mode~ and most CI log viewers already understand.
+
+** In the browser
+:PROPERTIES:
+:CUSTOM_ID: web
+:END:
+
+[[file:web/README.org][web/]] is sift doing the two jobs that are a function of a string — formatting
+and linting — compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], and an editor page
+around it.  The same reader, the same formatter and all sixty-three rules run in
+the tab; nothing is sent anywhere, because there is nowhere to send it.
+
+The dependency runs one way.  ~src/sift/~ is the library ~bin/sift~ installs and
+knows nothing about a browser; ~web/~ imports it and adds the request/response
+facade, the page, and a compatibility layer for the Guile libraries the target
+has not.  [[file:web/README.org][web/README.org]] explains the seam, and three tests in ~tests/web.scm~ keep
+it: one fails if a file under ~src/sift/~ so much as mentions Wasm, Hoot or a
+browser, one fails if the facade's dependency on the core grows past four
+modules, and one fails if the core imports a Guile library that ~web/compat~ has
+no stand-in for.
+
+#+begin_src shell
+guix shell guile guile-hoot -- ./web/build.sh   # writes web/dist/
+cd web/dist && python3 -m http.server 8080     # then open localhost:8080
+#+end_src
+
+What it does not do is anything about a project: there is no directory to walk
+and no ~sift.yaml~ to read, so ~library-not-found~ never fires and
+~unused-import~ knows only what the buffer itself declares.  It is the formatter
+and the linter, not the language server.  [[file:web/README.org][web/README.org]] has the protocol, the
+compatibility layer Hoot needs, and the numbers.
 
 * What the language server answers
 :PROPERTIES:
