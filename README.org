@@ -25,6 +25,8 @@ between them.
 
 [[file:assets/sift-demo.gif]]
 
+[[file:assets/sift-lint-format.gif]]
+
 Install it with ~guix install sift~ (or ~nix run~), or
 [[#quick-start][clone the repository]] and run ~./bin/sift version~: Guile 3.0 is
 all it needs, and ~sift doctor~ will tell you what it found.
