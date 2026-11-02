@@ -313,7 +313,7 @@ when building for the browser (see ~build.sh~), so an `(ice-9 ...)' or
 | ~compat/srfi/srfi-13.scm~             | Hoot has srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own is written with a ~re-export~ Hoot does not implement; this is the eleven procedures sift calls, written against ~(scheme base)~ |
 
 The last one is the one worth a paragraph, because the failure it answers is not
-obvious.  The core reaches for SRFI-13 in nineteen files -- `string-join',
+obvious.  The core imports SRFI-13 in twenty-six files -- `string-join',
 `string-index', `string-trim', `string-prefix?', `string-pad-right' and the rest
 -- and a browser build that could not resolve `(srfi srfi-13)' would compile
 Guile's own file and stop at `(re-export ...)'.  So the stand-in is a file, and

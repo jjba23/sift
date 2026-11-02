@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.15.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.16.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace.  It does that without ever losing a comment, a blank line or an
@@ -97,6 +97,12 @@ eat a comment, this is for you.
 - *Fixes that refuse to guess.*  A rule's fix replaces exactly one range, and
   every fix of a run is thrown away if together they would introduce a parse
   error.  Nothing invents a missing delimiter, and nothing renames your code.
+- *Silencing is a comment, and it stays where the code is.*
+  ~;; sift:disable-next-line keyword-arguments~ switches one rule off for one
+  line, ~disable~ for the rest of the form it sits in, and ~enable~ turns it
+  back on.  Suppression is line-oriented and form-scoped on purpose: an
+  exception list in a configuration file is a list nobody diffs, and a range
+  comment outlives the code it was written for.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
   input and output: diagnostics, quickfixes and formatting, go to definition
   and references for all three dialects, an outline, completion, inlay hints
@@ -109,6 +115,12 @@ eat a comment, this is for you.
 - *Configuration you can check in.*  YAML that is data and never code, four
   layers from system to command line, and ~sift config show --verbose~ that
   tells you which layer won.
+- *Hooks, a doctor, and a catalogue you can query.*  ~sift install-hooks~
+  writes the ~pre-commit~ hook that runs ~ci~; ~sift doctor~ says which Guile
+  it runs on, which library it loaded, how many rules it found and which
+  configuration layer won; ~sift list-checkers~ prints the catalogue as a table
+  and ~sift explain~ prints one rule's reasoning, both read out of the rule
+  records rather than out of a document that might have drifted from them.
 - *MIT, no strings.*  A formatter belongs in as many pipelines as possible
   without a copyright question in the way.
 
@@ -214,7 +226,7 @@ is doing:
 
 #+begin_src shell
 $ sift doctor
-sift 1.15.0
+sift 1.16.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
   rules       63
@@ -228,6 +240,44 @@ Settings that are not the default
   severity: warning   # /home/joe/project/sift.yaml
 
 Try `sift ci .' to check a tree, or `sift explain RULE' to read a rule.
+#+end_src
+
+Then the two commands a newcomer reaches for next.  ~fix~ applies the fixes the
+rules can prove and reports what is left:
+
+#+begin_src shell
+$ cat messy.scm
+(define (f) (let ((x 1)) x))
+(define (g)
+  (if a b))
+
+$ sift fix messy.scm
+1 file checked, 0 warnings, 0 errors
+
+$ cat messy.scm
+(define (f) 1)
+(define (g)
+  (when a b))
+#+end_src
+
+It does not reformat, because formatting is ~format~'s job and a fix that moved
+whitespace would touch every line of the patch you wanted to read.  And ~ci~ is
+the question a pipeline asks, in one command and one status:
+
+#+begin_src shell
+$ sift ci .
+--- ./go.scm
++++ ./go.scm
+@@ -1,3 +1,3 @@
+ (define (go)
+-    (if (ready?)
+-        (proceed)))
++  (if (ready?)
++    (proceed)))
+./go.scm:2:6: warning: [if-without-else] `if` has no else branch; `when` says it once
+1 file checked, 1 warning, 0 errors
+$ echo $?
+1
 #+end_src
 
 * Installing it
@@ -850,6 +900,156 @@ is written to the end of the top-level form it sits in, and ~enable~ ends it.
 Suppression is line-oriented and form-scoped on purpose: a range comment
 outlives the code it was written for.
 
+* The style guides it keeps
+:PROPERTIES:
+:CUSTOM_ID: style-guides
+:END:
+
+A formatter is a style guide that enforces itself, and sift's is not an
+invention.  It is the common law of the three Lisp communities, written down
+where it could be argued with: [[file:doc/style.org][doc/style.org]] is the long form — each
+choice, the alternative it beat, and why — and what follows is the shape of that
+argument and where it comes from.
+
+** Riastradh's Lisp Style Rules
+:PROPERTIES:
+:CUSTOM_ID: riastradh
+:END:
+
+Taylor R. Campbell's /Lisp Style Rules/ — cited everywhere as Riastradh's style
+guide — is the sharpest short argument for what sift does, and sift agrees with
+it more often than not.  Where it does not, the difference is a setting rather
+than an opinion compiled into the program.
+
+The alignment rule is the one this formatter was built on:
+
+#+begin_src scheme
+(+ (sqrt -1)
+   (* x y))
+
+(+
+ (sqrt -1)
+ (* x y))
+
+((car x)
+ (cdr x)
+ foo)
+#+end_src
+
+When the first argument is on the operator's line, everything after it lines up
+under that argument; when the operator stands alone, what follows lines up under
+the operator; and the operands of a call share a column whatever the operator
+looks like — GNU Emacs indents the third form under the first *operand*, and an
+operand indented differently from its siblings hides from the reader.  That one
+rule is also why keyword arguments need no rule of their own: ~:width~ is the
+second argument, and it lines up where every second argument does.
+
+Campbell's comments rule is sift's too, and it is the one layout rule with a
+fix: one semicolon at the end of a line, two inside a form, three at top level,
+four for a heading that is left alone (SIFT051, ~comment-semicolons~).  So are
+one blank line between top-level forms and none inside a body except to separate
+internal definitions (SIFT052, and ~blank-lines: one~ for the formatter), and
+the naming rules a program can actually see: hyphenated lower-case words
+(SIFT040), ~?~ for a predicate (SIFT041), earmuffs for special variables
+(SIFT042), and no single-letter variables outside the indices a project lists
+(SIFT053).
+
+What sift declines to take from the guide, it declines for a reason it can
+defend:
+
+| The rule                            | Why not                                                         |
+|-------------------------------------+-----------------------------------------------------------------|
+| 72 or 80 columns                    | it is a setting; the default is 96, because a modern screen holds two such files side by side, and Emacs Lisp already gets 80 |
+| pages and form feeds                | paginating a file rewrites the line number of every line below the break, so every diff becomes a diff about pagination — and every diagnostic, patch and ~git blame~ with it |
+| top-level forms of at most 21 lines | how a program is split into procedures is the author's judgement.  SIFT031 reports a form that is too deep or too long to read at once, which is the part a tool can see |
+| ~with-~ and ~call-with-~ prefixes   | telling those two apart means knowing whether an argument is *called* and what dynamic state means there: a guess about intent, not a fact about text |
+
+** Emacs Lisp has its own conventions
+:PROPERTIES:
+:CUSTOM_ID: style-elisp
+:END:
+
+Emacs Lisp is documented in its own manual, and its conventions are older than
+any of the others here: a docstring on every public function, its first line a
+complete sentence in the imperative ("Return the window width"), its arguments
+named in upper case, ~lexical-binding~ in the first line, ~interactive~ before
+the docstring, ~provide~ at the end.  sift checks each of those, because
+byte-compiling a package that gets them wrong produces warnings rather than a
+program.
+
+The one place a formatter can disagree with the editor is indentation, and sift
+says so rather than pretending: Emacs knows every macro in the buffer, because
+each carries a ~lisp-indent-function~ property, and sift knows the standard
+forms, ~use-package~ and whatever a project lists in ~indent-rules~.
+[[#elisp-indentation][The note at the end of the Emacs chapter]] is the honest version of that
+disagreement.
+
+** Common Lisp keeps its closers
+:PROPERTIES:
+:CUSTOM_ID: style-cl
+:END:
+
+The Common Lisp style guides — Google's, and the ones that came before it —
+keep the closing parenthesis on the last line of a form, so the community style
+is the default here too, and SIFT027 reports a dangling closer rather than
+quietly accepting it.  Package prefixes and double colons (SIFT025, SIFT026) are
+conventions rather than layout, and are reported because reaching into another
+package's internals is a decision a reader should see.
+
+~LOOP~ is the one rule that stays silent until a project asks: ~for~ and ~:for~
+are both in the wild, communities differ, and a rule that fired on half the
+world's ~loop~ forms is a rule that would be switched off.  Setting
+~loop-keywords~ to ~literal~ or ~symbolic~ turns it on.
+
+** Scheme, and in particular Guile and Guix
+:PROPERTIES:
+:CUSTOM_ID: style-scheme
+:END:
+
+Scheme's own convention, and Guile's and Guix's in particular, is a square
+bracket around a ~cond~ clause:
+
+#+begin_src scheme
+(cond [(< n 0) 'negative]
+      [(= n 0) 'zero]
+      [else 'positive])
+#+end_src
+
+A clause is a pair of test and body, not a call, and the bracket says where the
+pair ends without asking the reader to count.  It is a *setting* and not a law:
+~--brackets=parens~ writes parentheses, ~--brackets=preserve~ leaves every
+clause as the author wrote it, and Emacs Lisp and Common Lisp keep what they
+were given, because a square bracket is not syntax in either.
+
+Guile is also the dialect sift knows best, because it is what sift is written
+in: ~#{ ... }#~ extended symbols, ~#u8~ and ~#vu8~ bytevectors, ~#`~ and ~#,~
+syntax-case, ~#!fold-case~ and the rest of the read syntax are read as what they
+are rather than as text that happens to contain punctuation.
+
+** And when you disagree with all of it
+:PROPERTIES:
+:CUSTOM_ID: style-settings
+:END:
+
+Every position above is a default, and the ones a project is likely to hold
+differently are settings rather than arguments to have in an issue thread:
+
+| Setting               | Values                        | The default            |
+|-----------------------+-------------------------------+------------------------|
+| ~style~               | ~community~, ~dangling~       | ~community~            |
+| ~brackets~            | ~square~, ~parens~, ~preserve~ | ~square~ in Scheme    |
+| ~blank-lines~         | ~preserve~, ~one~             | ~preserve~             |
+| ~line-length~         | a number                      | 96 (80 for Emacs Lisp) |
+| ~indent~              | a number                      | 2                      |
+| ~comment-align~       | ~#t~, ~#f~                    | ~#f~                   |
+| ~single-letter-names~ | a list, for index variables   | ~(i j)~                |
+| ~loop-keywords~       | ~literal~, ~symbolic~         | silent                 |
+| ~indent-rules~        | a list of ~[name, columns]~   | the built-in table     |
+
+A project that has decided should not have to fight its formatter, and a
+formatter that has decided should not have to argue: that is the whole reason
+these are data in ~sift.yaml~ rather than opinions in the code.
+
 * In Emacs
 :PROPERTIES:
 :CUSTOM_ID: emacs
@@ -1009,18 +1209,122 @@ and linting — compiled to WebAssembly with [[https://spritely.institute/hoot/]
 around it.  The same reader, the same formatter and all sixty-three rules run in
 the tab; nothing is sent anywhere, because there is nowhere to send it.
 
-The dependency runs one way.  ~src/sift/~ is the library ~bin/sift~ installs and
-knows nothing about a browser; ~web/~ imports it and adds the request/response
-facade, the page, and a compatibility layer for the Guile libraries the target
-has not.  [[file:web/README.org][web/README.org]] explains the seam, and five tests in ~tests/web.scm~
-keep it: one fails if a file under ~src/sift/~ so much as mentions Wasm, Hoot or
-a browser, one fails if the facade's dependency on the core grows past five
-modules, one fails if the core imports a Guile library that ~web/compat~ has no
-stand-in for, one fails if the page names a URL from the root of a site or one
-that a cache would keep, and one runs the browser's own SRFI-13 in a second
-process and fails unless it answers what Guile's answers.
+It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
+the dialect, the style and the severity as controls, the findings in a panel you
+can click into, an outline, a completion popup, inlay hints that name a call's
+arguments, and a rules browser built from the same catalogue the command line
+prints.
 
-It is built with one command and published with another:
+*** Why a compile, and not a port
+:PROPERTIES:
+:CUSTOM_ID: web-why
+:END:
+
+The obvious way to put a Lisp formatter in a browser is to write it again in
+JavaScript.  That way lies a second formatter, and a second formatter is a second
+style: the two agree until the first interesting file, and then the project has
+to decide which of its own tools it believes.  So the source of truth stayed
+where it is.  The tab runs the reader, the formatter, the lint driver and every
+rule that ~bin/sift~ runs, because they are the same modules.
+
+The whole contract between the page and the Scheme is one procedure of one string
+to one string:
+
+#+begin_src scheme
+(web-request "{\"op\":\"lint\",\"source\":\"(if a b)\"}")
+;; => "{\"ok\":true,\"result\":{\"warnings\":[…],\"counts\":{…}}}"
+#+end_src
+
+Everything the tab can do is that procedure — format, check, lint, fix, the rule
+catalogue, and the four editor questions (hover, go to definition, completion,
+outline) that are answered by [[#lsp-coverage][the language server's own analysis code]], asked
+with an empty workspace.  Everything it cannot do is anything that needs a
+filesystem, and there is no pretending otherwise: no directory to walk, no
+~sift.yaml~, no save, no server.
+
+*** What compiled, and what had to stand in
+:PROPERTIES:
+:CUSTOM_ID: web-compat
+:END:
+
+Hoot compiles R7RS and a subset of Guile, and the gap between that and what sift
+uses is ~web/compat/~.  Four Guile libraries have stand-ins: ~format~,
+~textual-ports~, ~threads~ (a tab is one thread, so ~(sift pool)~ takes its
+sequential path) and ~ftw~ (~scandir~ answers nothing, because there are no
+directories to walk — which is the truth about a tab and not a guess).
+
+The interesting one was SRFI-13.  Twenty-six files in the core import it, Hoot
+ships srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own
+~srfi/srfi-13.scm~ is written with a ~re-export~ Hoot does not implement — so a
+browser build that reached for it would compile a re-export of names the target
+does not define and stop there.  The answer is a stand-in of eleven procedures,
+written against ~(scheme base)~, and a test that runs the browser's copy in a
+second process and fails unless its format, lint and fix answers are byte-for-byte
+the answers Guile's library gives.  A stand-in nobody compares is a second
+implementation wearing a compatibility layer's clothes.
+
+Four things could not be shimmed, and the source changed instead, in ways a
+native build is no worse for: ~(sift strings)~ carries the four string
+procedures R7RS leaves out, rather than importing a library the target may not
+have; three ~(char-set …)~ call sites became predicates, because a character set
+is an object R7RS does not have; one procedure takes its port in the body rather
+than as a keyword default that would be evaluated for nothing; and the
+filesystem question in ~(sift imports)~ asks whether this Scheme has ~stat~ and
+~scandir~ rather than who is compiling it.
+
+Nothing in ~src/sift/~ names the browser, Wasm or Hoot.  The dependency runs one
+way, and eight tests hold it that way: the core does not know that a tab exists;
+the facade's dependency on the core is still five modules; every Guile library in
+the compiled closure has a stand-in; the SRFI-13 stand-in is the file a build
+finds; it answers what Guile's own library answers, measured in a second process;
+the page names no URL from the root of a site; every URL it names carries the
+build stamp; and the editor asks for the wasm beside itself rather than at the
+root.
+
+*** What it costs
+:PROPERTIES:
+:CUSTOM_ID: web-cost
+:END:
+
+The module is 2.3 MB, which is a formatter, a linter and sixty-three rules on a
+Wasm GC — a large page by the standards of a web page and a small one by the
+standards of an editor.  Speed is the honest part of the experiment:
+
+| Buffer    | ~format~ | ~lint~ |
+|-----------+----------+--------|
+| 300 chars | 17 ms    | 56 ms  |
+| 1.2 kB    | 52 ms    | 145 ms |
+| 6 kB      | 780 ms   | 1.2 s  |
+
+A screenful is instant and the editor debounces the lint by 300 ms, so the first
+two rows are hidden entirely; past two kilobytes you can feel it.  There is no
+JIT, a record is allocated per node, and the reader allocates four records per
+character, which is the cost of a Scheme on a Wasm GC rather than something the
+facade can tune away.  If it matters, the request takes a ~checkers~ list, which
+is how a page asks for less work.
+
+*** What the experiment says
+:PROPERTIES:
+:CUSTOM_ID: web-verdict
+:END:
+
+Two questions were being asked.  Whether a real Scheme program — not a toy, a
+formatter with a reader of its own and sixty-three rules — can be compiled into
+something a tab runs: it can, with the caveats above, and the porting work was
+one compatibility directory rather than a rewrite.  And whether the seam survives
+contact: it did, and the test that says so is the useful one, because it runs
+under Guile in the ordinary suite, with no browser and no Wasm runtime involved.
+
+The boundary is the interesting part.  A tab has a buffer and no project, so two
+rules cannot fire and say nothing rather than guessing, and the language server is
+not in the tab at all — it is a process talking over standard input and output,
+which a browser is not.  The experiment is the formatter and the linter, and that
+turns out to be most of what a Lisp file needs while you are writing it.
+
+*** Building and publishing it
+:PROPERTIES:
+:CUSTOM_ID: web-build
+:END:
 
 #+begin_src shell
 ./web/build.sh     # writes web/dist/, and finds a Hoot that works
@@ -1028,20 +1332,20 @@ maak web-serve     # then open http://localhost:8080/
 maak web-deploy    # or copy it to the directory nginx serves
 #+end_src
 
-It is live at [[https://jointhefreeworld.org/sift/]] — the same page, served from
-the VPS that serves the rest of jointhefreeworld.org, over the certificate that
-is already there.  Publishing is a copy into
-~/srv/http/jointhefreeworld.org/sift~ on the machine that serves, the way the
-rest of that site is published: no ssh, no rsync, no server to reload.
-[[file:web/README.org][web/README.org]] has the two things the server contributes (a ~.wasm~ type and a
-trailing-slash redirect) and the one it has to be worked with (a two-day cache,
-which is what the build stamp is for).
+The build is one command because Hoot is not a library sift ships: it is the
+compiler, needed once and never at run time, and finding it is the only hard part.
+Hoot's compiled modules are bytecode and bytecode belongs to the Guile that
+compiled it, so ~guix shell guile guile-hoot~ gives a toolchain that fails halfway
+through a compile with an error from inside Hoot — ~web/build.sh~ compiles a
+two-line program to find out whether its toolchain works, and asks Guix for
+~guile-next guile-hoot~ when it does not.  [[file:web/README.org][web/README.org]] has the long version
+of that, and of the two things the server contributes (a ~.wasm~ content type and
+a trailing-slash redirect) and the one it has to be worked with (a two-day cache,
+which is what the build stamp in every URL is for).
 
-What it does not do is anything about a project: there is no directory to walk
-and no ~sift.yaml~ to read, so ~library-not-found~ never fires and
-~unused-import~ knows only what the buffer itself declares.  It is the formatter
-and the linter, not the language server.  [[file:web/README.org][web/README.org]] has the protocol, the
-compatibility layer Hoot needs, and the numbers.
+Publishing is a copy into ~/srv/http/jointhefreeworld.org/sift~ on the machine
+that serves, the way the rest of that site is published: no ssh, no rsync, no
+server to reload, because a file that is there is a file that is served.
 
 * What the language server answers
 :PROPERTIES:
@@ -1137,7 +1441,7 @@ name: sift
 on: [push, pull_request]
 jobs:
   sift:
-    uses: jjba23/sift/.github/workflows/sift.yml@v1.15.0
+    uses: jjba23/sift/.github/workflows/sift.yml@v1.16.0
 #+end_src
 
 That annotates the diff with what it found and uploads the SARIF document to
@@ -1147,7 +1451,7 @@ same repository also publishes a composite action, for a job that wants sift
 as one step among its own:
 
 #+begin_src yaml
-- uses: jjba23/sift@v1.15.0
+- uses: jjba23/sift@v1.16.0
   with:
     paths: src/ tests/
     severity: warning
@@ -1197,7 +1501,7 @@ project can pick the one it wants:
 #+begin_src yaml
 repos:
   - repo: https://github.com/jjba23/sift
-    rev: v1.15.0
+    rev: v1.16.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
@@ -1423,6 +1727,56 @@ checkers; ~render~ formats their findings; ~lsp~ turns the same findings into a
 protocol; ~cli~ wires everything to the command line.  Nothing in ~format~ or
 in a checker knows about ports or exit codes.
 
+* What sift believes
+:PROPERTIES:
+:CUSTOM_ID: beliefs
+:END:
+
+The decisions in the next chapter are implementations of six convictions, and
+they are worth stating on their own, because they are what the code is measured
+against when a rule is added and somebody has to decide what it may do.
+
+1. *A file is not a string.*  Almost everything here — a comment that keeps its
+   column, a fix that replaces exactly one range, a diff that is about your
+   change — follows from reading Lisp as a tree of forms that carries positions,
+   rather than as text to be re-indented.  A formatter that treats a buffer as
+   lines of text can be fast or it can be safe; it cannot easily be both.
+
+2. *A tool you have to check is a tool you stop running.*  So formatting is a
+   fixed point, a file comes back byte for byte, and a fix is thrown away rather
+   than guessed at.  The test suite asserts idempotence over every fixture,
+   because a promise that is not a test is a promise that expires quietly.
+
+3. *The author decides what the code says; the tool decides where the whitespace
+   goes.*  sift re-indents, re-spaces, re-levels comments and re-brackets a
+   ~cond~ clause.  It does not rename, does not reorder, does not inline a
+   procedure you wrote by hand, and does not invent a delimiter.  The rules that
+   would need to know what you meant — ~wrap-in-let~, ~line-length~, the naming
+   rules — report, and stop there.
+
+4. *A dialect is a language, not a variant.*  Common Lisp is not Scheme with
+   longer names: its package prefixes, its ~LOOP~, its docstrings and its
+   dangling parentheses are read as itself, and the same file is not reformatted
+   as Scheme because it was opened in the wrong mode.  A tool that guesses the
+   dialect is a tool that rewrites your Common Lisp as Scheme one day.
+
+5. *Say what you can prove, and refuse the rest.*  The language server answers
+   the requests in [[#lsp-coverage][the table above]] and answers the others with "method not
+   found".  [[#web][The browser build]] has no project to read, so the two rules that
+   need one say nothing at all.  A refusal is a feature when the only
+   alternative is a plausible lie.
+
+6. *Everything a program says should be available as data.*  A finding is the
+   same finding in five output formats and over LSP, a rule is a record before
+   it is a document, and every integration in this repository is a thin wrapper
+   over the program rather than a second implementation of it.  That is also why
+   [[#web][the browser]] is a compile of the same modules and not a JavaScript rewrite:
+   two implementations of a style are two styles.
+
+None of that is a promise to be clever.  A formatter earns its place by being
+boring and predictable, and every rule here that looks clever is a rule where
+the boring version would have lost something the reader needed.
+
 * Why it is like this
 :PROPERTIES:
 :CUSTOM_ID: decisions
@@ -1615,16 +1969,37 @@ patch, and saying so is the most useful bug report of all.
 :CUSTOM_ID: further-reading
 :END:
 
-- [[file:doc/style.org][doc/style.org]] — the style, the choices behind it, and why each one is
-  idiomatic Lisp.
+** In this repository
+
+- [[file:doc/style.org][doc/style.org]] — the style, the choices behind it, why each one is
+  idiomatic Lisp, and [[file:doc/style.org::#riastradh][which of Riastradh's rules sift keeps]].
 - [[file:doc/rules.org][doc/rules.org]] — every rule, with its code, in a document generated from
   the rules themselves.
 - [[file:doc/editors.org][doc/editors.org]] — Emacs, Eglot, Neovim, Vim, VS Code, Helix, pre-commit,
   and the two CI shapes.
+- [[file:web/README.org][web/README.org]] — the browser build: the seam, the protocol, the
+  compatibility layer, and the numbers.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the
   program.
 - ~sift list-checkers~ — the catalogue as a table, filtered by dialect.
 - [[file:emacs/sift.el][emacs/sift.el]] — the package, with its commentary at the top.
+
+** Outside it
+
+- [[http://mumble.net/~campbell/scheme/style.txt][Riastradh's Lisp Style Rules]] — Taylor R. Campbell's guide, and the
+  sharpest short argument for the style sift enforces; [[#riastradh][the chapter above]] is
+  which of its rules sift keeps and which it turns into a setting.
+- [[https://google.github.io/styleguide/lispguide.xml][Google's Common Lisp style guide]] — the other modern reference, and the
+  source of the community style sift uses for Common Lisp.
+- [[https://small.r7rs.org/][R7RS-small]] — the report sift reads Scheme against, and the reason the
+  compatibility layer is written in the subset it is.
+- [[https://srfi.schemers.org/srfi-13/][SRFI 13]] — the string library the command line gets from Guile and a browser
+  build gets from eleven procedures of its own.
+- [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Documentation-Tips.html][The Emacs Lisp manual's docstring tips]] — the conventions behind the Emacs
+  Lisp rules, which are warnings about what a byte-compiler complains about
+  rather than opinions about taste.
+- [[https://microsoft.github.io/language-server-protocol/][The language server protocol]] — what ~sift lsp~ speaks, and what it refuses.
+- [[https://spritely.institute/hoot/][Guile Hoot]] — the compiler behind [[#web][the browser build]].
 
 * License
 :PROPERTIES:
