@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>sift — Scheme, Emacs Lisp and Common Lisp in the browser</title>
+    <link rel="stylesheet" href="editor.css">
+    <!-- Hoot's reflection runtime: it is what turns a WebAssembly instance into
+         Scheme values JavaScript can hold.  It must be loaded before editor.js,
+         and it looks for reflect.wasm beside this page. -->
+    <script type="text/javascript" src="reflect.js"></script>
+    <script type="module" src="editor.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>sift</h1>
+      <p class="tagline">a formatter, linter and language server for Scheme,
+        Emacs Lisp and Common Lisp — compiled to WebAssembly, reading your
+        buffer in this tab, sending it nowhere.</p>
+    </header>
+
+    <main>
+      <section class="toolbar" aria-label="actions">
+        <label class="field">
+          <span>dialect</span>
+          <select id="dialect">
+            <option value="scheme">Scheme</option>
+            <option value="elisp">Emacs Lisp</option>
+            <option value="cl">Common Lisp</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>style</span>
+          <select id="style">
+            <option value="community">community</option>
+            <option value="dangling">dangling</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>severity</span>
+          <select id="severity">
+            <option value="info">info</option>
+            <option value="warning">warning</option>
+            <option value="error">error</option>
+          </select>
+        </label>
+        <button id="format" type="button" title="Format the buffer (M-x sift-format-buffer)">Format</button>
+        <button id="fix" type="button" title="Apply every safe fix (M-x sift-fix-buffer)">Fix</button>
+        <button id="outline" type="button" aria-expanded="false">Outline</button>
+        <button id="rules" type="button" aria-expanded="false">Rules</button>
+      </section>
+
+      <section class="workspace">
+        <div class="editing">
+          <div class="lines" id="lines" aria-hidden="true"></div>
+          <div class="sheet">
+            <pre class="highlight" id="highlight" aria-hidden="true"></pre>
+            <textarea id="source" spellcheck="false" autocomplete="off"
+                      autocapitalize="off" autocorrect="off" wrap="off"
+                      aria-label="the buffer"
+                      placeholder="(define (square x)&#10;  (* x x))"></textarea>
+            <ul class="completions" id="completions" hidden role="listbox"></ul>
+          </div>
+        </div>
+
+        <aside class="panel">
+          <div class="panel-head" id="findings-head">
+            <h2>findings</h2>
+            <span class="count" id="count">—</span>
+          </div>
+          <ol class="findings" id="finding-list"></ol>
+          <div class="panel-head" hidden id="outline-head">
+            <h2>outline</h2>
+            <span class="count" id="outline-count">—</span>
+          </div>
+          <ol class="outline" id="outline-list" hidden></ol>
+          <div class="panel-head" hidden id="rules-head">
+            <h2>rules</h2>
+            <span class="count" id="rule-count">—</span>
+          </div>
+          <ol class="rules" id="rule-list" hidden></ol>
+        </aside>
+      </section>
+
+      <section class="context" id="context" hidden aria-live="polite"></section>
+    </main>
+
+    <footer>
+      <span id="status">loading sift.wasm…</span>
+      <span class="spacer"></span>
+      <span class="hint">format <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>,
+        fix <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>,
+        complete <kbd>Ctrl</kbd>+<kbd>Space</kbd>,
+        jump <kbd>F12</kbd> or <kbd>Ctrl</kbd>+click</span>
+    </footer>
+  </body>
+</html>

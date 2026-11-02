@@ -1,0 +1,363 @@
+/* sift --- the browser editor's look
+ *
+ * SPDX-License-Identifier: MIT
+ * Copyright © Josep Bigorra <jjbigorra@gmail.com>
+ *
+ * Two things here are load bearing rather than pretty.  The highlight layer
+ * and the textarea are stacked and must have identical font metrics, padding
+ * and line height, or the colours drift away from the characters; and the line
+ * numbers are a separate column that is scrolled into the same place as the
+ * text.  Everything else is the tool's green.
+ */
+
+:root {
+  --ink: #0e1512;
+  --ink-2: #131f1a;
+  --ink-3: #1a2a22;
+  --line: #26382e;
+  --fg: #dbe6e0;
+  --dim: #8aa297;
+  --green: #2f6f4f;
+  --bright: #6fd79b;
+  --error: #ff6b6b;
+  --warning: #ffc857;
+  --info: #7cc6ff;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  --size: 14px;
+  --leading: 1.55;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--ink);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: var(--size);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  padding: 18px 22px 10px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--ink-2), var(--ink));
+}
+
+header h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bright);
+  font-weight: 600;
+}
+
+header .tagline {
+  margin: 4px 0 0;
+  color: var(--dim);
+  font-size: 12px;
+  max-width: 78ch;
+  line-height: 1.5;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-2);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.field span { text-transform: uppercase; letter-spacing: 0.08em; }
+
+select, button {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 8px;
+}
+
+button {
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+button:hover { border-color: var(--green); color: var(--bright); }
+button[aria-expanded="true"] { border-color: var(--bright); color: var(--bright); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.workspace {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 34ch);
+  min-height: 0;
+}
+
+/* ---- the editor surface ---- */
+
+.editing {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.lines {
+  width: 4ch;
+  padding: 14px 4px 14px 8px;
+  text-align: right;
+  color: #3f5b4d;
+  background: var(--ink-2);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.lines .line { height: calc(var(--size) * var(--leading)); }
+.lines .line.flagged { color: var(--warning); }
+
+.sheet {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sheet .highlight,
+.sheet textarea {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 14px 16px;
+  border: 0;
+  font-family: var(--mono);
+  font-size: var(--size);
+  line-height: var(--leading);
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+  letter-spacing: 0;
+}
+
+.sheet .highlight {
+  pointer-events: none;
+  color: var(--fg);
+}
+
+.sheet textarea {
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--bright);
+  outline: none;
+}
+
+.sheet textarea::selection { background: rgba(111, 215, 155, 0.22); color: transparent; }
+
+/* ---- tokens ---- */
+
+.t-comment { color: #5d7a6b; font-style: italic; }
+.t-string  { color: #b8e986; }
+.t-char    { color: #d3a4ff; }
+.t-number  { color: #ffb86c; }
+.t-keyword { color: #ff79c6; }
+.t-symbol  { color: #dbe6e0; }
+.t-paren   { color: #8aa297; }
+.t-quote   { color: #ffc857; }
+
+/* ---- the panel ---- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--ink-2);
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--ink-2);
+}
+
+.panel-head.rules-head { border-top: 1px solid var(--line); }
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.count { font-size: 11px; color: var(--bright); }
+
+.findings, .rules { margin: 0; padding: 0; list-style: none; }
+.findings[hidden], .rules[hidden] { display: none; }
+
+.finding, .rule-row {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--ink-3);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.finding:hover { background: var(--ink-3); border-left-color: var(--green); }
+.finding.sev-error { border-left-color: var(--error); }
+.finding.sev-warning { border-left-color: var(--warning); }
+.finding.sev-info { border-left-color: var(--info); }
+
+.finding-head, .rule-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+
+.rule { color: var(--bright); }
+.name { color: var(--fg); }
+.where, .sev { color: var(--dim); margin-left: auto; }
+
+.message {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+.rule-row { cursor: default; }
+.rule-row .example {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 11px;
+  color: #a8c3b5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+/* ---- the footer ---- */
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--ink-2);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+footer .spacer { flex: 1; }
+footer .bad { color: var(--error); }
+footer kbd {
+  font-family: inherit;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+@media (max-width: 720px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .panel { display: none; }
+  .editing { border-right: 0; }
+}
+
+.panel-head[hidden] { display: none; }
+
+/* ---- the questions an editor asks ---- */
+
+.context {
+  padding: 7px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--ink-3);
+  font-size: 12px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.sheet .completions {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  z-index: 10;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  min-width: 22ch;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--ink-2);
+  border: 1px solid var(--green);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.completions[hidden] { display: none; }
+
+.completions li {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.completions li.active { background: var(--green); color: #fff; }
+.completions li .kind { color: var(--dim); }
+.completions li.active .kind { color: #cfe9dc; }
+
+.outline { margin: 0; padding: 0; list-style: none; }
+.outline[hidden] { display: none; }
+
+.outline-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--ink-3);
+  border-left: 2px solid transparent;
+  cursor: pointer;
+}
+
+.outline-row:hover { background: var(--ink-3); border-left-color: var(--green); }
+.outline-row .rule { color: var(--dim); }

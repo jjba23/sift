@@ -1,0 +1,324 @@
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+#+title: sift in the browser
+#+subtitle: the same formatter and the same rules, compiled to WebAssembly
+#+author: Josep Bigorra
+#+options: toc:2 num:nil
+
+* What this is
+
+sift is a formatter, a linter and a language server.  Two of those three are a
+function of a string: give the formatter a buffer and it answers another buffer;
+give the linter a buffer and it answers findings.  This directory is that
+function, compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], and an editor page
+around it.  The buffer never leaves the tab: there is no server, no request, and
+nothing to trust with your code.
+
+#+begin_quote
+It is the same Scheme that ~bin/sift~ runs.  Not a reimplementation, not a
+subset: the reader, the formatter and all sixty-three rules are the modules in
+~src/sift/~, and all this directory adds to them is the facade that turns a JSON
+request into a call.  The dependency runs one way -- ~web/~ imports the core,
+and the core has never heard of ~web/~ -- and three tests hold that direction.
+#+end_quote
+
+* Building it
+
+Hoot is the compiler, and it is needed once, at build time; nothing it produces
+needs it at run time.  It wants a development Guile (the Guix package
+~guile-hoot~ pulls the right one in), the Wasm module wants a browser with the
+GC and exception-handling proposals -- Firefox 121+, Chrome 119+, Safari 26+ --
+and the build itself wants ~guild~.
+
+#+begin_src shell
+guix shell guile guile-hoot -- ./web/build.sh
+# or, if Hoot is already on the load path:
+./web/build.sh
+#+end_src
+
+That writes ~web/dist/~, which is a directory a static file server can serve:
+
+#+begin_src shell
+cd web/dist && python3 -m http.server 8080   # then open localhost:8080
+#+end_src
+
+It has to be *served*, not opened from the file system: a ~file://~ page may not
+fetch the ~.wasm~ it needs, and the reflection runtime fetches its own helpers.
+
+| File            | What it is                                                          |
+|-----------------+---------------------------------------------------------------------|
+| ~index.html~    | the page                                                            |
+| ~editor.js~     | the editor: one request per keystroke, debounced                    |
+| ~editor.css~    | the look, and the two rules that keep the highlight layer aligned    |
+| ~sift.wasm~     | sift, compiled                                                      |
+| ~reflect.js~    | Hoot's JavaScript half of the reflection runtime                    |
+| ~reflect.wasm~  | and its Scheme half, beside the module that loads it                |
+| ~wtf8.wasm~     | the string encoding helper the two use                              |
+
+*** Pointing the script at a different Guile
+
+~build.sh~ uses ~guile~ and ~guild~ from ~PATH~.  If the toolchain was built for
+another Guile -- which is what happens when ~guile-hoot~ is installed next to a
+stock ~guile~ -- name it:
+
+#+begin_src shell
+SIFT_HOOT_GUILE=/gnu/store/...-guile-next/bin/guile \
+SIFT_HOOT_GUILD=/gnu/store/...-guile-next/bin/guild \
+GUILE_LOAD_PATH=/gnu/store/...-guile-hoot/share/guile/site/3.0 \
+  ./web/build.sh
+#+end_src
+
+* What it can do
+
+| In the page                          | What answers it                              |
+|--------------------------------------+----------------------------------------------|
+| lint as you type                     | every rule the dialect applies to            |
+| ~Format~, or ~Ctrl-Shift-F~          | the formatter, with the style and the dialect |
+| ~Fix~, or ~Ctrl-Shift-X~             | the same all-or-nothing fix run ~sift fix~ does |
+| the findings panel                   | rule, code (~SIFT012~), severity, place      |
+| click a finding                      | the cursor goes to it                        |
+| the context bar                      | a hover: what the symbol under the caret is  |
+| ~Ctrl-Space~                         | completion of the names the buffer defines   |
+| ~F12~ or ~Ctrl~+click                | jump to the definition, in this buffer       |
+| ~Outline~                            | the buffer's definitions, click to go there  |
+| ~Rules~                              | the sixty-three rules, with their examples   |
+| the dialect selector                 | Scheme, Emacs Lisp or Common Lisp            |
+
+The four editor questions -- hover, definition, completion, outline -- are
+answered by *the language server's own code*, not by a second implementation:
+~sift lsp~ splits into ~(sift analysis)~, which answers about a buffer and a
+workspace, and the rest, which reads a project off a disk and speaks JSON-RPC.
+The browser compiles the first and asks it with an empty workspace, so a
+definition inside the buffer is found, a definition in a file the tab has never
+seen is not, and nothing pretends otherwise.
+
+What it cannot do is anything that is about a *project*: there is no directory
+to walk, no ~sift.yaml~ to read, no file to save, and no language server.  Two
+rules are affected and both say so honestly rather than guessing:
+
+- ~library-not-found~ (SIFT060) asks the project which libraries it declares.
+  A tab has no project, so the rule never fires.
+- ~unused-import~ (SIFT061) knows what the project declares in ~src/~ or
+  wherever the libraries live.  In a tab it knows only what the buffer itself
+  declares.
+
+Neither invents an answer, which is the point: a rule that cannot see the
+project says nothing, and the editor shows the sixty-one that can.
+
+* How it works
+
+The whole contract between the editor and the Scheme is one procedure of one
+string to one string.  ~web/main.scm~ is the entry point and its last
+expression is that procedure:
+
+#+begin_src scheme
+(import (scheme base)
+  ;; sift:disable-next-line library-not-found
+  (sift web))
+
+(values web-request)
+#+end_src
+
+so the JavaScript side is three lines:
+
+#+begin_src javascript
+const [sift] = await Scheme.load_main("./sift.wasm", { reflect_wasm_dir: "." });
+const answer = JSON.parse(text(sift.call(JSON.stringify(request))[0]));
+#+end_src
+
+(~text~ is there because a Scheme string is mutable, and Hoot hands mutable
+strings over as objects; ~reflector.string_value~ is how the page reads one.)
+
+** The seam
+
+The directory is laid out so that the dependency runs one way:
+
+#+begin_src text
+src/sift/            the core: the library bin/sift installs
+  reader.scm  format.scm  lint.scm  json.scm  records.scm  ...
+web/
+  sift/web.scm       the facade: JSON in, JSON out
+  main.scm           the Wasm entry point: (values web-request)
+  compat/            stand-ins for the Guile libraries the target has not
+  index.html  editor.js  editor.css  build.sh
+#+end_src
+
+~web/sift/web.scm~ is a module under its own load-path root, which is why the
+build passes ~-L web~ beside ~-L src~: Scheme resolves ~(sift web)~ to a path
+under a load path, and the facade is deliberately not part of what ~bin/sift~
+installs.  It is ordinary portable Scheme -- it imports the same ~(sift
+format)~, ~(sift lint)~, ~(sift json)~ and ~(sift records)~ that the command line
+does and calls the same entry points -- which is what lets ~tests/web.scm~ drive
+the browser build's whole surface under Guile, in the same process, without a
+browser: what the tests assert is what the tab runs.
+
+Nothing in ~src/sift/~ mentions the browser, ~web/sift/web.scm~ imports four core
+modules and no more, and every Guile library the browser build reaches has
+either a stand-in in ~web/compat~ or a note saying the target ships it.  All
+three are asserted in ~tests/web.scm~:
+
+#+begin_src scheme
+(test "the core does not know the browser exists" ...)      ; no `hoot', `wasm',
+                                                            ; `browser' in src/sift/
+(test "the facade imports four core modules, and no more" ...)
+(test "every Guile library the browser build imports has a stand-in" ...)
+#+end_src
+
+so the seam is a test rather than a habit, and each test answers a different
+question.  Add an import to the core and the third one names it -- before a Wasm
+build gets the chance to.  Teach the facade a new core module and the second one
+says the browser's dependency just grew.  Start explaining the core in terms of
+a tab and the first one fails with the file's name.
+
+** The protocol
+
+A request is a JSON object with an ~op~, and every answer is
+~{"ok":true,"result":...}~ or ~{"ok":false,"error":{"kind":...,"message":...}}~.
+The kinds are ~request~ (the document is not JSON), ~usage~ (a member is the
+wrong type or names something sift does not have) and ~internal~ (a bug in sift,
+which a tab reports rather than dies of).
+
+| ~op~        | Answers                                                              |
+|-------------+----------------------------------------------------------------------|
+| ~format~    | ~{"source":S',"changed":B,"warnings":W}~ -- the text, and the reader's own findings |
+| ~check~     | the same, which is exactly the question ~sift check~ asks             |
+| ~lint~      | ~{"warnings":W,"counts":C,"severity":A}~                               |
+| ~fix~       | ~{"source":S'',"applied":N,"changed":B,"warnings":W}~                  |
+| ~checkers~  | ~{"version":V,"checkers":K}~ -- the rule catalogue, with examples      |
+| ~version~   | ~{"version":V}~                                                       |
+| ~hover~     | ~{"hover":{contents,range}}~ or ~null~ -- what the symbol is           |
+| ~definition~| ~{"definitions":[{uri,range}]}~ -- in this buffer only                 |
+| ~references~| ~{"references":[{uri,range}]}~ -- in this buffer only                  |
+| ~highlight~ | ~{"highlights":[{range,kind}]}~ -- declaration apart from use          |
+| ~symbols~   | ~{"symbols":[DocumentSymbol]}~ -- the outline, nested                   |
+| ~completion~| ~{"items":[{label,kind,sortText}]}~                                    |
+| ~signature~ | ~{"signature":SignatureHelp}~ or ~null~                                |
+| ~inlayHints~| ~{"hints":[{position,label,kind}]}~ -- parameter names beside arguments |
+
+The last eight take the buffer, the dialect and an ~offset~ (a character index
+in the buffer; ~inlayHints~ takes ~from~ and ~to~ instead, defaulting to the
+whole buffer), and answer in the language server's shapes: a range is a line
+and a character, both zero based.  They are the same procedures ~sift lsp~
+answers with.  Completion and inlay hints are offered in the page; signature
+help is in the context bar when the caret is inside a call.
+
+and the members a request may carry:
+
+| Member             | Applies to        | What it is                                         |
+|--------------------+-------------------+----------------------------------------------------|
+| ~source~           | all but ~checkers~| the buffer, as a string                            |
+| ~dialect~          | format, lint, fix | ~scheme~, ~elisp~ or ~cl~ (default ~scheme~)        |
+| ~style~            | format            | ~community~ or ~dangling~                          |
+| ~indent~           | format, lint      | indentation width, in columns                      |
+| ~brackets~         | format            | ~square~, ~parens~ or ~preserve~                    |
+| ~blankLines~       | format            | ~preserve~ or ~one~                                |
+| ~commentAlign~     | format            | line up contiguous inline comments                  |
+| ~indentRules~      | format            | ~[["with-my-thing", 2], ...]~ for a project's macros |
+| ~severity~         | lint, fix         | the smallest severity to report (default ~info~)   |
+| ~checkers~         | lint              | run only these rules                               |
+| ~excludeCheckers~  | lint              | skip these rules                                   |
+| ~label~            | lint, fix         | the name findings carry, instead of nothing        |
+| ~lineLength~       | lint              | the soft line limit                                |
+| ~options~          | lint              | any other checker setting, by its ~sift.yaml~ name |
+
+A finding is ~{"rule","code","severity","message","line","column","offset","from","to","fixable"}~;
+~from~ and ~to~ are character offsets, which is what an editor underlines.
+
+* The compatibility layer
+
+Hoot is not Guile: it compiles R7RS and a subset of Guile, and the difference is
+what ~web/compat/~ exists for.  It sits at the *front* of the module load path
+when building for the browser (see ~build.sh~), so a `(ice-9 ...)' import in
+sift's sources finds it, and not one line of ~src/sift/~ had to be rewritten for
+a platform without Guile.
+
+| Shim                                  | Why                                                                |
+|---------------------------------------+---------------------------------------------------------------------|
+| ~compat/ice-9/format.scm~             | Hoot has no ~format~; this is ~a ~s ~d ~x ~o ~b ~f ~c ~% ~& ~~ with the numeric parameters sift uses |
+| ~compat/ice-9/textual-ports.scm~      | ~get-string-all~, ~put-string~ and the rest of what sift names     |
+| ~compat/ice-9/threads.scm~            | a tab is one thread: ~current-processor-count~ answers 1, so ~(sift pool)~ takes its sequential path; every other procedure raises with a sentence |
+| ~compat/ice-9/ftw.scm~                | ~scandir~ answers the empty list: there are no directories to walk  |
+
+Three things were not shimmable, and the source changed instead.  Each change is
+one a native build is no worse for, and none of them leaves the browser's name
+in the core -- which is the rule the seam above is about:
+
+- *(sift strings)* is new: ~string-find~, ~every-char~, ~string-words~ and
+  ~pad-right~ are the four procedures sift needs that R7RS leaves out, written
+  against ~string-ref~ and ~string-append~.  Hoot's ~(srfi srfi-13)~ re-exports
+  fifty-four names it does not define, and a library whose export list promises
+  more than it delivers cannot be completed from outside.  The module is
+  portable Scheme with no target in sight, and reads as "what R7RS lacks"
+  because that is what it is.
+- ~read-source~ takes its port in the body rather than as a keyword default,
+  because a default that calls a procedure is evaluated on every call -- so a
+  caller that passes a source and no port was taking a standard input port it
+  never read, which is work, and can be a side effect, for nothing.
+- ~(sift imports)~ asks the filesystem through three procedures behind a
+  ~cond-expand~ whose test is ~(guile ...)~, not ~(hoot ...)~: the question the
+  core is asking is "does this Scheme have ~stat~ and ~scandir~?", and the
+  answer for a tab is the same as the answer for any Scheme without them -- no
+  directory, no names, no text, so ~library-not-found~ never fires, which is the
+  truth and not a guess.
+
+* How fast it is, honestly
+
+Measured in Chrome 151 on the author's machine, through the page's own request
+path, with the whole lint run (all rules for the dialect):
+
+| Buffer    | ~format~ | ~lint~ |
+|-----------+----------+--------|
+| 300 chars | 17 ms    | 56 ms  |
+| 1.2 kB    | 52 ms    | 145 ms |
+| 2.4 kB    | 149 ms   | 309 ms |
+| 6 kB      | 780 ms   | 1.2 s  |
+
+So a file of a screenful is instant, and a large one is not.  The editor
+debounces the lint by 300 ms, which hides the first two rows entirely; past
+~2 kB~ you can feel it.  Hoot has no JIT and allocates a record per node, and
+the reader allocates four records per character of a Lisp file, so this is the
+cost of a Scheme on a Wasm GC and not something the facade can tune away.  If it
+matters, ~checkers~ in the request is how to ask for less.
+
+* Checking that it still works
+
+The facade is tested where it runs best -- under Guile, in ~tests/web.scm~, as
+part of the ordinary suite:
+
+#+begin_src shell
+maak test          # or: guile -L src -L tests -c '(use-modules (tests run)) (run-all!)'
+#+end_src
+
+That covers the answers, the failures, the dialects, the styles and the
+catalogue, and it is the half of the job that catches a regression in a rule.
+
+The other half is the Wasm build itself, which needs Hoot and a browser.  The
+way to check it is to serve ~web/dist/~, open it, and use it -- which is what
+was done, in headless Chrome driven over the DevTools protocol: load the page,
+wait for the status bar to name a version, then click ~Format~ on
+~(define (square x)\n(* x x))~, click ~Fix~ on ~(define (f) (let ((x 1)) x))~,
+switch the dialect to Emacs Lisp and format a ~defun~, open ~Rules~, and click a
+finding to see the cursor move.
+
+The last time it ran, on the sample buffer the page starts with:
+
+#+begin_src text
+boot: 0 errors, 4 warnings, 3 notes — 47 ms
+findings: 7
+format: ["(define (square x)\n  (* x x))\n","0 errors, 0 warnings, 1 notes — 3 ms"]
+fix: ["(define (f) 1)\n","2 fixes applied in 9 ms"]
+elisp: ["(defun foo ()\n  (message \"hi\"))","3"]
+rules: ["63",false]
+#+end_src
+
+* What is missing, in one list
+
+- No language server.  ~sift lsp~ is a process talking over standard input and
+  output; a tab is neither.  Go to definition, hover and the gatherer that
+  answers them are all there in ~src/sift/~, and none of it is reachable from
+  here yet.
+- No project: no ~sift.yaml~, no directory walk, no ~ci~ over a tree.
+- No files: the buffer is the unit of work, and there is no "save".
+- No ~--force~: a buffer with a parse error is formatted back as it came, with
+  the reader's finding in the answer, and the editor shows it.
