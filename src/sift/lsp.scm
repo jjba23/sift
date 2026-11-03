@@ -582,11 +582,11 @@ asking about the line the cursor is on, which is what a person means by
 
 (define code-action-kinds
   ;; What `initialize' advertises, and the complete list of what this server
-  ;; offers an editor: two kinds of finding fix, the one rewrite that does not
-  ;; need to be told what to call anything, and the two source actions.
-  '("quickfix" "refactor.extract" "refactor.rewrite" "source.fixAll"
-    "source.fixAll.sift" "source.organizeImports"))
-
+  ;; offers an editor: two kinds of finding fix, the two rewrites that need no
+  ;; name but the one already in the source, the one rewrite that does, and the
+  ;; two source actions.
+  '("quickfix" "refactor.extract" "refactor.inline" "refactor.rewrite"
+    "source.fixAll" "source.fixAll.sift" "source.organizeImports"))
 (define (kind-matches? requested kind)
   "Return @code{#t} when offering @var{kind} satisfies a request for
 @var{requested}.
@@ -822,6 +822,10 @@ actions and nothing else."
           (and (only-accepts? only "refactor.extract")
             (extract-actions text dialect start end
                              #:uri (or uri "") #:version version)))
+         (inlines
+          (and (only-accepts? only "refactor.inline")
+            (inline-actions text dialect start end
+                            #:uri (or uri "") #:version version)))
          (rewrite
           (and (only-accepts? only "refactor.rewrite")
             (format-form-action config text (ast-of-text text dialect) start
@@ -838,6 +842,7 @@ actions and nothing else."
      (append
       (if (only-accepts? only "quickfix") quickfixes '())
       (or extractions '())
+      (or inlines '())
       (if rewrite (list rewrite) '())
       (if organize (list organize) '())
       (if fix-all (list fix-all) '())))))

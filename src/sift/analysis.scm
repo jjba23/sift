@@ -114,7 +114,8 @@
             symbol-hover
             lsp-signature-help
             lsp-inlay-hints
-            extract-actions))
+            extract-actions
+            inline-actions))
 
 ;;; ===== The wire =====
 ;;;
@@ -852,7 +853,7 @@ underline `#:height' while its value is typed rather than the first argument."
   (let loop ((rest (form-arguments call)) (position 0))
     (cond
       [(null? rest)
-       (if (pair? parameters) (min position (- (length parameters) 1)) 0)]
+       (if (pair? parameters) (max 0 (min position (- (length parameters) 1))) 0)]
       [(keyword-node? (car rest))
        (let ((keyword (car rest))
              (value (and (pair? (cdr rest)) (cadr rest))))
@@ -866,6 +867,18 @@ underline `#:height' while its value is typed rather than the first argument."
        (and (pair? parameters) (min position (- (length parameters) 1)))]
       [else (loop (cdr rest) (+ position 1))])))
 
+(define (signature-sites ast workspace documents uri text dialect index)
+  "Return the definitions of the symbol at @var{index}, looking here last.
+
+A call in the buffer being edited usually names a definition that is in it, and
+the buffer may never have been saved: the other buffers and the workspace index
+are the wrong places to look first and the wrong places to look only."
+  (let ((sites (definition-sites workspace documents uri text dialect index)))
+    (or (and (pair? sites) sites)
+      (let ((name (resolve-name ast index)))
+        (let ((local (and name (top-level-definition ast name))))
+          (and local (list (list uri text local))))))))
+
 (define* (lsp-signature-help workspace documents uri text dialect index)
   "Return the signature of the call the cursor is in, or @code{#f}.
 
@@ -875,23 +888,41 @@ optional and rest parameters, and which of them is being written.  A procedure
 from a library sift cannot read has no signature here, and answering with an
 invented one would be worse than answering nothing."
   (let* ((ast (ast-of-text text dialect))
-         (call (call-at ast index)))
+         (call (or (call-at ast index)
+                 ;; A call that takes nothing has no argument for the cursor
+                 ;; to be in, which is exactly the call whose signature a
+                 ;; reader most wants to be shown.
+                 (call-with-values (lambda () (form-at ast index))
+                   (lambda (node ancestors)
+                     (let ((form (cond
+                                   [(and node (node-list? node)) node]
+                                   [(and node (pair? ancestors))
+                                    (car ancestors)]
+                                   [else #f])))
+                       (and form (node-list? form)
+                         (let ((head (node-head form)))
+                           (and head (node-atom? head)
+                             (eq? (node-atom-type head) 'symbol)
+                             (null? (form-arguments form))
+                             form)))))))))
     (and call
       (let ((head (node-head call)))
-        (let* ((sites (definition-sites workspace documents uri text dialect
-                                        (source-location-index (node-start head))))
+        (let* ((sites (signature-sites ast workspace documents uri text dialect
+                                       (source-location-index (node-start head))))
                (site (and (pair? sites) (car sites)))
                (definition (and site (caddr site)))
                (definition-text (and site (cadr site)))
                (signature (and definition (definition-form definition)
                             (form-signature (definition-form definition))))
                (parameters (and signature (caddr signature))))
-          (and (pair? parameters)
+          (and signature (list? parameters)
             (let* ((name (definition-name definition))
                    (labels (map (lambda (parameter)
                                   (parameter-label parameter definition-text dialect))
                                 parameters))
-                   (label (format #f "(~a ~a)" name (string-join labels " ")))
+                   (label (if (null? labels)
+                            (format #f "(~a)" name)
+                            (format #f "(~a ~a)" name (string-join labels " "))))
                    (arity (cons (car signature) (cadr signature)))
                    (summary (arity-summary arity dialect))
                    (documentation (documentation-text
@@ -1043,8 +1074,12 @@ expression itself, and so not an argument."
 would have chosen; `(* w h)' suggests nothing a variable should be called, so
 the fallback is used instead of `*'."
   (let* ((head (and (node-list? node) (node-head node)))
+         (syntax (member (and head (node-atom? head) (node-value head))
+                         '("lambda" "let" "let*" "letrec" "if" "cond" "begin"
+                           "when" "unless" "and" "or" "define" "set!" "quote"
+                           "case" "do" "named-lambda")))
          (text (cond
-                 [(and head (node-atom? head)
+                 [(and head (node-atom? head) (not syntax)
                     (eq? (node-atom-type head) 'symbol)) (node-value head)]
                  [(and (node-atom? node)
                     (eq? (node-atom-type node) 'symbol)) (node-value node)]
@@ -1114,6 +1149,12 @@ be a copy nobody asked for."
   (call-with-values (lambda () (expression-at ast end))
     (lambda (node ancestors)
       (let ((top (and (pair? ancestors) (last ancestors))))
+        ;; The formals list is not an expression: moving it into a procedure
+        ;; would write a definition of the parameters instead of a use of them.
+        (set! top (and top
+                    (not (and (formals-holder? top)
+                           (eq? (formals-of-form top) node)))
+                    top))
         (and node top (not (eq? node top))
           (let* ((excerpt (substring text (form-start node) (form-end node)))
                  (arguments (free-names node ancestors))
@@ -1153,9 +1194,240 @@ be a copy nobody asked for."
   "Return the extraction actions that apply to @var{start}..@var{end}."
   (let ((ast (ast-of-text text dialect)))
     (filter identity
-            (list (extract-to-let text ast start end #:uri uri #:version version)
+            (list (extract-lambda text ast start end #:uri uri #:version version)
+                  (extract-to-let text ast start end #:uri uri #:version version)
                   (extract-to-procedure text ast start end
                                         #:uri uri #:version version)))))
+
+;;; --- a `lambda' becomes a procedure --------------------------------------
+;;;
+;;; A lambda written inline is a procedure nobody has named, and naming one is
+;;; the extraction a reader makes most often: `(map (lambda (x) (* x x)) xs)'
+;;; is `(map squared xs)' beside `(define (squared x) (* x x))'.  The
+;;; definition goes before the top-level form the lambda was written in, so the
+;;; helper reads before the use the way the file is read.
+
+(define (lambda-form? node)
+  "Return @code{#t} when @var{node} is a `lambda' form."
+  (and (node-list? node)
+    (let ((head (node-head node)))
+      (and head (node-atom? head) (eq? (node-head-name node) 'lambda)))))
+(define (descendants node)
+  "Return every node inside @var{node}, in source order."
+  (cond
+    [(node-atom? node) '()]
+    [(node-list? node)
+     (append-map (lambda (child) (cons child (descendants child)))
+                 (node-elements node))]
+    [(node-vector? node)
+     (append-map (lambda (child) (cons child (descendants child)))
+                 (node-elements node))]
+    [else
+      (let ((child (node-child node)))
+        (if child (cons child (descendants child)) '()))]))
+(define (formals-names formals)
+  "Return the names a formals list binds, in the order they are written.
+
+A marker is not a name: `#:optional' says what the parameters after it mean,
+and the reader's dotted tail is a third dot rather than a binding."
+  (let ((elements (cond
+                    [(node-list? formals) (node-elements formals)]
+                    [(and (node-atom? formals)
+                       (eq? (node-atom-type formals) 'symbol)) (list formals)]
+                    [else '()])))
+    (filter-map
+     (lambda (element)
+       (cond
+         [(and (node-atom? element)
+            (eq? (node-atom-type element) 'symbol))
+          (let ((name (node-value element)))
+            (and (not (member name '("#:optional" "#:key" "#:rest"
+                                     "#:allow-other-keys" "&optional" "&rest"
+                                     "&key" "&body" "." "...")))
+              name))]
+         [(node-list? element)
+          (let ((head (node-head element)))
+            (and head (node-atom? head) (node-value head)))]
+         [else #f]))
+     elements)))
+
+(define* (extract-lambda text ast start end #:key (uri "") (version #f))
+  "Return the action that names a `lambda' and moves it to the top level, or #f.
+
+The lambda keeps doing exactly what it did: the definition is written before the
+form it appeared in, and the name takes its place where the `lambda' was.  The
+body is moved as it was written, comments and all, because an extraction that
+reformats what it moves is a second change nobody asked for."
+  (call-with-values (lambda () (expression-at ast end))
+    (lambda (node ancestors)
+      (let ((top (and (pair? ancestors) (last ancestors))))
+        ;; The formals list is not an expression: moving it into a procedure
+        ;; would write a definition of the parameters instead of a use of them.
+        (set! top (and top
+                    (not (and (formals-holder? top)
+                           (eq? (formals-of-form top) node)))
+                    top))
+        (and node top (lambda-form? node)
+          (let ((arguments (form-arguments node)))
+            (and (pair? arguments) (node-list? (car arguments))
+              (pair? (cdr arguments))
+              (let* ((formals (car arguments))
+                     (body (cdr arguments))
+                     (name (fresh-name "procedure" (document-names ast)))
+                     (formals-text (substring text (form-start formals)
+                                              (form-end formals)))
+                     (inner (substring formals-text 1
+                                       (- (string-length formals-text) 1)))
+                     (body-text (substring text (form-start (car body))
+                                           (form-end node)))
+                     (procedure
+                      (format #f "(define (~a~@[ ~a~])~%~a)"
+                              name
+                              (and (positive? (string-length inner)) inner)
+                              (string-append "  " (wrapped-line body-text))))
+                     (edits
+                      (vector
+                       (json-object
+                        (field "range" (json-range text (form-start node)
+                                                   (form-end node)))
+                        (field "newText" name))
+                       (json-object
+                        (field "range" (json-range text (form-start top)
+                                                   (form-start top)))
+                        (field "newText" (string-append procedure "\n\n"))))))
+                (json-object
+                 (field "title"
+                        (format #f "sift: extract this lambda to the procedure `~a`"
+                                name))
+                 (field "kind" "refactor.extract")
+                 (field "edit"
+                        (json-object
+                         (field "documentChanges"
+                                (vector
+                                 (json-object
+                                  (field "textDocument"
+                                         (text-document-of uri version))
+                                  (field "edits" edits)))))))))))))))
+
+;;; --- a call is replaced by the body it calls ----------------------------
+;;;
+;;; Inlining is the extraction read backwards, and it is the rewrite a reader
+;;; wants when a procedure is called once: the body says more at the call than
+;;; a name that has to be looked up.  What sift can rewrite without guessing is
+;;; narrow, and the narrowness is the point -- a top-level definition in this
+;;; buffer, one expression in its body, plain positional parameters, none of
+;;; them rebound inside the body, no quoting.  Everything else is refused
+;;; rather than approximated.
+
+(define (binding-form? node)
+  "Return @code{#t} when @var{node} binds a name inside itself.
+
+The head is required to be an atom: a `let' binding list is a list whose head is
+a list, and reading a name off that is a question with no answer."
+  (and (node-list? node)
+    (let ((head (node-head node)))
+      (and head (node-atom? head)
+        (memq (node-head-name node)
+              '(let let* letrec letrec* lambda define define* define-values
+                 named-lambda let-values))))))
+(define (quoted-form? node)
+  (and (node-prefix? node)
+    (member (node-token node) '("'" "`" "," ",@"))))
+
+(define (definition-body definition)
+  "Return the one expression @var{definition}'s body is, or @code{#f}."
+  (let* ((form (definition-form definition))
+         (arguments (and form (form-arguments form))))
+    (and arguments
+      (let ((body (filter (lambda (node)
+                            (not (and (node-atom? node)
+                                   (eq? (node-atom-type node) 'string))))
+                          (cdr arguments))))
+        (and (= (length body) 1) (car body))))))
+
+(define (substituted-body text body parameters arguments)
+  "Return @var{body}'s source with each parameter replaced by its argument.
+
+@var{parameters} and @var{arguments} are in the order they were written, which
+is the only order a call and a formal list share."
+  (let ((pairs (map (lambda (parameter argument)
+                      (cons parameter
+                            (substring text (form-start argument)
+                                       (form-end argument))))
+                    parameters arguments)))
+    (let loop ((rest (filter (lambda (candidate)
+                               (and (node-atom? candidate)
+                                 (member (node-value candidate) parameters)))
+                             (descendants body)))
+               (cursor (form-start body))
+               (pieces '()))
+      (cond
+        [(null? rest)
+         (apply string-append
+                (reverse (cons (substring text cursor (form-end body)) pieces)))]
+        [else
+          (let* ((atom (car rest))
+                 (replacement (cdr (assoc (node-value atom) pairs))))
+            (loop (cdr rest)
+                  (form-end atom)
+                  (cons replacement
+                        (cons (substring text cursor (form-start atom))
+                              pieces))))]))))
+(define* (inline-call text ast start end #:key (uri "") (version #f))
+  "Return the action that replaces a call with the body of its procedure, or #f."
+  (call-with-values (lambda () (expression-at ast end))
+    (lambda (node ancestors)
+      (let ((head (and (node-list? node) (node-head node))))
+        (and head (node-atom? head) (eq? (node-atom-type head) 'symbol)
+          (let* ((name (node-value head))
+                 (definition (top-level-definition ast name))
+                 (form (and definition (definition-form definition)))
+                 (formals-node (and form (pair? (form-arguments form))
+                                 (car (form-arguments form))))
+                 (parameters (and form (form-parameters form)))
+                 (names (filter-map (lambda (candidate)
+                                      (and (node-atom? candidate)
+                                        (node-value candidate)))
+                                    (or parameters '())))
+                 (body (and definition (definition-body definition)))
+                 (formals-text
+                  (and formals-node (node-list? formals-node)
+                    (substring text (form-start formals-node)
+                               (form-end formals-node)))))
+            (and definition body formals-text
+              ;; A keyword, a default or a dotted tail is a shape this rewrite
+              ;; cannot read positionally, and half an inline is worse than
+              ;; none at all.
+              (not (string-contains formals-text ":"))
+              (not (string-contains formals-text "."))
+              (not (string-contains formals-text "&"))
+              (let ((arguments (form-arguments node))
+                    (nodes (cons body (descendants body))))
+                (and (= (length arguments) (length names))
+                  (not (find keyword-node? arguments))
+                  (not (find binding-form? nodes))
+                  (not (find quoted-form? nodes))
+                  (not (find (lambda (candidate)
+                               (and (node-list? candidate)
+                                 (let ((inner (node-head candidate)))
+                                   (and inner (node-atom? inner)
+                                     (member (node-value inner) names)))))
+                             nodes))
+                  (json-object
+                   (field "title"
+                          (format #f "sift: inline the call to `~a`" name))
+                   (field "kind" "refactor.inline")
+                   (field "edit"
+                          (workspace-edit
+                           uri version text (form-start node) (form-end node)
+                           (substituted-body text body names
+                                             arguments)))))))))))))
+
+(define* (inline-actions text dialect start end #:key (uri "") (version #f))
+  "Return the inlining actions that apply to @var{start}..@var{end}."
+  (let ((ast (ast-of-text text dialect)))
+    (filter identity
+            (list (inline-call text ast start end #:uri uri #:version version)))))
 
 ;;; ===== Inlay hints =====
 ;;;

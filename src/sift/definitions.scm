@@ -44,7 +44,8 @@
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
   #:use-module (sift records)
-  #:export (<definition>
+  #:export (
+            form-parameters
             definition?
             make-definition
             definition-name

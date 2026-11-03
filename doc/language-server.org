@@ -30,7 +30,7 @@ from the editor's side.
 | ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away; the open buffers are checked again |
 | ~workspace/didChangeConfiguration~                   | yes     | the settings are read again -- sift.yaml, the user's, the command line -- and every open buffer is checked against them |
 | ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page                    |
-| ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; extract an expression to a ~let~ binding or to a procedure as ~refactor.extract~; honours ~context.only~ |
+| ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; extract an expression to a ~let~ binding or to a procedure, or a lambda to a procedure of its own, as ~refactor.extract~; replace a call with the body it calls as ~refactor.inline~; honours ~context.only~ |
 | ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
 | ~textDocument/formatting~                            | yes     | one edit for the buffer, or a message saying why it refuses                       |
 | ~textDocument/hover~                                 | yes     | a symbol's definition and docstring; a finding's rule otherwise                   |
@@ -45,7 +45,7 @@ from the editor's side.
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
 | ~window/logMessage~ (server to client)              | yes     | what the server did: the root it serves, the dialect of each buffer, the findings a report carries, every re-read |
 | ~$/cancelRequest~, ~$/setTrace~                      | ignored | a request is answered before a cancel could reach it; nothing is traced           |
-| ~textDocument/signatureHelp~                         | yes     | the formal list and the docstring of the definition the head resolves to          |
+| ~textDocument/signatureHelp~                         | yes     | the formal list -- keywords and optionals as they are written -- the argument being written, and the docstring; a procedure that takes nothing gets ~(name)~ |
 | ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
 | ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
 | ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
@@ -66,16 +66,22 @@ and ~save~ in its synchronisation options instead of the bare change kind ~1~.
 An editor that sends none of those is an editor sift can only answer from what
 it read when the session started.
 
-The code actions are the four things sift can do without being told what to
-call anything: fix the finding under the cursor (~quickfix~), bind the
-expression under the cursor to a name around the form that held it, or move it
-into a procedure beside the definition it came from (both ~refactor.extract~),
-and fix or reformat what the cursor is inside (~source.fixAll.sift~,
-~refactor.rewrite~, the latter offered only for a top-level form because the
-formatter indents from column zero and a fragment would land at the margin).
+The code actions are the five things sift can do without being told what to
+call anything: fix the finding under the cursor (~quickfix~); bind the
+expression under the cursor to a name around the form that held it, move it
+into a procedure beside the definition it came from, or give a lambda a name of
+its own and move that to the top level (all ~refactor.extract~); replace a call
+with the body it calls (~refactor.inline~); and fix or reformat what the cursor
+is inside (~source.fixAll.sift~, ~refactor.rewrite~, the latter offered only
+for a top-level form because the formatter indents from column zero and a
+fragment would land at the margin).
 An extraction names what it extracts from the expression -- `(compute-area w
 h)' becomes ~compute-area~ -- and a name the file already uses becomes
-~compute-area-2~ rather than shadowing it.
+~compute-area-2~ rather than shadowing it.  An extraction that moves a lambda
+writes its definition before the form the lambda was in, and inlining is only
+offered where it needs no guessing: a definition in this buffer with one
+expression in its body, plain positional parameters, and none of them rebound
+inside the body -- otherwise there is no action rather than an approximation.
 A rename is a refactor too, but it needs a new name, so it is the protocol's
 own ~textDocument/rename~ rather than an action that would have to invent one
 -- which is the same line ~sift fix~ draws everywhere else.
