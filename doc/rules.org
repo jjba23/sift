@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 92 rules in sift 1.18.0.
+There are 92 rules in sift 1.19.0.
 
 * Summary
 
@@ -23,7 +23,7 @@ There are 92 rules in sift 1.18.0.
 | assoc-ref-outputs | SIFT080 | scheme | warning | ~(assoc-ref %outputs "out")~ inside a gexp, where ~#$output~ says it |
 | beta-reduction | SIFT046 | scheme, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
 | blank-line-in-body | SIFT052 | all | info | A blank line in the middle of a body, where one paragraph belongs |
-| call-arity | SIFT088 | scheme, elisp, cl | info | A call that passes fewer arguments than the definition in this file requires |
+| call-arity | SIFT088 | scheme, elisp, cl | info | A call whose arguments do not match the definition in this file: too few, too many, or a keyword it does not take |
 | case-literal-datum | SIFT069 | scheme, cl | warning | A ~case~ datum that ~eqv?~ cannot decide, such as a string |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
 | clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
@@ -222,7 +222,7 @@ Run ~sift explain blank-line-in-body~ at the command line, or ~M-x sift-explain-
 :CUSTOM_ID: call-arity
 :END:
 
-A call that passes fewer arguments than the definition in this file requires
+A call whose arguments do not match the definition in this file: too few, too many, or a keyword it does not take
 
 - *Dialects:* scheme, elisp, cl
 - *Severity:* info

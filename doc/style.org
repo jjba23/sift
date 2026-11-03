@@ -945,7 +945,7 @@ of the file has been read.
 
 | Code    | Rule                      | Severity | What it says                                           |
 |---------+---------------------------+----------+--------------------------------------------------------|
-| SIFT088 | call-arity                | info     | a call passes fewer arguments than the definition in this file requires |
+| SIFT088 | call-arity                | info     | a call whose arguments do not match the definition in this file |
 | SIFT089 | string-literal-argument   | warning  | a number or boolean where the operator's convention says a string |
 | SIFT090 | number-literal-argument   | warning  | a string passed to an operator whose arguments are numbers |
 | SIFT091 | unused-import-from        | info     | a `:import-from` name the file never uses              |
