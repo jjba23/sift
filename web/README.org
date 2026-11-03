@@ -17,7 +17,7 @@ nothing to trust with your code.
 
 #+begin_quote
 It is the same Scheme that ~bin/sift~ runs.  Not a reimplementation, not a
-subset: the reader, the formatter and all sixty-three rules are the modules in
+subset: the reader, the formatter and all 92 rules are the modules in
 ~src/sift/~, and all this directory adds to them is the facade that turns a JSON
 request into a call.  The dependency runs one way -- ~web/~ imports the core,
 and the core has never heard of ~web/~ -- and three tests hold that direction.
@@ -148,7 +148,7 @@ too high), and it compresses the module.  The one behaviour it has to be worked
 | ~Ctrl-Space~                         | completion of the names the buffer defines   |
 | ~F12~ or ~Ctrl~+click                | jump to the definition, in this buffer       |
 | ~Outline~                            | the buffer's definitions, click to go there  |
-| ~Rules~                              | the sixty-three rules, with their examples   |
+| ~Rules~                              | every rule, with its example                 |
 | the dialect selector                 | Scheme, Emacs Lisp or Common Lisp            |
 
 The four editor questions -- hover, definition, completion, outline -- are
@@ -170,7 +170,7 @@ rules are affected and both say so honestly rather than guessing:
   declares.
 
 Neither invents an answer, which is the point: a rule that cannot see the
-project says nothing, and the editor shows the sixty-one that can.
+project says nothing, and the editor shows the ninety that can.
 
 * How it works
 
@@ -397,7 +397,7 @@ findings: 7
 format: ["(define (square x)\n  (* x x))\n","0 errors, 0 warnings, 1 notes — 3 ms"]
 fix: ["(define (f) 1)\n","2 fixes applied in 9 ms"]
 elisp: ["(defun foo ()\n  (message \"hi\"))","3"]
-rules: ["63",false]
+rules: ["92",false]
 #+end_src
 
 * What is missing, in one list

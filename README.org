@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.21.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.21.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-92-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace.  It does that without ever losing a comment, a blank line or an
@@ -231,7 +231,7 @@ $ sift doctor
 sift 1.21.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       63
+  rules       92
   dialects    scheme, elisp, cl
 
 Configuration
@@ -503,477 +503,41 @@ language server takes the identifier the client sends (~scheme~,
 :CUSTOM_ID: formatting
 :END:
 
-The formatter does six things and refuses to do more: it normalises line
-endings, normalises spacing between forms, places closing delimiters, computes
-indentation, optionally aligns inline comments, and preserves blank lines up
-to the limits the style sets.  Everything else — where the line breaks are,
-what the strings say, what the escapes spell — is yours.
-
-** Two styles
-:PROPERTIES:
-:CUSTOM_ID: styles
-:END:
-
-~community~ is the default, and its closing delimiters trail the last element:
-
-#+begin_src scheme
-(define (classify n)
-  (cond [(< n 0) 'negative]
-        [(= n 0) 'zero]
-        [else 'positive]))
-#+end_src
-
-~dangling~ puts each closer on a line of its own, aligned with the opener that
-closes.  It exists because some projects write that way and a formatter should
-not fight a project that has decided:
-
-#+begin_src scheme
-(define (classify n)
-  (cond [(< n 0) 'negative]
-        [(= n 0) 'zero]
-        [else 'positive]
-        )
-  )
-#+end_src
-
-** Square brackets for clauses
-:PROPERTIES:
-:CUSTOM_ID: brackets
-:END:
-
-In Scheme, a ~cond~ clause is written with square brackets, the way Guile's
-own sources and the Guix code base do it.  The bracket is the boundary of the
-clause — a test and a body — and Scheme reads ~[~ and ~(~ the same way, so the
-change is purely visual:
-
-#+begin_src scheme
-(cond [(< n 0) 'negative]
-      [(= n 0) 'zero]
-      [else 'positive])
-#+end_src
-
-It is a setting, not a law.  ~--brackets=parens~ writes parentheses,
-~--brackets=preserve~ leaves every clause as you wrote it, and Emacs Lisp and
-Common Lisp keep what they were given because no such convention exists there —
-nor could it, since a square bracket is not syntax in either.  The
-~clause-brackets~ rule (SIFT036) reports a file that has not been formatted
-yet, and its fix swaps the two delimiter characters and nothing else.
-
-** Indentation in three rules
-:PROPERTIES:
-:CUSTOM_ID: indentation
-:END:
-
-1. A form whose first element is a symbol is looked up in the dialect's table
-   (~scheme-indent-rules~, ~elisp-indent-rules~, ~cl-indent-rules~ in
-   ~src/sift/format.scm~).  Every entry indents the body two columns in from
-   the opening parenthesis; the table exists so that a form whose operator
-   stands alone on its line is not indented from the operator instead.
-2. A form whose first element is not a symbol is a data list — a binding list,
-   a ~cond~ clause — and its elements line up under the first.  So does a
-   vector, whatever its first element is: see [[#vectors][Read syntax, dialect
-   by dialect]].
-3. Anything else: two columns in from the opener when the first argument is on
-   the operator's line, two columns in from the operator when it is not.  A
-   call with keyword arguments lines those up under the first argument
-   instead, because that is where a reader looks for the next keyword:
-
-#+begin_src scheme
-(make-window title
-             :width 10
-             :height 20)
-#+end_src
-
-One form is in the table for this reason alone, and it is the one Emacs Lisp
-file everybody writes: ~use-package~.  Its arguments are clauses —
-~:ensure~, ~:init~, ~:config~, ~:bind~, ~:hook~ — and each clause owns what
-follows it, so the keyword and its body belong in one column, two columns in
-from the opener:
-
-#+begin_src elisp
-(use-package evil
-  :ensure t
-  :init
-  (setq evil-want-integration t)
-  :config
-  (evil-mode 1))
-#+end_src
-
-That is where ~TAB~ puts them, because the macro declares
-~(declare (indent defun))~ itself.  The generic rule would put the keywords
-under the package name instead — thirteen columns in for ~(use-package evil~ —
-and a file formatted that way would have two indentation schemes in it.
-
-A project's own macros are not something sift can know, so it asks.  In
-~sift.yaml~:
-
-#+begin_src yaml
-indent-rules:
-  - [with-my-thing, 2]
-  - [deftransaction, 1]
-#+end_src
-
-and a project rule wins over the built-in table.
-
-** Read syntax, dialect by dialect
-:PROPERTIES:
-:CUSTOM_ID: vectors
-:END:
-
-sift is written in Guile and for Guile, so what Guile reads is what it knows
-best.  It is not Guile-only: the reader knows the read syntax of R6RS, R7RS and
-the Schemes that follow them — Chez, Gauche, Chicken, Chibi, Gambit, MIT — and
-of the other two dialects sift formats.
-
-#+begin_src scheme
-(define table #(one two three))         ; a vector
-(define bytes #u8(1 2 3))               ; a bytevector: Guile and R7RS
-(define other #vu8(1 2 3))              ; the same datum: R6RS spelling
-#!fold-case                             ; an R7RS reader directive
-(define (f #{the number of attempts}#)  ; an extended symbol: Guile
-  #`(list #,x #,@xs))                   ; syntax-case: Guile and R6RS
-#+end_src
-
-- A vector's elements line up under its first element, whatever that element
-  is.  ~#(foo bar)~ is a literal that holds two symbols, not a call to ~foo~,
-  so the formatter does not use a call's alignment on it.
-- A bytevector is a vector whose elements are numbers, in either spelling:
-  ~#u8(...)~ is the one Guile and R7RS write, ~#vu8(...)~ the one R6RS writes,
-  and both are kept as they were written.
-- In Emacs Lisp the square bracket is the vector syntax and is read as one.
-  In Scheme and Common Lisp the same bracket is a parenthesis by another name
-  — a ~cond~ clause — and is not a vector at all.
-- ~#{ ... }#~ is one atom, from the ~#{~ to the first ~}#~ that is not
-  escaped: spaces, brackets and newlines inside a name are the name.  Nothing
-  inside it is formatted, because nothing inside it is code.
-- ~#'~ is a function quote, and ~#`~, ~#,~ and ~#,@~ are the syntax-case
-  spellings of quasiquote, unquote and unquote-splicing.
-- What a vector holds is data, so no rule about the shape of a form reads it:
-  ~#(if a b)~ holds three symbols, and is not an ~if~ with no else branch.
-
-A ~#~ dispatch character and the datum it applies to are one node.  That is
-what keeps the read macros of the other dialects readable and round-trippable:
-
-#+begin_src lisp
-(defparameter *grid* #2A((1 2) (3 4)))  ; Common Lisp, an array
-(defparameter *z* #c(1 2))              ; a complex number
-(defparameter *s* #S(point :x 1))       ; a structure, case and all
-(defparameter *cycle* #1=(a . #1#))     ; a datum label
-(probe-file #P"/tmp/x")                 ; a pathname, case and all
-(setq my-table #s(hash-table test equal data ("a" 1)))  ; Emacs Lisp
-#+end_src
-
-~#2A((1 2))~ is an array and ~#2A ((1 2))~ is not, so the formatter never
-opens a space between a read macro and its datum.  A ~#~ token that nothing is
-glued to — ~#b1010~, ~#*1011~, ~#:uninterned~ — is an atom and is read as one.
-
-A ~#!~ line is read as a shebang when it names a program to run the file —
-~#!/usr/bin/env guile~, or the same with a space after the ~#!~ — and as a
-token everywhere else, so ~#!r6rs~, ~#!fold-case~, ~#!no-fold-case~, Chez's
-~#!optional~ and ~#!eof~ and Gambit's ~#!void~ are read as the directives they
-are.  A ~#!~ that names a path anywhere but the first line is still reported:
-a shebang in the middle of a file is a mistake.
-
-What *ends a symbol* is the dialects' business too, and the difference is not
-academic: the names Guile's own sources give their variables — ~number'~,
-~lst''~ — are single symbols, and reading the quote as a separate form leaves a
-list that never closes.
-
-| Character     | Scheme                | Emacs Lisp             | Common Lisp            |
-|---------------+-----------------------+------------------------+------------------------|
-| ~'~ ~`~ ~,~   | part of the name      | ends the name          | ends the name          |
-| ~#~           | part of the name      | ends the name          | part of the name       |
-| ~[~ and ~]~   | ends it (a bracket)   | ends it (a vector)     | part of the name       |
-| ~{~ and ~}~   | part of the name      | part of the name       | part of the name       |
-| a backslash   | —                     | escapes the next char  | escapes the next char  |
-| a bar         | opens an escaped name | an ordinary character  | opens an escaped name  |
-
-A brace is therefore never a bracket: Guile reads ~{a b}~ as the two symbols
-~{a~ and ~b}~, and reading it as a list would split a name in two and leave a
-form that never closes.  The Schemes that do read ~{...}~ as parentheses keep
-every byte of it — the braces are atoms and the text is copied — but they do
-not get bracket-aware formatting for it.
-
-Reading another dialect's syntax is not an error — sift keeps every byte of it
-— but it is reported, because a file that mixed two dialects is a bug worth
-seeing:
-
-| Construct                            | Read in      | Reported in     |
-|--------------------------------------+--------------+-----------------|
-| ~#{ ... }#~ extended symbol          | Scheme       | Emacs Lisp, CL  |
-| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme       | Emacs Lisp, CL  |
-| ~#`~, ~#,~, ~#,@~ syntax-case        | Scheme       | Emacs Lisp, CL  |
-| ~#;~ datum comment                   | Scheme       | Emacs Lisp, CL  |
-| ~#\a~ character literal              | Scheme, CL   | Emacs Lisp      |
-| ~?a~ character literal               | Emacs Lisp   | —               |
-| ~#p"..."~ pathname                   | CL           | Scheme, Elisp   |
-| ~#.~ read-time evaluation            | CL           | Scheme, Elisp   |
-| ~#+~, ~#-~ feature conditional       | CL           | Scheme, Elisp   |
-| ~#(...)~ vector, ~#<...>~ object     | all three    | —               |
-| ~#1=~ datum label                    | CL, Elisp, R7RS | —            |
-
-** What it will not do
-:PROPERTIES:
-:CUSTOM_ID: format-limits
-:END:
-
-It will not reflow a long line (the ~line-length~ rule warns instead), it will
-not invent a missing parenthesis, it will not rewrite an expression, and it
-will not format inside a ~#;~ datum comment, a ~#.~ form or a ~#<...>~ object —
-those are copied verbatim, because the reader was told not to enter them.
-Formatting is deterministic and idempotent; the test suite formats every
-fixture, then formats the result again, and asserts the second pass changed
-nothing.
+The formatter normalises line endings and spacing, places closing delimiters,
+computes indentation, optionally aligns inline comments, and preserves blank
+lines up to the style's limits -- and refuses everything else: where the line
+breaks are, what the strings say, what the escapes spell.  It is deterministic
+and idempotent, and the suite formats every fixture twice to say so.
+[[file:doc/formatting.org][doc/formatting.org]] is the page: the two styles, the three indentation rules,
+every dialect's read syntax, and the four things it will not do.
 
 * Linting
 :PROPERTIES:
 :CUSTOM_ID: linting
 :END:
 
-A rule is a record: a name, a code, a description, the dialects it applies to,
-a default severity, a procedure, and an example.  The driver reads the file
-once, runs the rules the dialect applies to, folds in whatever the reader
-complained about, honours the suppression comments, and reports the lot sorted
-by file, line, column and rule — the same order your editor lists them in.
-
-There are 92 rules.  They are listed one by one, with their codes and their
-reasoning, in [[file:doc/rules.org][doc/rules.org]] — a document generated from those records, so it
-cannot describe a rule that does not exist, and a test fails when it falls
-behind.  The style the rules belong to, and why each choice is idiomatic Lisp,
-is in [[file:doc/style.org][doc/style.org]].
-
-The short version:
-
-| Where it applies | What it is about                                                                                                                                                  |
-|------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| all three        | whitespace, line length, delimiters, empty bodies, ~progn~, prefixes, blank lines at EOF and in a body, comment levels, single-letter names, the ~if~ / ~when~ / ~unless~ family, big expressions, keyword arguments |
-| Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification   |
-| Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation         |
-| Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~                                                                 |
-| SXML documents   | the attribute list comes first and there is one of it, a child is a child, and an element with attributes and no children says so with ~""~                        |
-
-When you want the catalogue as data rather than prose, the program prints it:
-
-#+begin_src shell
-$ sift list-checkers --dialect=elisp
-NAME                            CODE      DIALECTS          SEVERITY   DESCRIPTION
-beta-reduction                  SIFT046   scheme,elisp,cl   info       A lambda applied in place, where a `let` would say the same thing once
-checkdoc-style-verb             SIFT022   elisp             info       Docstring first sentence uses the third person instead of the imperative
-declare-indent                  SIFT024   elisp             info       `declare` not indented two columns from the enclosing `defun`
-docstring-arguments             SIFT034   elisp             info       An Emacs Lisp docstring that does not mention one of its arguments
-...
-#+end_src
-
-** Fixes
-:PROPERTIES:
-:CUSTOM_ID: fixes
-:END:
-
-A rule may carry a fix: a procedure that replaces one character range.
-~sift lint --fix~ (or ~sift fix~) applies them from the highest offset down,
-so one fix cannot move the text a later one was measured against, and then
-lints the result once to show what is left.  There is no loop: a fixer that
-keeps finding work is a bug, not a queue.
-
-A fix is applied only if it is safe.  After applying them all, sift reads the
-result again; if a fix introduced a parse error the file did not have, every
-fix of that run is discarded and you get the original warnings, unfixed.  A
-file the reader could not finish is refused outright, with the findings that
-made it refuse, because a fix computed around a missing parenthesis would be a
-guess at where it goes — ~--force~ is how a caller who knows better says
-otherwise.
-
-A few rules deliberately have no fix.  SIFT004 (~unmatched-parens~) will not
-guess where a missing ~)~ belongs, SIFT031 (~wrap-in-let~) will not invent the
-name of the binding it suggests, the naming rules (SIFT040–042 and SIFT053)
-will not rename anything, and SIFT052 (~blank-line-in-body~) will not delete a
-line: deciding how to split or name a piece of code is the author's work.
-
-SIFT051 (~comment-semicolons~) does have one, because the half of it that a
-machine can decide is decided by position rather than by intent: how many
-semicolons a comment takes is one at the end of a line, two inside a form, and
-three at top level (four is a heading, and a heading is left alone), and where
-the comment sits is something the reader knows.  What the comment is *for* is
-still the author's, so the fix re-levels a comment and puts a space after its
-semicolons, and ~sift fix~ over a whole buffer does exactly that to every
-comment the rule reports.  A project whose ~severity~ is ~warning~ sees none of
-them, so ~sift fix --severity=info~ is how a tidy-up run asks for them.
-
-Fixing is not filtered by ~severity~: a project that says ~severity: warning~
-has said which findings are worth failing a build over, not which are worth
-tidying up when someone asks for a tidy-up, so ~sift fix~ applies the fixes of
-every rule it can see and reports what is left at the project's threshold.
-
-** Silencing a rule
-:PROPERTIES:
-:CUSTOM_ID: suppression
-:END:
-
-#+begin_src scheme
-;; sift:disable-next-line keyword-arguments
-(make-window a b c d e f g)
-
-;; sift:disable wrap-in-let
-(define (f x)
-  ...)
-;; sift:enable wrap-in-let
-#+end_src
-
-Several names may be given, separated by commas or spaces; no name means every
-rule.  ~disable-next-line~ covers the next line, ~disable~ covers from where it
-is written to the end of the top-level form it sits in, and ~enable~ ends it.
-Suppression is line-oriented and form-scoped on purpose: a range comment
-outlives the code it was written for.
+A rule is a record -- a name, a code, a description, the dialects it applies to,
+a severity, a procedure and an example -- and the driver runs the ones the
+dialect applies to, folds in the reader's own complaints, honours the
+suppression comments, and reports the lot in the order your editor lists them.
+There are 92 of them, listed one by one in [[file:doc/rules.org][doc/rules.org]].
+[[file:doc/linting.org][doc/linting.org]] covers the rest: what a fix may touch, why a fix is thrown
+away rather than guessed at, and how to silence a rule for a line or a form.
 
 * The style guides it keeps
 :PROPERTIES:
 :CUSTOM_ID: style-guides
 :END:
 
-A formatter is a style guide that enforces itself, and sift's is not an
-invention.  It is the common law of the three Lisp communities, written down
-where it could be argued with: [[file:doc/style.org][doc/style.org]] is the long form — each
-choice, the alternative it beat, and why — and what follows is the shape of that
-argument and where it comes from.
-
-** Riastradh's Lisp Style Rules
-:PROPERTIES:
-:CUSTOM_ID: riastradh
-:END:
-
-Taylor R. Campbell's /Lisp Style Rules/ — cited everywhere as Riastradh's style
-guide — is the sharpest short argument for what sift does, and sift agrees with
-it more often than not.  Where it does not, the difference is a setting rather
-than an opinion compiled into the program.
-
-The alignment rule is the one this formatter was built on:
-
-#+begin_src scheme
-(+ (sqrt -1)
-   (* x y))
-
-(+
- (sqrt -1)
- (* x y))
-
-((car x)
- (cdr x)
- foo)
-#+end_src
-
-When the first argument is on the operator's line, everything after it lines up
-under that argument; when the operator stands alone, what follows lines up under
-the operator; and the operands of a call share a column whatever the operator
-looks like — GNU Emacs indents the third form under the first *operand*, and an
-operand indented differently from its siblings hides from the reader.  That one
-rule is also why keyword arguments need no rule of their own: ~:width~ is the
-second argument, and it lines up where every second argument does.
-
-Campbell's comments rule is sift's too, and it is the one layout rule with a
-fix: one semicolon at the end of a line, two inside a form, three at top level,
-four for a heading that is left alone (SIFT051, ~comment-semicolons~).  So are
-one blank line between top-level forms and none inside a body except to separate
-internal definitions (SIFT052, and ~blank-lines: one~ for the formatter), and
-the naming rules a program can actually see: hyphenated lower-case words
-(SIFT040), ~?~ for a predicate (SIFT041), earmuffs for special variables
-(SIFT042), and no single-letter variables outside the indices a project lists
-(SIFT053).
-
-What sift declines to take from the guide, it declines for a reason it can
-defend:
-
-| The rule                            | Why not                                                         |
-|-------------------------------------+-----------------------------------------------------------------|
-| 72 or 80 columns                    | it is a setting; the default is 96, because a modern screen holds two such files side by side, and Emacs Lisp already gets 80 |
-| pages and form feeds                | paginating a file rewrites the line number of every line below the break, so every diff becomes a diff about pagination — and every diagnostic, patch and ~git blame~ with it |
-| top-level forms of at most 21 lines | how a program is split into procedures is the author's judgement.  SIFT031 reports a form that is too deep or too long to read at once, which is the part a tool can see |
-| ~with-~ and ~call-with-~ prefixes   | telling those two apart means knowing whether an argument is *called* and what dynamic state means there: a guess about intent, not a fact about text |
-
-** Emacs Lisp has its own conventions
-:PROPERTIES:
-:CUSTOM_ID: style-elisp
-:END:
-
-Emacs Lisp is documented in its own manual, and its conventions are older than
-any of the others here: a docstring on every public function, its first line a
-complete sentence in the imperative ("Return the window width"), its arguments
-named in upper case, ~lexical-binding~ in the first line, ~interactive~ before
-the docstring, ~provide~ at the end.  sift checks each of those, because
-byte-compiling a package that gets them wrong produces warnings rather than a
-program.
-
-The one place a formatter can disagree with the editor is indentation, and sift
-says so rather than pretending: Emacs knows every macro in the buffer, because
-each carries a ~lisp-indent-function~ property, and sift knows the standard
-forms, ~use-package~ and whatever a project lists in ~indent-rules~.
-[[#elisp-indentation][The note at the end of the Emacs chapter]] is the honest version of that
-disagreement.
-
-** Common Lisp keeps its closers
-:PROPERTIES:
-:CUSTOM_ID: style-cl
-:END:
-
-The Common Lisp style guides — Google's, and the ones that came before it —
-keep the closing parenthesis on the last line of a form, so the community style
-is the default here too, and SIFT027 reports a dangling closer rather than
-quietly accepting it.  Package prefixes and double colons (SIFT025, SIFT026) are
-conventions rather than layout, and are reported because reaching into another
-package's internals is a decision a reader should see.
-
-~LOOP~ is the one rule that stays silent until a project asks: ~for~ and ~:for~
-are both in the wild, communities differ, and a rule that fired on half the
-world's ~loop~ forms is a rule that would be switched off.  Setting
-~loop-keywords~ to ~literal~ or ~symbolic~ turns it on.
-
-** Scheme, and in particular Guile and Guix
-:PROPERTIES:
-:CUSTOM_ID: style-scheme
-:END:
-
-Scheme's own convention, and Guile's and Guix's in particular, is a square
-bracket around a ~cond~ clause:
-
-#+begin_src scheme
-(cond [(< n 0) 'negative]
-      [(= n 0) 'zero]
-      [else 'positive])
-#+end_src
-
-A clause is a pair of test and body, not a call, and the bracket says where the
-pair ends without asking the reader to count.  It is a *setting* and not a law:
-~--brackets=parens~ writes parentheses, ~--brackets=preserve~ leaves every
-clause as the author wrote it, and Emacs Lisp and Common Lisp keep what they
-were given, because a square bracket is not syntax in either.
-
-Guile is also the dialect sift knows best, because it is what sift is written
-in: ~#{ ... }#~ extended symbols, ~#u8~ and ~#vu8~ bytevectors, ~#`~ and ~#,~
-syntax-case, ~#!fold-case~ and the rest of the read syntax are read as what they
-are rather than as text that happens to contain punctuation.
-
-** And when you disagree with all of it
-:PROPERTIES:
-:CUSTOM_ID: style-settings
-:END:
-
-Every position above is a default, and the ones a project is likely to hold
-differently are settings rather than arguments to have in an issue thread:
-
-| Setting               | Values                        | The default            |
-|-----------------------+-------------------------------+------------------------|
-| ~style~               | ~community~, ~dangling~       | ~community~            |
-| ~brackets~            | ~square~, ~parens~, ~preserve~ | ~square~ in Scheme    |
-| ~blank-lines~         | ~preserve~, ~one~             | ~preserve~             |
-| ~line-length~         | a number                      | 96 (80 for Emacs Lisp) |
-| ~indent~              | a number                      | 2                      |
-| ~comment-align~       | ~#t~, ~#f~                    | ~#f~                   |
-| ~single-letter-names~ | a list, for index variables   | ~(i j)~                |
-| ~loop-keywords~       | ~literal~, ~symbolic~         | silent                 |
-| ~indent-rules~        | a list of ~[name, columns]~   | the built-in table     |
-
-A project that has decided should not have to fight its formatter, and a
-formatter that has decided should not have to argue: that is the whole reason
-these are data in ~sift.yaml~ rather than opinions in the code.
+sift's style is not an invention: it is the common law of the three Lisp
+communities, written down where it could be argued with.
+[[file:doc/style.org][doc/style.org]] is the long form -- each choice, the alternative it beat, and why
+-- including [[file:doc/style.org::#riastradh][which of Riastradh's rules sift keeps]] and what it declines, the
+Emacs Lisp conventions that are really byte-compiler warnings, why Common Lisp
+keeps its closers, and the square bracket a Scheme ~cond~ clause is written
+with.  The settings a project is likely to hold differently are listed in
+[[file:doc/configuration.org::#settings][the configuration page]]: a project that has decided should not have to fight
+its formatter.
 
 * In Emacs
 :PROPERTIES:
@@ -982,125 +546,12 @@ these are data in ~sift.yaml~ rather than opinions in the code.
 
 ~emacs/sift.el~ is a thin package: Emacs carries the text to the executable and
 the findings back, and every decision stays in one place.  It needs Emacs 28.1
-or newer and no external package.
-
-There are two ways in, and they answer different questions.
-
-** With Flymake, and nothing else
-:PROPERTIES:
-:CUSTOM_ID: emacs-flymake
-:END:
-
-#+begin_src elisp
-(add-to-list 'load-path "/path/to/sift/emacs")
-(require 'sift)
-
-(sift-setup)          ; sift-mode in scheme-mode, emacs-lisp-mode, lisp-mode
-(sift-flymake-setup)  ; and the Flymake backend in the same three
-#+end_src
-
-| Key       | Command                 | What it does                                       |
-|-----------+-------------------------+----------------------------------------------------|
-| ~C-c s f~ | ~sift-format-buffer~    | Format the buffer, as one undoable change          |
-| ~C-c s r~ | ~sift-format-region~    | Format the region                                  |
-| ~C-c s c~ | ~sift-check-buffer~     | Say whether the buffer is formatted                |
-| ~C-c s l~ | ~sift-lint~             | Lint into a compilation buffer; ~next-error~ works |
-| ~C-c s x~ | ~sift-fix-buffer~       | Apply every fix, without saving                    |
-| ~C-c s a~ | ~sift-fix-at-point~     | Apply the fixes of the rule at point only          |
-| ~C-c s e~ | ~sift-explain-at-point~ | Open the documentation of the rule on this line    |
-| ~C-c s p~ | ~sift-ci~               | Run the whole-project check a pipeline runs        |
-| ~C-c s d~ | ~sift-flymake-mode~     | Toggle the backend                                 |
-
-The Flymake backend sends the buffer to ~sift lint --stdin --format=json~ and
-turns each finding into a diagnostic whose text starts with the rule's code
-and whose data carries the rule's name and code — which is what makes
-~C-c s a~ able to fix just that rule and ~C-c s e~ able to explain it.  The run
-is asynchronous, so typing is never held up while sift reads the buffer.
-
-** With Eglot, and code actions
-:PROPERTIES:
-:CUSTOM_ID: emacs-eglot
-:END:
-
-If you already use Eglot, sift is a language server like any other, and this is
-the integration that gives you code actions:
-
-#+begin_src elisp
-(add-to-list 'load-path "/path/to/sift/emacs")
-(require 'sift)
-(sift-eglot-setup)
-#+end_src
-
-~sift-eglot-setup~ teaches ~eglot-server-programs~ about Scheme, Emacs Lisp and
-Lisp buffers, starts ~sift lsp~ for them, and turns on ~sift-mode~ for its
-keymap and its format-on-save hook.  It also keeps the Flymake backend out of
-Eglot buffers: two backends would report every finding twice.
-
-| In an Eglot buffer                  | What it does                                          |
-|-------------------------------------+-------------------------------------------------------|
-| ~M-x eglot-code-actions~, ~C-c s A~ | offer the fixes that apply here                       |
-| ~M-x eglot-format~                  | format the buffer through the server                  |
-| ~C-d~ on a finding                  | Eglot's own key: the rule's description, and its page |
-| ~C-c s f~                           | format with the command instead, if you prefer        |
-
-The server is ~sift lsp~, and by default that is whatever ~sift-executable~
-names; ~sift-eglot-command~ is there for a server that lives somewhere else.
-If the program is missing, ~sift-eglot-contact~ says so in one sentence rather
-than starting a process that fails.
-
-** Settings
-:PROPERTIES:
-:CUSTOM_ID: emacs-settings
-:END:
-
-Every knob lives in the ~sift~ customization group, so ~M-x customize-group
-RET sift~ lists them all in one buffer:
-
-| Variable               | Default              | What it does                                                                        |
-|------------------------+----------------------+-------------------------------------------------------------------------------------|
-| ~sift-executable~      | ~"sift"~             | The program to run, on ~PATH~ or an absolute path                                   |
-| ~sift-dialect~         | ~nil~                | Dialect to pass explicitly; ~nil~ guesses from the major mode                       |
-| ~sift-format-style~    | ~nil~                | ~"community"~ or ~"dangling"~; ~nil~ lets sift decide                               |
-| ~sift-comment-align~   | ~nil~                | Ask the formatter to line up inline comments                                        |
-| ~sift-format-on-save~  | ~nil~                | Format the buffer before saving it, while ~sift-mode~ is on                         |
-| ~sift-lint-severity~   | ~"info"~             | The smallest severity Flymake reports; ~nil~ leaves it to the project's ~sift.yaml~ |
-| ~sift-extra-arguments~ | ~nil~                | A list of arguments added to every invocation                                       |
-| ~sift-eglot-modes~     | the three Lisp modes | The major modes Eglot starts a server for                                           |
-| ~sift-eglot-command~   | ~nil~                | The argv that starts the server, instead of ~sift lsp~                              |
-
-A configuration that pins the interesting ones:
-
-#+begin_src elisp
-(use-package sift
-  :load-path "/path/to/sift/emacs"
-  :custom
-  (sift-format-style "community")
-  (sift-format-on-save t)
-  (sift-lint-severity "warning")
-  :config
-  (sift-setup)
-  (sift-flymake-setup))
-#+end_src
-
-Two warnings worth having in the file rather than in an issue: turning on
-~sift-format-on-save~ only affects buffers where ~sift-mode~ is enabled, and a
-buffer with no dialect (say a ~.rkt~ file in ~scheme-mode~) says so instead of
-guessing.
-
-** A note about Emacs Lisp indentation
-:PROPERTIES:
-:CUSTOM_ID: elisp-indentation
-:END:
-
-Emacs knows every macro in the buffer, because each one carries a
-~lisp-indent-function~ property.  sift knows the standard forms, ~use-package~,
-and whatever you list in ~indent-rules~, and nothing else.  So in an Emacs Lisp
-buffer, ~sift-format-buffer~ may disagree with ~TAB~ on a form headed by a
-third-party macro.  The order of adoption that works: turn on
-~sift-flymake-mode~ (or Eglot) for the rules, use ~sift-fix-buffer~ for the
-fixes, and leave formatting on save off unless your macros are in
-~indent-rules~.  In Scheme and Common Lisp there is no such ambiguity, because
-the editor has no better information than sift does.
+or newer and no external package.  There are two ways in -- Flymake for the
+rules, Eglot for code actions -- and [[file:doc/emacs.org][doc/emacs.org]] is the page:
+[[file:doc/emacs.org::#emacs-flymake][the Flymake backend and its keymap]],
+[[file:doc/emacs.org::#emacs-eglot][Eglot and the code actions]],
+[[file:doc/emacs.org::#emacs-settings][every setting in the customization group]], and
+[[file:doc/emacs.org::#elisp-indentation][why sift and ~TAB~ can disagree]] about a third-party macro.
 
 * In other editors
 :PROPERTIES:
@@ -1131,7 +582,7 @@ The human format is ~file:line:column: severity: [rule] message~, which Vim's
 
 [[file:web/README.org][web/]] is sift doing the two jobs that are a function of a string — formatting
 and linting — compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], and an editor page
-around it.  The same reader, the same formatter and all sixty-three rules run in
+around it.  The same reader, the same formatter and all 92 rules run in
 the tab; nothing is sent anywhere, because there is nowhere to send it.
 
 It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
@@ -1211,7 +662,7 @@ root.
 :CUSTOM_ID: web-cost
 :END:
 
-The module is 2.3 MB, which is a formatter, a linter and sixty-three rules on a
+The module is 2.3 MB, which is a formatter, a linter and 92 rules on a
 Wasm GC — a large page by the standards of a web page and a small one by the
 standards of an editor.  Speed is the honest part of the experiment:
 
@@ -1234,7 +685,7 @@ is how a page asks for less work.
 :END:
 
 Two questions were being asked.  Whether a real Scheme program — not a toy, a
-formatter with a reader of its own and sixty-three rules — can be compiled into
+formatter with a reader of its own and 92 rules — can be compiled into
 something a tab runs: it can, with the caveats above, and the porting work was
 one compatibility directory rather than a rewrite.  And whether the seam survives
 contact: it did, and the test that says so is the useful one, because it runs
@@ -1382,114 +833,24 @@ repos:
 :CUSTOM_ID: parallel
 :END:
 
-A run over a project is a run over one file at a time, and nothing a checker
-reads in one file is anything it reads in another, so ~lint~, ~format~,
-~check~ and ~ci~ spread the files over the processors.  The answers come back
-in file order and are printed in file order, so a parallel run writes exactly
-the bytes a sequential one writes; only the wall clock differs.
-
-Nothing needs to be configured.  ~SIFT_JOBS~ is the one knob, and it exists to
-make a parallel run comparable with a sequential one:
-
-#+begin_src shell
-SIFT_JOBS=1 sift ci .    # one thread, same bytes: for profiling, and for
-                         # checking that a difference in the output is a bug
-SIFT_JOBS=4 sift ci .    # four workers, on a machine that has twelve
-#+end_src
-
-Two runs are never parallel: ~format --write~ and ~lint --fix~, which write the
-files they read.  Such a run stops at the first file it cannot read instead of
-half-rewriting a tree and then explaining itself.
+A run over a project is a run over one file at a time, so ~lint~, ~format~,
+~check~ and ~ci~ spread the files over the processors and print the answers in
+file order: a parallel run writes exactly the bytes a sequential one writes.
+~SIFT_JOBS~ is the only knob, and the two runs that are never parallel are the
+ones that write the files they read.  The knob, the two exceptions and why the
+output is ordered are in [[file:doc/configuration.org::#parallel][doc/configuration.org]].
 
 * Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
 :END:
 
-A ~file-filter~ decides what a *directory* holds when sift walks one: ~*~
-stops at a separator, ~**~ crosses one, a leading ~!~ excludes, and the last
-pattern that matches a file decides.  A file you name on the command line is
-always read — a filter is a rule about walking, not about what you said.
-
-Four layers, each winning over the one before: built-in defaults, the system
-file (~/etc/sift/config.yaml~), your user file (~$XDG_CONFIG_HOME/sift/~), the
-project's file, and finally the command line.  Discovery walks up from the
-current directory and stops at the repository root, so a file in your home
-directory cannot silently apply to an unrelated checkout.
-
-There are two formats and one schema.  YAML is data: it is read, validated and
-can never run anything, so it is the one to check in.
-
-#+begin_src yaml
-dialect: elisp
-style: community
-line-length: 90
-brackets: square
-blank-lines: one
-single-letter-names: [i, j, k]
-field-macros: [package, operating-system, my-record]
-file-filter: ["src/**", "!src/generated/**"]
-max-positional: 4
-inlay-hints: [parameters, types]
-severity: warning
-checkers:
-  - trailing-whitespace
-  - docstring-missing
-exclude-checkers: [line-length]
-indent-rules:
-  - [with-my-thing, 2]
-#+end_src
-
-Scheme is code, and is only loaded when it is trusted: named with ~--config~,
-allowed for this run with ~SIFT_TRUST_CONFIG=1~, or recorded once with
-~sift config trust sift.scm~, which adds the project to
-~$HOME/.config/sift/trusted-projects~.  A repository that is cloned and opened
-should not be able to run code merely because sift was pointed at it.
-
-#+begin_src scheme
-;; sift.scm
-`((dialect . scheme)
-  (line-length . 90)
-  (indent-rules . ((with-my-thing . 2))))
-#+end_src
-
-A malformed configuration is an error, with a position:
-
-#+begin_example
-sift: sift.yaml:1:1: unknown configuration key `line-lenght'
-#+end_example
-
-The language server is configured by these same files, so a project's
-~sift.yaml~ is the one place its editor behaviour is written down:
-~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~ say
-what the server answers.  An editor can send its own settings as well --
-Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
-~initializationOptions~ -- and they are layered over the files and validated the
-same way, with a key sift does not have reported in the editor's log rather than
-silently ignored.  [[file:doc/editors.org][doc/editors.org]] has the object each editor sends.
-
-A typo that is silently ignored is a setting you believe is in effect, so it
-is refused and named.  And you never have to guess which layer won:
-
-#+begin_src shell
-$ sift config show --verbose
-dialect: elisp   # /home/joe/project/sift.yaml
-style: community   # /home/joe/project/sift.yaml
-line-length: false   # default
-indent: 4   # command line (--indent)
-
-$ sift config explain line-length
-line-length
-  Soft line limit; #f means 96, or 80 for Emacs Lisp.
-  type:    integer
-  default: #f
-  flag:    --line-length
-#+end_src
-
-The complete list of keys, with their defaults and the flags that override
-them, is what ~sift config show~ prints; every key is documented by
-~sift config explain KEY~.  The Emacs package has its own settings, listed in
-[[#emacs-settings][the Emacs chapter]].
+A project's settings are a ~sift.yaml~, or a ~sift.scm~ it has trusted, read in
+four layers and validated against one schema: a key sift does not have is
+refused with its position rather than ignored, and ~sift config show --verbose~
+says which layer won.  [[file:doc/configuration.org][doc/configuration.org]] has the whole of it -- the
+discovery rules, the ~file-filter~, the trust model, and the settings the
+language server reads out of the same files.
 
 * Testing
 :PROPERTIES:
@@ -1497,254 +858,37 @@ them, is what ~sift config show~ prints; every key is documented by
 :END:
 
 Every half of the project is tested with the framework its own users already
-have, and none of them is a smoke test.
-
-The library is tested with [[https://codeberg.org/jjba23/veritas][Veritas]], and only with Veritas — no ~srfi-64~,
-no ad-hoc assert macro anywhere in the tree.  Veritas is expected at
-~$HOME/Hacking/veritas~, or wherever ~VERITAS_DIR~ points, and ~maak test~ puts
-it on the load path itself so that a clean checkout needs no exports:
-
-#+begin_src shell
-maak test          # the whole Veritas suite
-maak check         # compile every module, so a syntax error fails the build
-maak self-check    # sift's own sources are formatted by sift
-maak fixture-check # the golden corpus still round-trips, byte for byte
-maak docs          # regenerate doc/rules.org from the rules
-maak bench         # time the reader, the formatter and every checker
-#+end_src
-
-~maak bench~ is Veritas too: a benchmark is a task whose result is a
-~benchmark-result~, so it is printed by the same reporter as everything else,
-and the table it ends with is sorted worst-first.  What it times is what a user
-waits for -- reading a file, formatting it, linting it, and the same over the
-whole tree -- and then the parts those are made of, so a regression has
-somewhere to point.  It reports two numbers per benchmark, and both are the
-point: the milliseconds, and the bytes allocated, because a pass that conses a
-list per node makes every other pass slower and the allocation count is how
-that shows up even when the clock happens to look fine.
-
-#+begin_src shell
-$ maak bench
-lint the tree (28 files, 14896 lines)       337ms, 160.7 MiB allocated
-check the tree (28 files): format           253ms,  59.0 MiB allocated
-lint (lsp.scm, every checker)               171ms,  19.2 MiB allocated
-read the tree (28 files)                    143ms,  44.7 MiB allocated
-checker: unused-argument                      9ms, 793.0 KiB allocated
-...
-#+end_src
-
-#+begin_src shell
-maak bench tests   # time the test suite's sources instead of src
-SIFT_BENCHMARK_PATHS=src:benchmarks maak bench
-#+end_src
-
-
-The editors are tested with the test framework each editor ships:
-
-#+begin_src shell
-maak emacs-test     # ERT: the package, its Flymake backend and its Eglot entry
-maak emacs-check    # byte-compile, warnings are errors
-maak editors-check  # Vim in batch over the plugin, Node over the VS Code logic
-#+end_src
-
-~maak editors-check~ needs ~vim~ and ~node~, and nothing else: the Vim test
-sources the plugin and drives it through ~:SiftLint~ and ~:SiftFix~, and the
-VS Code test runs the extension's own arithmetic — the ranges a quickfix
-replaces — with Node's ~assert~.
-
-The suite is not a smoke test, and it is not one file.  The reader is tested
-dialect by dialect on every reader macro, every escape, CRLF and UTF-8
-columns; the formatter on a golden corpus in both styles plus an idempotence
-pass over every expected file; each rule has its own file with a passing case,
-a failing case at a known line and column, a case per applicable dialect, and
-— where there is a fix — the fixed text and a re-lint that must find nothing;
-the command line is tested as a subprocess, by exit status; and the language
-server is tested by talking to it, a frame at a time, including the frames
-that are not JSON.
+have -- Veritas for the library, ERT for the Emacs package, Vim and Node for the
+editor integrations -- and none of it is a smoke test.
+[[file:doc/development.org::#testing][doc/development.org]] is the page: the ~maak~ tasks, what the benchmarks
+measure, and what the suite actually asserts.
 
 * How it is built
 :PROPERTIES:
 :CUSTOM_ID: architecture
 :END:
 
-#+begin_example
-src/sift/
-  records.scm       <source-location>, <lint-warning>, <lint-checker>, rule
-                    codes, and the uniform AST node
-  reader.scm        the hand-written, permissive, location-preserving reader
-  format.scm        the pipeline, the indentation tables, the renderer
-  check/base.scm    walking a tree, reading a form, line arithmetic
-  checkers/         one module per family of rules
-  pool.scm          the work spread over the processors, answered in order
-  lint.scm          run, suppress, filter, sort, fix, re-lint
-  render.scm        human, JSON, GitHub, null, SARIF, list-checkers, explain, diff
-  config.scm        <config>, discovery, merging, provenance, trust
-  yaml.scm          the data-only YAML subset the configuration needs
-  json.scm          the JSON the language server speaks
-  definitions.scm   what defines a name, what binds one, and where it is used
-  lsp.scm           diagnostics, actions, formatting, hover, and navigation
-  catalogue.scm     the rule catalogue, generated from the records
-  cli.scm           args-fold, dispatch, exit codes
-tests/              one Veritas suite per rule, per module and per command
-benchmarks/         the benchmarks, run by Veritas and printed by its reporter
-emacs/              the Emacs package and its ERT suite
-editors/            the Neovim, Vim and VS Code integrations, with their tests
-assets/             the logo, the app icon set and the demo recording
-doc/                style.org (the reasoning), rules.org (generated),
-                    editors.org (every editor), cli.org (the command line),
-                    language-server.org (the protocol)
-#+end_example
-
-Dependencies point one way.  ~records~ is a vocabulary; ~reader~ and ~format~
-use it; the checkers use ~records~ and ~check/base~; ~lint~ assembles the
-checkers; ~render~ formats their findings; ~lsp~ turns the same findings into a
-protocol; ~cli~ wires everything to the command line.  Nothing in ~format~ or
-in a checker knows about ports or exit codes.
+~src/sift/~ is one module per job, and the dependencies point one way:
+~records~ is a vocabulary, ~reader~ and ~format~ use it, the checkers use
+~records~ and ~check/base~, ~lint~ assembles them, ~render~ prints their
+findings, ~lsp~ says the same findings over a protocol, and ~cli~ wires the lot
+to the command line.  Nothing in ~format~ or in a checker knows about ports or
+exit codes.  The module map, and what each one owns, is
+[[file:doc/development.org::#architecture][doc/development.org]].
 
 * What sift believes
 :PROPERTIES:
 :CUSTOM_ID: beliefs
 :END:
 
-The decisions in the next chapter are implementations of six convictions, and
-they are worth stating on their own, because they are what the code is measured
-against when a rule is added and somebody has to decide what it may do.
-
-1. *A file is not a string.*  Almost everything here — a comment that keeps its
-   column, a fix that replaces exactly one range, a diff that is about your
-   change — follows from reading Lisp as a tree of forms that carries positions,
-   rather than as text to be re-indented.  A formatter that treats a buffer as
-   lines of text can be fast or it can be safe; it cannot easily be both.
-
-2. *A tool you have to check is a tool you stop running.*  So formatting is a
-   fixed point, a file comes back byte for byte, and a fix is thrown away rather
-   than guessed at.  The test suite asserts idempotence over every fixture,
-   because a promise that is not a test is a promise that expires quietly.
-
-3. *The author decides what the code says; the tool decides where the whitespace
-   goes.*  sift re-indents, re-spaces, re-levels comments and re-brackets a
-   ~cond~ clause.  It does not rename, does not reorder, does not inline a
-   procedure you wrote by hand, and does not invent a delimiter.  The rules that
-   would need to know what you meant — ~wrap-in-let~, ~line-length~, the naming
-   rules — report, and stop there.
-
-4. *A dialect is a language, not a variant.*  Common Lisp is not Scheme with
-   longer names: its package prefixes, its ~LOOP~, its docstrings and its
-   dangling parentheses are read as itself, and the same file is not reformatted
-   as Scheme because it was opened in the wrong mode.  A tool that guesses the
-   dialect is a tool that rewrites your Common Lisp as Scheme one day.
-
-5. *Say what you can prove, and refuse the rest.*  The language server answers
-   the requests in [[#lsp-coverage][the table above]] and answers the others with "method not
-   found".  [[#web][The browser build]] has no project to read, so the two rules that
-   need one say nothing at all.  A refusal is a feature when the only
-   alternative is a plausible lie.
-
-6. *Everything a program says should be available as data.*  A finding is the
-   same finding in five output formats and over LSP, a rule is a record before
-   it is a document, and every integration in this repository is a thin wrapper
-   over the program rather than a second implementation of it.  That is also why
-   [[#web][the browser]] is a compile of the same modules and not a JavaScript rewrite:
-   two implementations of a style are two styles.
-
-None of that is a promise to be clever.  A formatter earns its place by being
-boring and predictable, and every rule here that looks clever is a rule where
-the boring version would have lost something the reader needed.
-
-* Why it is like this
-:PROPERTIES:
-:CUSTOM_ID: decisions
-:END:
-
-** A reader of its own
-:PROPERTIES:
-:CUSTOM_ID: own-reader
-:END:
-
-~read~ discards comments and keeps no positions, and cannot represent a block
-comment, a datum comment or a reader prefix as a node.  Every promise here —
-round trip, idempotence, a fix that replaces exactly one range, a comment that
-stays on its line — needs those nodes.  The reader is also deliberately
-permissive: a file with one broken form still gets a tree, because a linter
-that refuses to say anything about a file it could not fully parse is useless
-exactly when it is needed.  The language server lives off the same property: a
-buffer being typed is a buffer with a broken tail, and it still gets the
-findings for everything before it.
-
-** One walk, and the answers kept
-:PROPERTIES:
-:CUSTOM_ID: one-walk
-:END:
-
-Three questions dominated the cost of a lint, and all three were answered by
-walking something again.  Whether a node is code or data -- it is data inside a
-quote, inside a vector literal, in the datum of a ~case~ clause, in a parameter
-list -- was decided by walking *up* the ancestors for every node of every
-checker's walk, which is a walk per node per level.  What a form is called, and
-which of its children carry a datum, was recomputed by walking its children
-every time any of the twenty-five checkers asked.  And where the lines of a
-file begin was worked out afresh for every finding, by consing the list of
-every line in the file.
-
-Each is now computed once and carried or kept: the data-or-code answer is
-carried *down* by the walk that asks it, the two questions about a node are
-answered on its first asking and kept in a cache slot on the node (a node never
-changes, so the cache can never be stale), and a text's line starts are kept
-until a different text is asked about.  Together they took a lint of this
-repository from twenty-five seconds to under one, and the allocation per lint
-from a gigabyte and a half to a hundred and forty megabytes -- which is also
-what makes [[#parallel][the parallel run]] worth anything at all: Guile's garbage
-collector stops every thread, so a lint that allocates less is a lint that
-parallelises better.
-
-** Fuzzy formatting, not pretty-printing
-:PROPERTIES:
-:CUSTOM_ID: fuzzy
-:END:
-
-A pretty-printer re-decides where the line breaks go, which produces diffs
-that are not about the change being made.  sift moves whitespace and delimiter
-characters and leaves the shape you chose.
-
-** No fixing without ~--fix~
-:PROPERTIES:
-:CUSTOM_ID: no-fix-without
-:END:
-
-A linter that fixes by default cannot be used to check anything.  ~lint~
-reports, ~lint --fix~ fixes, ~ci~ refuses to do either.
-
-** ~check~ and ~ci~ are separate commands
-:PROPERTIES:
-:CUSTOM_ID: check-ci
-:END:
-
-~format~ prints, ~--write~ writes, ~check~ answers with the status alone, and
-~ci~ asks the formatting question and the lint question in one go.  These are
-the shapes a hook and a pipeline need, and giving them names keeps ~format~
-safe to pipe.
-
-** A small YAML reader
-:PROPERTIES:
-:CUSTOM_ID: yaml
-:END:
-
-The configuration needs block mappings, sequences, scalars, inline lists,
-comments and positions.  A full YAML implementation is more surface than sift
-itself; a data-only subset that refuses what it does not understand, with a
-line and a column, is smaller than the bugs a general one brings.  The same
-argument, later, produced [[file:src/sift/json.scm][src/sift/json.scm]]: the language server needs JSON,
-and sift should not need a package installed before its own server starts.
-
-** Codes that never move
-:PROPERTIES:
-:CUSTOM_ID: codes
-:END:
-
-A rule's name is what you type; its code (SIFT012) is what an editor attaches
-to a diagnostic and what a bug report quotes.  Codes are assigned by hand,
-never reused, and the catalogue is generated from them — so an old log still
-means what it meant.
+Six convictions the code is measured against: a file is not a string; a tool you
+have to check is a tool you stop running; the author decides what the code says
+and the tool decides where the whitespace goes; a dialect is a language, not a
+variant; say what you can prove and refuse the rest; and everything a program
+says should be available as data.  [[file:doc/design.org][doc/design.org]] states them, and then
+the decisions that follow -- a reader of its own, one walk with the answers kept,
+fuzzy formatting instead of pretty-printing, and a YAML reader small enough to
+audit.
 
 * What is left
 :PROPERTIES:
@@ -1756,8 +900,8 @@ project's conventions.  It reports; you decide.  That is not modesty — it is
 the only way a linter stays useful to a project it has never seen.  Where it
 can be wrong it says so: ~wrap-in-let~ is a suggestion, ~keyword-arguments~
 counts, and the thresholds are settings.  The language server answers the
-requests [[#lsp-coverage][the table above]] lists, and refuses the rest with "method not
-found" rather than guessing.
+requests [[file:doc/language-server.org][the language server page]] lists, and refuses
+the rest with "method not found" rather than guessing.
 
 * Contributing
 :PROPERTIES:
@@ -1854,6 +998,17 @@ patch, and saying so is the most useful bug report of all.
 - [[file:doc/cli.org][doc/cli.org]] — every command, every option, and what each exit status means.
 - [[file:doc/language-server.org][doc/language-server.org]] — every request ~sift lsp~ answers, the ones it
   refuses, and the code actions it offers.
+- [[file:doc/configuration.org][doc/configuration.org]] — the two configuration files, the four layers they
+  are read in, the settings a project is likely to change, and the one knob
+  that is not a setting.
+- [[file:doc/formatting.org][doc/formatting.org]] — the formatter: the two styles, the three indentation
+  rules, and every dialect's read syntax.
+- [[file:doc/linting.org][doc/linting.org]] — the lint driver, what a fix may touch, and how a rule is
+  silenced.
+- [[file:doc/emacs.org][doc/emacs.org]] — the Emacs package, both ways in, and every setting.
+- [[file:doc/design.org][doc/design.org]] — the convictions, and the decisions they produced.
+- [[file:doc/development.org][doc/development.org]] — the ~maak~ gates, what the benchmarks measure, and
+  the module map.
 - [[file:web/README.org][web/README.org]] — the browser build: the seam, the protocol, the
   compatibility layer, and the numbers.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the
@@ -1864,8 +1019,8 @@ patch, and saying so is the most useful bug report of all.
 ** Outside it
 
 - [[http://mumble.net/~campbell/scheme/style.txt][Riastradh's Lisp Style Rules]] — Taylor R. Campbell's guide, and the
-  sharpest short argument for the style sift enforces; [[#riastradh][the chapter above]] is
-  which of its rules sift keeps and which it turns into a setting.
+  sharpest short argument for the style sift enforces;
+  [[file:doc/style.org::#riastradh][which of its rules sift keeps]] is in the style page.
 - [[https://google.github.io/styleguide/lispguide.xml][Google's Common Lisp style guide]] — the other modern reference, and the
   source of the community style sift uses for Common Lisp.
 - [[https://small.r7rs.org/][R7RS-small]] — the report sift reads Scheme against, and the reason the

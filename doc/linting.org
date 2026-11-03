@@ -1,0 +1,113 @@
+# SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+#+title: sift, linting
+#+author: Josep Bigorra
+#+email: jjbigorra@gmail.com
+#+options: toc:2 num:nil
+#+language: en
+
+How a rule is run, what a fix may touch, and how a project silences a rule.
+
+* Linting
+:PROPERTIES:
+:CUSTOM_ID: linting
+:END:
+
+A rule is a record: a name, a code, a description, the dialects it applies to,
+a default severity, a procedure, and an example.  The driver reads the file
+once, runs the rules the dialect applies to, folds in whatever the reader
+complained about, honours the suppression comments, and reports the lot sorted
+by file, line, column and rule — the same order your editor lists them in.
+
+There are 92 rules.  They are listed one by one, with their codes and their
+reasoning, in [[file:rules.org][rules.org]] — a document generated from those records, so it
+cannot describe a rule that does not exist, and a test fails when it falls
+behind.  The style the rules belong to, and why each choice is idiomatic Lisp,
+is in [[file:style.org][style.org]].
+
+The short version:
+
+| Where it applies | What it is about                                                                                                                                                  |
+|------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| all three        | whitespace, line length, delimiters, empty bodies, ~progn~, prefixes, blank lines at EOF and in a body, comment levels, single-letter names, the ~if~ / ~when~ / ~unless~ family, big expressions, keyword arguments |
+| Scheme           | internal definitions, ~letrec~ with one binding, quasiquote, clause brackets, ~@var{}~ in docstrings, eta and beta reduction, composition, ~let~ simplification   |
+| Emacs Lisp       | docstrings (missing, first line, indentation, arguments, displaced), ~lexical-binding~, ~interactive~, ~checkdoc~ voice, ~provide~, ~declare~ indentation         |
+| Common Lisp      | package prefixes, double colons, dangling parentheses, docstrings, LOOP keyword style, ~identity~                                                                 |
+| SXML documents   | the attribute list comes first and there is one of it, a child is a child, and an element with attributes and no children says so with ~""~                        |
+
+When you want the catalogue as data rather than prose, the program prints it:
+
+#+begin_src shell
+$ sift list-checkers --dialect=elisp
+NAME                            CODE      DIALECTS          SEVERITY   DESCRIPTION
+beta-reduction                  SIFT046   scheme,elisp,cl   info       A lambda applied in place, where a `let` would say the same thing once
+checkdoc-style-verb             SIFT022   elisp             info       Docstring first sentence uses the third person instead of the imperative
+declare-indent                  SIFT024   elisp             info       `declare` not indented two columns from the enclosing `defun`
+docstring-arguments             SIFT034   elisp             info       An Emacs Lisp docstring that does not mention one of its arguments
+...
+#+end_src
+
+** Fixes
+:PROPERTIES:
+:CUSTOM_ID: fixes
+:END:
+
+A rule may carry a fix: a procedure that replaces one character range.
+~sift lint --fix~ (or ~sift fix~) applies them from the highest offset down,
+so one fix cannot move the text a later one was measured against, and then
+lints the result once to show what is left.  There is no loop: a fixer that
+keeps finding work is a bug, not a queue.
+
+A fix is applied only if it is safe.  After applying them all, sift reads the
+result again; if a fix introduced a parse error the file did not have, every
+fix of that run is discarded and you get the original warnings, unfixed.  A
+file the reader could not finish is refused outright, with the findings that
+made it refuse, because a fix computed around a missing parenthesis would be a
+guess at where it goes — ~--force~ is how a caller who knows better says
+otherwise.
+
+A few rules deliberately have no fix.  SIFT004 (~unmatched-parens~) will not
+guess where a missing ~)~ belongs, SIFT031 (~wrap-in-let~) will not invent the
+name of the binding it suggests, the naming rules (SIFT040–042 and SIFT053)
+will not rename anything, and SIFT052 (~blank-line-in-body~) will not delete a
+line: deciding how to split or name a piece of code is the author's work.
+
+SIFT051 (~comment-semicolons~) does have one, because the half of it that a
+machine can decide is decided by position rather than by intent: how many
+semicolons a comment takes is one at the end of a line, two inside a form, and
+three at top level (four is a heading, and a heading is left alone), and where
+the comment sits is something the reader knows.  What the comment is *for* is
+still the author's, so the fix re-levels a comment and puts a space after its
+semicolons, and ~sift fix~ over a whole buffer does exactly that to every
+comment the rule reports.  A project whose ~severity~ is ~warning~ sees none of
+them, so ~sift fix --severity=info~ is how a tidy-up run asks for them.
+
+Fixing is not filtered by ~severity~: a project that says ~severity: warning~
+has said which findings are worth failing a build over, not which are worth
+tidying up when someone asks for a tidy-up, so ~sift fix~ applies the fixes of
+every rule it can see and reports what is left at the project's threshold.
+
+** Silencing a rule
+:PROPERTIES:
+:CUSTOM_ID: suppression
+:END:
+
+#+begin_src scheme
+;; sift:disable-next-line keyword-arguments
+(make-window a b c d e f g)
+
+;; sift:disable wrap-in-let
+(define (f x)
+  ...)
+;; sift:enable wrap-in-let
+#+end_src
+
+Several names may be given, separated by commas or spaces; no name means every
+rule.  ~disable-next-line~ covers the next line, ~disable~ covers from where it
+is written to the end of the top-level form it sits in, and ~enable~ ends it.
+Suppression is line-oriented and form-scoped on purpose: a range comment
+outlives the code it was written for.
+
+
+Back to the [[file:../README.org][README]].

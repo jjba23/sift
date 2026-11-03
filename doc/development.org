@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: MIT
+;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+#+title: sift, for whoever works on it
+#+author: Josep Bigorra
+#+email: jjbigorra@gmail.com
+#+options: toc:2 num:nil
+#+language: en
+
+What the ~maak~ tasks run, what the benchmarks measure, and how the modules fit
+together.  Every gate listed here is one the release runs.
+
+* Testing
+:PROPERTIES:
+:CUSTOM_ID: testing
+:END:
+
+Every half of the project is tested with the framework its own users already
+have, and none of them is a smoke test.
+
+The library is tested with [[https://codeberg.org/jjba23/veritas][Veritas]], and only with Veritas — no ~srfi-64~,
+no ad-hoc assert macro anywhere in the tree.  Veritas is expected at
+~$HOME/Hacking/veritas~, or wherever ~VERITAS_DIR~ points, and ~maak test~ puts
+it on the load path itself so that a clean checkout needs no exports:
+
+#+begin_src shell
+maak test          # the whole Veritas suite
+maak check         # compile every module, so a syntax error fails the build
+maak self-check    # sift's own sources are formatted by sift
+maak fixture-check # the golden corpus still round-trips, byte for byte
+maak docs          # regenerate doc/rules.org from the rules
+maak bench         # time the reader, the formatter and every checker
+#+end_src
+
+~maak test~ is meant to be run inside the pinned environment, so that the
+Guile, the JSON library and Veritas are the ones the project is developed
+against:
+
+#+begin_src shell
+guix time-machine --channels=channels.scm -- shell -m manifest.scm
+#+end_src
+
+~maak bench~ is Veritas too: a benchmark is a task whose result is a
+~benchmark-result~, so it is printed by the same reporter as everything else,
+and the table it ends with is sorted worst-first.  What it times is what a user
+waits for -- reading a file, formatting it, linting it, and the same over the
+whole tree -- and then the parts those are made of, so a regression has
+somewhere to point.  It reports two numbers per benchmark, and both are the
+point: the milliseconds, and the bytes allocated, because a pass that conses a
+list per node makes every other pass slower and the allocation count is how
+that shows up even when the clock happens to look fine.
+
+#+begin_src shell
+$ maak bench
+lint the tree (28 files, 14896 lines)       337ms, 160.7 MiB allocated
+check the tree (28 files): format           253ms,  59.0 MiB allocated
+lint (lsp.scm, every checker)               171ms,  19.2 MiB allocated
+read the tree (28 files)                    143ms,  44.7 MiB allocated
+checker: unused-argument                      9ms, 793.0 KiB allocated
+...
+#+end_src
+
+#+begin_src shell
+maak bench tests   # time the test suite's sources instead of src
+SIFT_BENCHMARK_PATHS=src:benchmarks maak bench
+#+end_src
+
+The editors are tested with the test framework each editor ships:
+
+#+begin_src shell
+maak emacs-test     # ERT: the package, its Flymake backend and its Eglot entry
+maak emacs-check    # byte-compile, warnings are errors
+maak editors-check  # Vim in batch over the plugin, Node over the VS Code logic
+#+end_src
+
+~maak editors-check~ needs ~vim~ and ~node~, and nothing else: the Vim test
+sources the plugin and drives it through ~:SiftLint~ and ~:SiftFix~, and the
+VS Code test runs the extension's own arithmetic — the ranges a quickfix
+replaces — with Node's ~assert~.
+
+The suite is not a smoke test, and it is not one file.  The reader is tested
+dialect by dialect on every reader macro, every escape, CRLF and UTF-8
+columns; the formatter on a golden corpus in both styles plus an idempotence
+pass over every expected file; each rule has its own file with a passing case,
+a failing case at a known line and column, a case per applicable dialect, and
+— where there is a fix — the fixed text and a re-lint that must find nothing;
+the command line is tested as a subprocess, by exit status; and the language
+server is tested by talking to it, a frame at a time, including the frames
+that are not JSON.
+
+* How it is built
+:PROPERTIES:
+:CUSTOM_ID: architecture
+:END:
+
+#+begin_example
+src/sift/
+  records.scm       <source-location>, <lint-warning>, <lint-checker>, rule
+                    codes, and the uniform AST node
+  reader.scm        the hand-written, permissive, location-preserving reader
+  format.scm        the pipeline, the indentation tables, the renderer
+  check/base.scm    walking a tree, reading a form, line arithmetic
+  checkers/         one module per family of rules
+  pool.scm          the work spread over the processors, answered in order
+  lint.scm          run, suppress, filter, sort, fix, re-lint
+  render.scm        human, JSON, GitHub, null, SARIF, list-checkers, explain, diff
+  config.scm        <config>, discovery, merging, provenance, trust
+  yaml.scm          the data-only YAML subset the configuration needs
+  json.scm          the JSON the language server speaks
+  definitions.scm   what defines a name, what binds one, and where it is used
+  lsp.scm           diagnostics, actions, formatting, hover, and navigation
+  catalogue.scm     the rule catalogue, generated from the records
+  cli.scm           args-fold, dispatch, exit codes
+tests/              one Veritas suite per rule, per module and per command
+benchmarks/         the benchmarks, run by Veritas and printed by its reporter
+emacs/              the Emacs package and its ERT suite
+editors/            the Neovim, Vim and VS Code integrations, with their tests
+assets/             the logo, the app icon set and the demo recording
+doc/                style.org (the reasoning), rules.org (generated),
+                    formatting.org (the formatter), linting.org (the rules
+                    runner), editors.org (every editor), emacs.org (the Emacs
+                    package), cli.org (the command line),
+                    language-server.org (the protocol),
+                    configuration.org (the settings), design.org (why),
+                    development.org (this page)
+#+end_example
+
+Dependencies point one way.  ~records~ is a vocabulary; ~reader~ and ~format~
+use it; the checkers use ~records~ and ~check/base~; ~lint~ assembles the
+checkers; ~render~ formats their findings; ~lsp~ turns the same findings into a
+protocol; ~cli~ wires everything to the command line.  Nothing in ~format~ or
+in a checker knows about ports or exit codes.
+
+A contribution follows from that order: a rule is a record in a checker module
+and a test that names its line and column, a fix is a procedure over one range,
+and a change to the language server is a change to how the same findings are
+said rather than a second implementation of them.
+
+Back to the [[file:../README.org][README]].

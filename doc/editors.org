@@ -28,7 +28,8 @@ diagnostics, and pass =--dialect= when the file is new or has no extension.
 :END:
 
 =emacs/sift.el= is the full integration: a Flymake backend, code actions and a
-minor mode.  It is described in the README; the short version is
+minor mode.  [[file:emacs.org][doc/emacs.org]] describes it in full -- both ways in, every
+setting, and the one place Emacs knows more than sift does; the short version is
 
 #+begin_src elisp
 (add-to-list 'load-path "/path/to/sift/emacs")
