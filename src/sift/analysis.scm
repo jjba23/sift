@@ -1463,24 +1463,24 @@ be reading the call as if the keyword were not there."
       [(keyword-node? (car rest)) (reverse kept)]
       [else (loop (cdr rest) (cons (car rest) kept))])))
 
-(define (inlay-hint label position kind padding-left?)
+(define (inlay-hint label position kind)
   "Return one `InlayHint' for @var{label} at @var{position}.
 
 @var{kind} is the protocol's: 1 is a type and 2 a parameter, and an editor
 that styles hints draws the two differently -- a name beside its argument, a
-type in the same place but greyer.  `paddingLeft' asks for a space before the
-label, so the hint reads as a word beside the argument instead of as part of
-it."
+type in the same place but greyer."
   (json-object
    (field "position" position)
-   ;; The gap is in the label as well as in the padding, because a client is
-   ;; free to ignore `paddingLeft'/`paddingRight' and most draw the label right
-   ;; against the argument when they do: `width' then reads as part of the
-   ;; number rather than as a name for it.
-   (field "label" (string-append label "  "))
+   ;; The gap is one space on each side of the label and nothing more.  It is
+   ;; written into the label rather than asked for with `paddingLeft' and
+   ;; `paddingRight', because those are a request a client may ignore -- and a
+   ;; client that honours them *and* a label with a gap of its own draws two
+   ;; spaces on each side, which pushes the hint away from the argument it
+   ;; names instead of setting it beside one.
+   (field "label" (string-append " " label " "))
    (field "kind" kind)
-   (field "paddingLeft" padding-left?)
-   (field "paddingRight" #t)))
+   (field "paddingLeft" #f)
+   (field "paddingRight" #f)))
 
 ;;; --- the type an argument states outright --------------------------------
 ;;;
@@ -1605,11 +1605,11 @@ definition, the type from the source."
                        ;; `number' is what it is made of
                        (when name
                          (set! hints
-                               (cons (inlay-hint name (json-position text index) 2 #t)
+                               (cons (inlay-hint name (json-position text index) 2)
                                      hints)))
                        (when type
                          (set! hints
-                               (cons (inlay-hint type (json-position text index) 1 #t)
+                               (cons (inlay-hint type (json-position text index) 1)
                                      hints))))
                      (loop (cdr rest)
                            (if (or (not named?) keyword?) position (+ position 1))

@@ -556,8 +556,8 @@ exactly the bug that would reach a tab and no test."
              (hints (vector->list (field-of result "hints"))))
         (assert-equal #:expect 2 #:got (length hints)
           #:name "one per positional argument")
-        (assert-equal #:expect "width  " #:got (field-of (car hints) "label")
-          #:name "named by the formal list, with room after the name")))
+        (assert-equal #:expect " width " #:got (field-of (car hints) "label")
+          #:name "named by the formal list, with one space on each side")))
 
     (test "a question without an offset is a usage error"
       (assert-refused #:request (asked (cons "op" "hover") (cons "source" "(a)"))

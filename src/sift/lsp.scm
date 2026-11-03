@@ -1294,20 +1294,38 @@ an older text is one an editor would either drop or, worse, show."
                                                               (diagnostics-of
                                                                (sort all
                                                                      lint-warning<?)
-                                                               text))
+                                                               text)
+                                                              text)
                                                         *deep-results*))))))
                           (lambda (key . arguments) #f))))
                 *deep-threads*))))
 
-(define (flush-deep-results! out)
-  "Publish the second reports the deep passes have finished."
+(define (flush-deep-results! out documents)
+  "Publish the second reports the deep passes have finished.
+
+A report is about the text it was computed from, and a buffer whose text has
+changed since has findings of its own by now.  Checking that in the pass's own
+thread is not enough: the check and the write are two moments, and this runs
+in the message loop, where a `didChange' can be handled between them -- so a
+pass that finished while the loop was waiting for the next message would have
+its report published *after* the clean one, drawing the old findings back over
+the text that no longer has them.  The check is made here as well, against the
+document as it is when the report is about to go out, so the only report that
+is published is one about the text the editor is showing."
   (let ((pending (with-mutex *send-lock*
                              (let ((results *deep-results*))
                                (set! *deep-results* '())
                                results))))
     (for-each (lambda (result)
-                (publish-diagnostics! out (car result) (cadr result)
-                                      (caddr result)))
+                (let* ((uri (car result))
+                       (version (cadr result))
+                       (diagnostics (caddr result))
+                       (text (cadddr result))
+                       (document (hash-ref documents uri #f)))
+                  (when (and document
+                          (string=? text (document-text document))
+                          (equal? version (document-version document)))
+                    (publish-diagnostics! out uri version diagnostics))))
               (reverse pending))))
 
 (define (join-deep-passes!)
@@ -1319,10 +1337,10 @@ an older text is one an editor would either drop or, worse, show."
             *deep-threads*)
   (set! *deep-threads* '()))
 
-(define (finish! out status)
+(define (finish! out status documents)
   "Return @var{status} once the second passes still running have finished."
   (join-deep-passes!)
-  (flush-deep-results! out)
+  (flush-deep-results! out documents)
   status)
 
 (define* (publish-all! config out documents #:key (force #f))
@@ -1974,10 +1992,10 @@ should show a finding."
         (workspace (new-workspace (and config (config-ref config 'file-filter))))
         (session (new-session #:config config #:reload reload)))
     (let loop ((status 0))
-      (flush-deep-results! port-out)
+      (flush-deep-results! port-out documents)
       (let ((frame (read-message port-in)))
         (cond
-          [(not frame) (finish! port-out status)]
+          [(not frame) (finish! port-out status documents)]
           [(eq? (car frame) 'malformed)
            ;; The id of a message that could not be parsed is not known, and
            ;; the protocol says to answer with null.
@@ -1987,5 +2005,5 @@ should show a finding."
             (let ((outcome (serve-one session workspace documents
                                       (cdr frame) port-out)))
               (if (eq? outcome 'exit)
-                (finish! port-out (if (session-shutdown? session) 0 1))
+                (finish! port-out (if (session-shutdown? session) 0 1) documents)
                 (loop status)))])))))

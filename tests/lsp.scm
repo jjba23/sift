@@ -512,6 +512,27 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect 2 #:got (json-ref (start-of if-diagnostic) "line")
           #:name "and the finding moved with the text around it")))
 
+    (test "a stale whole-file report is not drawn over a fixed buffer"
+      ;; The whole-file rules run in a thread of their own, so their report can
+      ;; be finished while the message loop is waiting for the next message.
+      ;; An edit that arrives then is reported clean, and a pass about the
+      ;; text before it would follow that clean report and put the old
+      ;; findings back under a cursor that has moved past them.  What the
+      ;; editor is left holding is a report about the text it has.
+      (let* ((broken (string-append "(define (open-file path mode)\n"
+                                    "  (list path mode))\n\n"
+                                    "(open-file \"a\")\n"))
+             (fixed (string-append "(define (open-file path mode)\n"
+                                   "  (list path mode))\n\n"
+                                   "(open-file \"a\" \"r\")\n"))
+             (result (session (list (initialize-request 1)
+                                    (open broken)
+                                    (change fixed #:version 2))))
+             (diagnostics (published (cdr result) buffer-uri)))
+        (assert-equal #:expect 0 #:got (car result))
+        (assert-equal #:expect 0 #:got (vector-length diagnostics)
+          #:name "the call has its argument, and nothing is left under it")))
+
     (test "a save asks the server to look at the buffer again"
       ;; A save is the moment the project changed: the index sift answers
       ;; jumps from is now stale, and a finding can be about a file nobody has
@@ -877,10 +898,11 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
         (assert-equal #:expect 0 #:got (car result))
-        ;; the label carries its own gap: an editor that honours `paddingLeft'
-        ;; and `paddingRight' draws the space twice, and one that ignores them
-        ;; still keeps the hint off the argument
-        (assert-equal #:expect '("parent  " "width  " "height  " "title  ")
+        ;; the label carries one space on each side, so it reads as a word
+        ;; beside the argument whether or not the client honours the padding
+        ;; flags -- and never as two spaces, which is a hint pushed away from
+        ;; the argument it names
+        (assert-equal #:expect '(" parent " " width " " height " " title ")
           #:got labels
           #:name "one hint per argument, named by the definition")
         (assert-equal #:expect 2
@@ -897,7 +919,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect 3
           #:got (json-ref (json-ref hint "position") "line")
           #:name "on the line of the call, counted from zero")
-        (assert-equal #:expect "name  " #:got (json-ref hint "label"))))
+        (assert-equal #:expect " name " #:got (json-ref hint "label"))))
 
     (test "a keyword argument is not hinted"
       ;; `(greet/who "x" #:loud? #t)' says its own names from the first
@@ -910,7 +932,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (hints (json-ref (answer-to (cdr result) 13) "result"))
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
-        (assert-equal #:expect '("name  ") #:got labels
+        (assert-equal #:expect '(" name ") #:got labels
           #:name "only the positional argument is named")))
 
     (test "a literal's type is hinted when the project asks for it"
@@ -933,9 +955,9 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                            (filter (lambda (hint)
                                      (equal? kind (json-ref hint "kind")))
                                    hints)))))
-        (assert-equal #:expect '("parent  " "width  " "title  ") #:got (named 2)
+        (assert-equal #:expect '(" parent " " width " " title ") #:got (named 2)
           #:name "the parameters are named, as before")
-        (assert-equal #:expect '("number  " "string  ") #:got (named 1)
+        (assert-equal #:expect '(" number " " string ") #:got (named 1)
           #:name "and a literal says its own type")))
 
     (test "a name says nothing about its type"
@@ -954,7 +976,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (hints (json-ref (answer-to (cdr result) 22) "result"))
              (labels (map (lambda (hint) (json-ref hint "label"))
                           (vector->list hints))))
-        (assert-equal #:expect '("number  ") #:got labels
+        (assert-equal #:expect '(" number ") #:got labels
           #:name "only the argument whose type is written down")))
 
     (test "the project chooses which kinds of hint it gets"
