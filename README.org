@@ -12,7 +12,7 @@
 
 *The Lisp formatter, linter and language server that never loses a byte.*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.19.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.20.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-63-2f6f4f.svg]]
 
 sift reads a Lisp file, tells you what is wrong with it, and rewrites the
 whitespace.  It does that without ever losing a comment, a blank line or an
@@ -228,7 +228,7 @@ is doing:
 
 #+begin_src shell
 $ sift doctor
-sift 1.19.0
+sift 1.20.0
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
   rules       63
@@ -470,88 +470,11 @@ sift doctor    # the Guile it runs on, the library it loaded, the rules it
 :CUSTOM_ID: cli
 :END:
 
-#+begin_src text
-sift format         [OPTIONS] [FILE...]
-sift lint           [OPTIONS] [FILE...]
-sift check          [OPTIONS] [FILE...]
-sift fix            [OPTIONS] [FILE...]     # lint --fix
-sift ci             [OPTIONS] [FILE...]     # check + lint, for pipelines
-sift lsp                                    # a language server on stdin/stdout
-sift list-checkers  [--dialect DIALECT]
-sift explain        CHECKER-NAME
-sift config         show | explain | trust
-sift install-hooks  [--force]
-sift doctor
-sift version
-#+end_src
-
-~sift --help~ prints a synopsis of the same commands, so you can always ask
-the program what it can do.
-
-With no files and no ~--stdin~, ~format~, ~lint~ and ~check~ read standard
-input, the way a filter should.  With ~--stdin~, at most one file may be
-named, and it is used only as the label in diagnostics — which is how an
-editor lints an unsaved buffer.  A directory is read as "every Lisp file
-under here", sorted, so ~sift ci .~ means what it looks like it means.
-
-** Options
-:PROPERTIES:
-:CUSTOM_ID: options
-:END:
-
-I keep this table complete because a tool you cannot look up is a tool you
-stop using.  Every option can also be set in a configuration file; the
-command line wins.
-
-| Option                     | Where                           | What it does                                                          |
-|----------------------------+---------------------------------+-----------------------------------------------------------------------|
-| ~--dialect~                | all                             | Scheme, elisp or cl; overrides detection                              |
-| ~--stdin~                  | format, lint, check, ci         | Read one source from standard input                                   |
-| ~--stdout~                 | format                          | Write the result to standard output (the default without ~--write~)   |
-| ~--write~, ~-w~            | format                          | Rewrite the files in place                                            |
-| ~--check~, ~-c~            | format                          | Ask the check question instead: write nothing, exit 1 on a difference |
-| ~--diff~                   | format                          | Print the change as a unified diff, exit 1 when there is one          |
-| ~--fix~                    | lint                            | Apply the fixes the rules have                                        |
-| ~--checker NAME[,NAME...]~ | lint                            | Run only these rules                                                  |
-| ~--exclude-checker NAME~   | lint                            | Skip these rules (repeatable)                                         |
-| ~--severity~               | lint, lsp                       | error, warning or info; the smallest one to report (default ~info~)   |
-| ~--format~                 | lint, check, ci                 | human, json, null, github or sarif (default ~human~)                  |
-| ~--style~                  | format                          | community (trailing closers) or dangling (own line)                   |
-| ~--brackets~               | format                          | square, parens or preserve, for clause lists                          |
-| ~--blank-lines~            | format                          | preserve, or one blank line between top-level forms                   |
-| ~--line-length N~          | format, lint                    | Soft line limit (96, or 80 for Emacs Lisp)                            |
-| ~--indent N~               | format                          | Indentation width (default 2)                                         |
-| ~--comment-align~          | format                          | Line up contiguous inline comments                                    |
-| ~--file-filter~, ~-p~      | format, lint, check, ci         | Only read files matching these globs when walking a directory         |
-| ~--no-color~               | all                             | No ANSI colour (also honours ~NO_COLOR~ and a non-tty stdout)         |
-| ~--quiet~, ~-q~            | lint, ci                        | Drop the summary line                                                 |
-| ~--verbose~, ~-v~          | all                             | Say what is being processed                                           |
-| ~--force~                  | format, lint, ci, install-hooks | Format or fix a file that has parse errors; replace an existing hook  |
-| ~--label NAME~             | format, lint, check             | Name the stdin source in diagnostics                                  |
-| ~--config FILE~            | all                             | Read this configuration file instead of discovering one               |
-| ~--trust-config~           | all                             | Allow this project's Scheme configuration to be evaluated             |
-| ~--~                       | all                             | Stop option parsing; everything after it is a file                    |
-
-Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
-~--dialect elisp~, and both ~--dialect elisp~ and ~--dialect=elisp~ work.
-
-** Exit codes
-:PROPERTIES:
-:CUSTOM_ID: exit-codes
-:END:
-
-| Code | When                                                                     |
-|------+--------------------------------------------------------------------------|
-| 0    | everything is clean at the severity you asked for                        |
-| 1    | findings at or above that severity, or a file that ~format~ would change |
-| 2    | a usage error, an unreadable file, or a file that cannot be parsed       |
-
-A usage error is an unknown dialect, an unknown rule in ~--checker~, a
-malformed value, ~--write~ together with ~--stdout~, or ~ci~ together with
-~--fix~.  A file with an unbalanced delimiter is *recoverable*: ~lint~ reports
-it as a finding (status 1), while ~format~ and ~fix~ refuse to write (status 2)
-unless you pass ~--force~, in which case the balanced prefix is formatted and
-the broken tail is copied as it was.
+Every command, every option and every exit code is in
+[[file:doc/cli.org][doc/cli.org]], which is the reference.  The short version: ~sift format~, ~sift
+lint~ and ~sift check~ take files or standard input, ~sift ci~ is check and lint
+in one command for a pipeline, and the status is 0 for clean, 1 for findings
+and 2 for a usage error or a file that cannot be read.
 
 * Which dialect is this?
 :PROPERTIES:
@@ -1354,65 +1277,12 @@ server to reload, because a file that is there is a file that is served.
 :CUSTOM_ID: lsp-coverage
 :END:
 
-~sift lsp~ answers what sift can answer truthfully and refuses the rest with
-the protocol's own "method not found", because a server that answered every
-request an editor can make would be lying about half of them.  This table is
-the whole of it, so a missing feature is a line here rather than a guess made
-from the editor's side.
-
-| Request                                              | Status  | What sift does                                                                    |
-|------------------------------------------------------+---------+-----------------------------------------------------------------------------------|
-| ~initialize~, ~shutdown~, ~exit~                     | yes     | the capabilities below, and the exit status the protocol asks for                 |
-| ~textDocument/didOpen~, ~didChange~, ~didClose~       | yes     | full synchronisation: the buffer is linted on every change                        |
-| ~textDocument/didSave~                               | yes     | the file is read again for the index, and every open buffer is checked against it |
-| ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away; the open buffers are checked again |
-| ~workspace/didChangeConfiguration~                   | yes     | the settings are read again -- sift.yaml, the user's, the command line -- and every open buffer is checked against them |
-| ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page                    |
-| ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; honours ~context.only~ |
-| ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
-| ~textDocument/formatting~                            | yes     | one edit for the buffer, or a message saying why it refuses                       |
-| ~textDocument/hover~                                 | yes     | a symbol's definition and docstring; a finding's rule otherwise                   |
-| ~textDocument/definition~                            | yes     | Scheme, Emacs Lisp and Common Lisp: scope first, then the file, then the project   |
-| ~textDocument/references~                            | yes     | every mention in the project, by name, within one dialect                         |
-| ~textDocument/documentHighlight~                     | yes     | the mentions in this buffer, the declaration marked apart from the uses           |
-| ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
-| ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
-| ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
-| ~textDocument/inlayHint~                             | yes     | a parameter's name beside each positional argument of a call sift can resolve, and the type a literal states when ~inlay-hints: [parameters, types]~ asks for it |
-| ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
-| ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
-| ~window/logMessage~ (server to client)              | yes     | what the server did: the root it serves, the dialect of each buffer, the findings a report carries, every re-read |
-| ~$/cancelRequest~, ~$/setTrace~                      | ignored | a request is answered before a cancel could reach it; nothing is traced           |
-| ~textDocument/signatureHelp~                         | yes     | the formal list and the docstring of the definition the head resolves to          |
-| ~textDocument/declaration~, ~typeDefinition~, ~implementation~ | no | there are no types here, and no macro is expanded                        |
-| ~textDocument/callHierarchy~, ~typeHierarchy~        | no      | a call is a form whose head is a symbol, and nothing more is known                |
-| ~textDocument/semanticTokens~                        | no      | highlighting is the editor's business                                             |
-| ~codeLens~                                           | no      | a lens would have to guess at what it is for                                      |
-| ~textDocument/foldingRange~                          | no      | the formatter has no opinion about what to fold                                   |
-| ~textDocument/rangeFormatting~, ~onTypeFormatting~   | no      | sift formats a whole buffer or nothing                                            |
-| ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
-| ~workspace/didChangeWorkspaceFolders~                | no      | the root is read once, at ~initialize~                                            |
-
-Two limits belong next to the table rather than in an issue.  A reference is
-matched *by name, within one dialect*: sift expands no macro, follows no
-~define-module~ import and reads no ~defpackage~, so a name a macro invents is
-invisible to ~references~ and to ~rename~.  And the project is read once per
-session, on the first request that needs it: what refreshes it afterwards is
-the client saying so -- a ~didSave~, a file changed on disk, a configuration
-edited and saved -- which is why the server asks for ~openClose~, a full change
-and ~save~ in its synchronisation options instead of the bare change kind ~1~.
-An editor that sends none of those is an editor sift can only answer from what
-it read when the session started.
-
-The code actions are the three things sift can do without being told what to
-call anything: fix the finding under the cursor (~quickfix~), fix every safe
-finding in the buffer at once (~source.fixAll.sift~, the same all-or-nothing
-deal ~sift fix~ makes, as one edit), and reformat the definition the cursor is
-inside (~refactor.rewrite~, offered only for a top-level form, because the
-formatter indents from column zero and a fragment would land at the margin).
-A rename is a refactor too, but it needs a new name, so it is the protocol's
-own ~textDocument/rename~ rather than an action that would have to invent one
--- which is the same line ~sift fix~ draws everywhere else.
+The whole of what ~sift lsp~ answers -- request by request, including the
+requests it refuses, its code actions and the two limits that go with them --
+is in [[file:doc/language-server.org][doc/language-server.org]].  The limits are worth repeating: a reference is
+matched by name within one dialect, because sift expands no macro and follows
+no import; and the project is read once per session, unless the editor says a
+file changed.
 
 * In a pipeline
 :PROPERTIES:
@@ -1443,7 +1313,7 @@ name: sift
 on: [push, pull_request]
 jobs:
   sift:
-    uses: jjba23/sift/.github/workflows/sift.yml@v1.19.0
+    uses: jjba23/sift/.github/workflows/sift.yml@v1.20.0
 #+end_src
 
 That annotates the diff with what it found and uploads the SARIF document to
@@ -1453,7 +1323,7 @@ same repository also publishes a composite action, for a job that wants sift
 as one step among its own:
 
 #+begin_src yaml
-- uses: jjba23/sift@v1.19.0
+- uses: jjba23/sift@v1.20.0
   with:
     paths: src/ tests/
     severity: warning
@@ -1503,7 +1373,7 @@ project can pick the one it wants:
 #+begin_src yaml
 repos:
   - repo: https://github.com/jjba23/sift
-    rev: v1.19.0
+    rev: v1.20.0
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
@@ -1720,7 +1590,9 @@ benchmarks/         the benchmarks, run by Veritas and printed by its reporter
 emacs/              the Emacs package and its ERT suite
 editors/            the Neovim, Vim and VS Code integrations, with their tests
 assets/             the logo, the app icon set and the demo recording
-doc/                style.org (the reasoning), rules.org (generated), editors.org
+doc/                style.org (the reasoning), rules.org (generated),
+                    editors.org (every editor), cli.org (the command line),
+                    language-server.org (the protocol)
 #+end_example
 
 Dependencies point one way.  ~records~ is a vocabulary; ~reader~ and ~format~
@@ -1979,6 +1851,9 @@ patch, and saying so is the most useful bug report of all.
   the rules themselves.
 - [[file:doc/editors.org][doc/editors.org]] — Emacs, Eglot, Neovim, Vim, VS Code, Helix, pre-commit,
   and the two CI shapes.
+- [[file:doc/cli.org][doc/cli.org]] — every command, every option, and what each exit status means.
+- [[file:doc/language-server.org][doc/language-server.org]] — every request ~sift lsp~ answers, the ones it
+  refuses, and the code actions it offers.
 - [[file:web/README.org][web/README.org]] — the browser build: the seam, the protocol, the
   compatibility layer, and the numbers.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the

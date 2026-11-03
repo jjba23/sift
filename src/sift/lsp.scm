@@ -584,8 +584,8 @@ asking about the line the cursor is on, which is what a person means by
   ;; What `initialize' advertises, and the complete list of what this server
   ;; offers an editor: two kinds of finding fix, the one rewrite that does not
   ;; need to be told what to call anything, and the two source actions.
-  '("quickfix" "refactor.rewrite" "source.fixAll" "source.fixAll.sift"
-    "source.organizeImports"))
+  '("quickfix" "refactor.extract" "refactor.rewrite" "source.fixAll"
+    "source.fixAll.sift" "source.organizeImports"))
 
 (define (kind-matches? requested kind)
   "Return @code{#t} when offering @var{kind} satisfies a request for
@@ -803,10 +803,11 @@ added, which is what makes this an action and not a guess."
                            (uri #f) (version #f) (only '()))
   "Return the code actions that apply to @var{start}..@var{end} of @var{text}.
 
-Three answers, in the order an editor should show them: the fixes for the
-findings under the cursor, the one rewrite sift can make without being told
-what to call anything, and the source actions -- fix everything, format the
-definition the cursor is in, and organize the imports.  @var{only} is the
+Four answers, in the order an editor should show them: the fixes for the
+findings under the cursor, the extractions sift can make without being told
+what to call anything, the one rewrite it can make, and the source actions --
+fix everything, format the definition the cursor is in, and organize the
+imports.  @var{only} is the
 request's `context.only', so a client that asked for `source' gets the source
 actions and nothing else."
   (let* ((warnings (warnings-for config text #:dialect dialect #:uri uri))
@@ -817,6 +818,10 @@ actions and nothing else."
                (lint-warning-range warning)
                (code-action-of warning text (or uri "") version)))
            (select-warnings warnings start end text)))
+         (extractions
+          (and (only-accepts? only "refactor.extract")
+            (extract-actions text dialect start end
+                             #:uri (or uri "") #:version version)))
          (rewrite
           (and (only-accepts? only "refactor.rewrite")
             (format-form-action config text (ast-of-text text dialect) start
@@ -832,6 +837,7 @@ actions and nothing else."
     (list->vector
      (append
       (if (only-accepts? only "quickfix") quickfixes '())
+      (or extractions '())
       (if rewrite (list rewrite) '())
       (if organize (list organize) '())
       (if fix-all (list fix-all) '())))))

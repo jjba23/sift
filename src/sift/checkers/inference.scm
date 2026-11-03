@@ -32,7 +32,10 @@
             string-literal-argument-checker
             number-literal-argument-checker
             unused-import-from-checker
-            eq-non-symbol-checker))
+            eq-non-symbol-checker
+            signature-of-formals
+            form-signature
+            arity-summary))
 
 ;;; ===== What an argument list means =====
 ;;;
@@ -104,60 +107,96 @@ Guile writes `#:key width', Common Lisp writes `&key width' or
          [else #f]))]
     [else #f]))
 
-(define (clauses-of-formals elements)
-  "Return @code{(CLAUSES . KEYWORDS)} for one parameter list, or @code{#f}.
+(define (key-display-node node)
+  "Return the node a keyword parameter is named by, for a signature.
 
-@var{elements} is the list of nodes a parameter list is made of.  @code{#f}
-is the answer to a parameter list this rule cannot read -- a marker it does
-not know, a keyword specification with no name in it -- because a count
-guessed from half a list is a finding about sift rather than about the
+`#:key width' keeps the name in an atom, `&key (width 10)' keeps it in the
+head of a pair, and `&key ((:width w) 10)' keeps it in the head of a list
+inside the pair; the name is the atom a caller writes a keyword from."
+  (cond
+    [(node-atom? node) node]
+    [(node-list? node)
+     (let ((head (node-head node)))
+       (cond
+         [(and head (node-atom? head)) head]
+         [(and head (node-list? head) (pair? (node-elements head)))
+          (car (node-elements head))]
+         [else node]))]
+    [else node]))
+
+(define (signature-of-formals elements)
+  "Return @code{(CLAUSES KEYWORDS PARAMETERS)} for one parameter list, or #f.
+
+@var{elements} is the list of nodes a parameter list is made of.  CLAUSES and
+KEYWORDS are the arity; PARAMETERS is the same list read for display, one
+@code{(KIND . NODE)} per argument a caller passes, KIND being `required',
+`optional', `key' or `rest'.  A marker is not a parameter: `#:optional' says
+what the rest of the list means, and an editor that showed it as an argument
+would be showing sift's vocabulary instead of the procedure's.
+
+@code{#f} is the answer to a parameter list this rule cannot read -- a marker
+it does not know, a keyword specification with no name in it -- because a
+count guessed from half a list is a finding about sift rather than about the
 program, and an omission is cheaper than a wrong answer."
   (let loop ((rest elements) (required 0) (optional 0) (state 'required)
-             (keywords '()))
+             (keywords '()) (parameters '()))
+    (define (finish)
+      (list (list (cons required (+ required optional))) keywords
+            (reverse parameters)))
+    (define (passed kind node)
+      (loop (cdr rest)
+            (if (eq? state 'required) (+ required 1) required)
+            (if (eq? state 'optional) (+ optional 1) optional)
+            state keywords (cons (cons kind node) parameters)))
     (cond
-      [(null? rest)
-       (cons (list (cons required (+ required optional))) keywords)]
+      [(null? rest) (finish)]
       ;; a destructuring parameter, or a `(name default)' pair: one argument,
       ;; whichever part of the parameter list it is written in
       [(not (node-atom? (car rest)))
-       (cond
-         [(eq? state 'key)
-          (let ((name (keyword-parameter-name (car rest))))
-            (and name
-              (loop (cdr rest) required optional state (cons name keywords))))]
-         [else
-           (loop (cdr rest)
-                 (if (eq? state 'required) (+ required 1) required)
-                 (if (eq? state 'optional) (+ optional 1) optional)
-                 state keywords)])]
+       (if (eq? state 'key)
+         (let ((name (keyword-parameter-name (car rest))))
+           (and name
+             (loop (cdr rest) required optional state (cons name keywords)
+                   (cons (cons 'key (key-display-node (car rest))) parameters))))
+         (passed (if (eq? state 'optional) 'optional 'required) (car rest)))]
       [else
         (let ((name (marker-name (car rest))))
           (cond
             ;; a dotted tail is a rest parameter spelled with a dot
             [(and (eq? (node-atom-type (car rest)) 'symbol)
                (string=? (node-value (car rest)) "."))
-             (cons (list (cons required #f)) #f)]
+             (list (list (cons required #f)) #f
+                   (reverse (if (pair? (cdr rest))
+                              (cons (cons 'rest (cadr rest)) parameters)
+                              parameters)))]
             [(not name)
-             (cond
-               [(eq? state 'required)
-                (loop (cdr rest) (+ required 1) optional state keywords)]
-               [(eq? state 'optional)
-                (loop (cdr rest) required (+ optional 1) state keywords)]
-               [(eq? state 'key)
-                (loop (cdr rest) required optional state
-                      (cons (atom-symbol (car rest)) keywords))]
-               [else (loop (cdr rest) required optional state keywords)])]
+             (if (eq? state 'key)
+               (loop (cdr rest) required optional state
+                     (cons (atom-symbol (car rest)) keywords)
+                     (cons (cons 'key (car rest)) parameters))
+               (passed (if (eq? state 'optional) 'optional 'required)
+                       (car rest)))]
             [(member name '("rest" "body"))
-             (cons (list (cons required #f)) #f)]
+             (list (list (cons required #f)) #f
+                   (reverse (if (pair? (cdr rest))
+                              (cons (cons 'rest (cadr rest)) parameters)
+                              parameters)))]
             [(equal? name "optional")
-             (loop (cdr rest) required optional 'optional keywords)]
-            [(equal? name "key") (loop (cdr rest) required optional 'key keywords)]
-            [(equal? name "aux") (loop (cdr rest) required optional 'aux keywords)]
+             (loop (cdr rest) required optional 'optional keywords parameters)]
+            [(equal? name "key")
+             (loop (cdr rest) required optional 'key keywords parameters)]
+            [(equal? name "aux")
+             (loop (cdr rest) required optional 'aux keywords parameters)]
             [(equal? name "allow-other-keys")
-             (loop (cdr rest) required optional state #f)]
+             (loop (cdr rest) required optional state #f parameters)]
             [(member name '("whole" "environment"))
-             (loop (cdr rest) required optional state keywords)]
+             (loop (cdr rest) required optional state keywords parameters)]
             [else #f]))])))
+
+(define (clauses-of-formals elements)
+  "Return @code{(CLAUSES . KEYWORDS)} for one parameter list, or @code{#f}."
+  (let ((signature (signature-of-formals elements)))
+    (and signature (cons (car signature) (cadr signature)))))
 
 (define (combine-arities arities)
   "Return the arity that accepts what any of @var{arities} accepts, or @code{#f}.
@@ -175,25 +214,38 @@ what the definition accepts."
               #f
               (delete-duplicates (append-map cdr real)))))))
 
-(define (lambda-arity-of form)
-  "Return the arity a `lambda', `lambda*' or `case-lambda' form states, or #f."
+(define (lambda-signature form)
+  "Return the signature a `lambda', `lambda*' or `case-lambda' form states."
   (let ((head (and (node-list? form) (node-head-name form)))
         (arguments (form-arguments form)))
     (case head
       [(lambda lambda* cl-lambda)
        (and (pair? arguments)
-         (clauses-of-formals (parameters-of (car arguments))))]
+         (signature-of-formals (parameters-of (car arguments))))]
       [(case-lambda case-lambda*)
-       (combine-arities
-        (map (lambda (clause)
-               (and (node-list? clause)
-                 (pair? (node-elements clause))
-                 (clauses-of-formals (parameters-of (node-head clause)))))
-             arguments))]
+       (let ((signatures
+              (filter-map
+               (lambda (clause)
+                 (and (node-list? clause)
+                   (pair? (node-elements clause))
+                   (signature-of-formals (parameters-of (node-head clause)))))
+               arguments)))
+         (and (pair? signatures)
+           (list (append-map car signatures)
+                 (if (any (lambda (signature) (eq? (cadr signature) #f)) signatures)
+                   #f
+                   (delete-duplicates (append-map cadr signatures)))
+                 (append-map caddr signatures))))]
       [else #f])))
 
-(define (form-arity form)
-  "Return the arity @var{form} states, or @code{#f}.
+(define (lambda-arity-of form)
+  "Return the arity a `lambda', `lambda*' or `case-lambda' form states, or #f."
+  (let ((signature (lambda-signature form)))
+    (and signature (cons (car signature) (cadr signature)))))
+
+(define (form-signature form)
+  "Return @code{(CLAUSES KEYWORDS PARAMETERS)} for the procedure @var{form}
+defines, or @code{#f}.
 
 A definition states one in three shapes: the parameter list beside the name
 (`(define (f a) ...)', `(defun f (a) ...)'), a procedure value
@@ -206,16 +258,43 @@ a macro's arguments are a pattern, and a pattern is not a parameter list."
       [(memq head '(define define* define-public define-inlinable define-macro))
        (let ((first (and (pair? arguments) (car arguments))))
          (if (and first (node-list? first))
-           (clauses-of-formals (cdr (node-elements first)))
-           (and (pair? (cdr arguments)) (lambda-arity-of (cadr arguments)))))]
+           (signature-of-formals (cdr (node-elements first)))
+           (and (pair? (cdr arguments)) (lambda-signature (cadr arguments)))))]
       [(memq head '(defun defsubst defmacro cl-defun cl-defsubst cl-defmacro
                           defmethod cl-defmethod defgeneric cl-defgeneric
                           define-minor-mode define-derived-mode define-generic-mode))
        (and (pair? (cdr arguments))
-         (clauses-of-formals (parameters-of (cadr arguments))))]
+         (signature-of-formals (parameters-of (cadr arguments))))]
       [(memq head '(defvar defvar-local defcustom defparameter defface defalias))
-       (and (pair? (cdr arguments)) (lambda-arity-of (cadr arguments)))]
+       (and (pair? (cdr arguments)) (lambda-signature (cadr arguments)))]
       [else #f])))
+
+(define (form-arity form)
+  "Return the arity @var{form} states, or @code{#f}."
+  (let ((signature (form-signature form)))
+    (and signature (cons (car signature) (cadr signature)))))
+
+(define* (arity-summary arity #:optional (dialect 'scheme))
+  "Return a sentence saying what @var{arity} accepts, for a hover.
+
+The words are the ones a finding uses -- `takes 1 to 2 arguments' -- with the
+keywords a definition takes named after them, because an editor showing a
+signature has the room to say which keyword and a message has to stay short."
+  (let ((keywords (cdr arity))
+        (sigil (if (eq? dialect 'scheme) "#:" ":")))
+    (string-append
+     (format #f "takes ~a" (arity-phrase arity))
+     (cond
+       [(eq? keywords #f) ", and any keyword"]
+       [(null? keywords) ""]
+       [else
+         (format #f ", and the keyword~a ~a"
+                 (if (= 1 (length keywords)) "" "s")
+                 (string-join
+                  (map (lambda (keyword)
+                         (format #f "`~a~a`" sigil keyword))
+                       keywords)
+                  ", "))]))))
 
 (define (definition-arity definition)
   "Return the arity @var{definition} states, or @code{#f}."

@@ -425,12 +425,12 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "documentFormattingProvider")
           #:name "the server formats")
-        (assert-equal #:expect #("quickfix" "refactor.rewrite"
-                                 "source.fixAll" "source.fixAll.sift"
-                                 "source.organizeImports")
+        (assert-equal #:expect #("quickfix" "refactor.extract"
+                                 "refactor.rewrite" "source.fixAll"
+                                 "source.fixAll.sift" "source.organizeImports")
           #:got (json-ref (json-ref capabilities "codeActionProvider")
                           "codeActionKinds")
-          #:name "the server offers fixes, the one rewrite it can make, and import sorting")
+          #:name "the server offers fixes, extractions, the one rewrite it can make, and import sorting")
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "hoverProvider")
           #:name "the server answers a hover")))
@@ -697,6 +697,58 @@ the test can see it, and that nothing is left in the user's cache afterwards."
              (actions (json-ref (answer-to (cdr result) 2) "result")))
         (assert-equal #:expect 0 #:got (vector-length actions)
           #:name "nothing to offer, and nothing offered")))
+
+    (test "an expression can be extracted to a let binding"
+      (let* ((text "(define (area w h)\n  (+ (* w h) 1))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 6
+                                                              '("refactor.extract")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (action (find (lambda (candidate)
+                             (string-contains (json-ref candidate "title") "bind"))
+                           actions))
+             (changes (and action (json-ref (json-ref action "edit") "documentChanges")))
+             (edits (and changes (json-ref (vector-ref changes 0) "edits")))
+             (replacement (and edits (json-ref (vector-ref edits 0) "newText"))))
+        (assert-true (and action #t) #:name "an extraction was offered")
+        (assert-equal #:expect "refactor.extract" #:got (json-ref action "kind"))
+        (assert-same-text #:expect "(let ((value (* w h))) (+ value 1))"
+                          #:got replacement
+                          #:name "the expression was hoisted into a binding")))
+
+    (test "an expression can be extracted to a procedure"
+      (let* ((text "(define (area w h)\n  (+ (* w h) 1))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 6
+                                                              '("refactor.extract")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (action (find (lambda (candidate)
+                             (string-contains (json-ref candidate "title") "procedure"))
+                           actions))
+             (changes (and action (json-ref (json-ref action "edit") "documentChanges")))
+             (edits (and changes (vector->list (json-ref (vector-ref changes 0) "edits"))))
+             (texts (if edits (map (lambda (edit) (json-ref edit "newText")) edits) '())))
+        (assert-equal #:expect "refactor.extract" #:got (json-ref action "kind"))
+        (assert-equal #:expect "(extracted w h)" #:got (car texts)
+          #:name "the expression is replaced by the call")
+        (assert-contains #:expect (cadr texts) #:got "(define (extracted w h)"
+          #:name "and the procedure takes the enclosing parameters")))
+
+    (test "a client that asks for quickfixes gets no extraction"
+      (let* ((text "(define (area w h)\n  (+ (* w h) 1))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 6 '("quickfix")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (kinds (delete-duplicates
+                     (map (lambda (action) (json-ref action "kind")) actions))))
+        (assert-equal #:expect #f #:got (member "refactor.extract" kinds)
+          #:name "no extraction was mixed in")))
 
     (test "formatting answers with the text sift would write"
       (let* ((result (session (list (initialize-request 1)

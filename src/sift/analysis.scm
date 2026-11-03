@@ -36,6 +36,7 @@
   #:use-module (sift reader)
   #:use-module (sift definitions)
   #:use-module (sift check base)
+  #:use-module (sift checkers inference)
   #:use-module (sift strings)
   #:use-module (sift json)
   #:export (;; --- json members, shared with the server ---
@@ -112,7 +113,8 @@
             valid-symbol-name?
             symbol-hover
             lsp-signature-help
-            lsp-inlay-hints))
+            lsp-inlay-hints
+            extract-actions))
 
 ;;; ===== The wire =====
 ;;;
@@ -744,18 +746,30 @@ an editor will not apply the edit over typing that arrived in the meantime."
     (json-object (field "documentChanges" (list->vector (reverse changes))))))
 
 (define (symbol-hover text dialect definition)
-  "Return the hover that describes a definition rather than a rule."
-  (let ((dialect (symbol->string dialect)))
+  "Return the hover that describes a definition rather than a rule.
+
+A procedure is described by what it takes as well as by what it is: the form
+is what the outline shows, and the sentence beside it is the same reading of
+the parameter list the arity rule makes, so a hover and a finding cannot
+disagree about how many arguments a definition wants."
+  (let* ((dialect-name (symbol->string dialect))
+         (signature (and (memq (definition-kind definition) '(function method))
+                      (definition-form definition)
+                      (form-signature (definition-form definition))))
+         (summary (and signature
+                    (arity-summary (cons (car signature) (cadr signature))
+                                   dialect))))
     (json-object
      (field "contents"
             (json-object
              (field "kind" "markdown")
              (field "value"
-                    (format #f "**~a** — ~a~%~%```~a~%~a~%```~@[~%~%~a~]"
+                    (format #f "**~a** — ~a~%~%```~a~%~a~%```~@[~%~%~a~]~@[~%~%~a~]"
                             (definition-name definition)
                             (definition-kind definition)
-                            dialect
+                            dialect-name
                             (symbol-detail definition text)
+                            summary
                             (definition-docstring definition))))))))
 
 (define (documentation-text text)
@@ -800,27 +814,86 @@ way of saying \"the next one\"."
        (loop (cdr elements) (+ count 1))]
       [else count])))
 
+(define (parameter-label parameter text dialect)
+  "Return one parameter as a signature writes it.
+
+A keyword is spelled the way the dialect spells one, because that is the word
+a caller types: `#:height' in Guile, `:height' in Common Lisp."
+  (let ((kind (car parameter))
+        (node (cdr parameter)))
+    (case kind
+      [(key)
+       (string-append (if (eq? dialect 'scheme) "#:" ":")
+                      (symbol->string (or (and (node-atom? node) (atom-symbol node))
+                                        'key)))]
+      [else
+        (cond
+          [(not node) ""]
+          [(node-atom? node) (node-value node)]
+          [else (substring text (form-start node)
+                           (min (form-end node) (string-length text)))])])))
+
+(define (parameter-position parameters name)
+  "Return where the keyword called @var{name} is written, or 0."
+  (or (list-index (lambda (parameter)
+                    (and (eq? (car parameter) 'key)
+                      (let ((node (cdr parameter)))
+                        (and (node-atom? node)
+                          (equal? (atom-symbol node) name)))))
+                  parameters)
+    0))
+
+(define (active-parameter call index parameters)
+  "Return which parameter of @var{call} the cursor at @var{index} is writing.
+
+An argument the cursor has not left yet is the one being written; a keyword
+places it at that keyword's own parameter, which is what makes the editor
+underline `#:height' while its value is typed rather than the first argument."
+  (let loop ((rest (form-arguments call)) (position 0))
+    (cond
+      [(null? rest)
+       (if (pair? parameters) (min position (- (length parameters) 1)) 0)]
+      [(keyword-node? (car rest))
+       (let ((keyword (car rest))
+             (value (and (pair? (cdr rest)) (cadr rest))))
+         (cond
+           [(<= index (form-end keyword))
+            (parameter-position parameters (atom-symbol keyword))]
+           [(and value (<= index (form-end value)))
+            (parameter-position parameters (atom-symbol keyword))]
+           [else (loop (cddr rest) position)]))]
+      [(<= index (form-end (car rest)))
+       (and (pair? parameters) (min position (- (length parameters) 1)))]
+      [else (loop (cdr rest) (+ position 1))])))
+
 (define* (lsp-signature-help workspace documents uri text dialect index)
   "Return the signature of the call the cursor is in, or @code{#f}.
 
-The signature is the one sift can know: the definition's own formal list, and
-the docstring the hover already shows.  A procedure from a library sift cannot
-read has no signature here, and answering with an invented one would be worse
-than answering nothing."
+The signature is the one sift can know: the definition's parameter list, read
+the way the arity rule reads it, so the editor shows the keyword names, the
+optional and rest parameters, and which of them is being written.  A procedure
+from a library sift cannot read has no signature here, and answering with an
+invented one would be worse than answering nothing."
   (let* ((ast (ast-of-text text dialect))
          (call (call-at ast index)))
     (and call
       (let ((head (node-head call)))
         (let* ((sites (definition-sites workspace documents uri text dialect
                                         (source-location-index (node-start head))))
-               (definition (and (pair? sites) (caddr (car sites))))
-               (formals (and definition
-                          (filter-map (lambda (formal)
-                                        (and (node-atom? formal) (node-value formal)))
-                                      (definition-formals definition)))))
-          (and (pair? formals)
+               (site (and (pair? sites) (car sites)))
+               (definition (and site (caddr site)))
+               (definition-text (and site (cadr site)))
+               (signature (and definition (definition-form definition)
+                            (form-signature (definition-form definition))))
+               (parameters (and signature (caddr signature))))
+          (and (pair? parameters)
             (let* ((name (definition-name definition))
-                   (label (format #f "(~a ~a)" name (string-join formals " ")))
+                   (labels (map (lambda (parameter)
+                                  (parameter-label parameter definition-text dialect))
+                                parameters))
+                   (label (format #f "(~a ~a)" name (string-join labels " ")))
+                   (arity (cons (car signature) (cadr signature)))
+                   (summary (arity-summary arity dialect))
                    (documentation (documentation-text
                                    (definition-docstring definition))))
               (json-object
@@ -830,16 +903,18 @@ than answering nothing."
                         (field "label" label)
                         (field "parameters"
                                (list->vector
-                                (map (lambda (formal)
-                                       (json-object (field "label" formal)))
-                                     formals)))
+                                (map (lambda (parameter-text)
+                                       (json-object (field "label" parameter-text)))
+                                     labels)))
                         (field "documentation"
-                               (if (string? documentation)
-                                 (json-object (field "kind" "markdown")
-                                              (field "value" documentation))
-                                 json-null)))))
+                               (json-object
+                                (field "kind" "markdown")
+                                (field "value"
+                                       (if (string? documentation)
+                                         documentation
+                                         summary)))))))
                (field "activeSignature" 0)
-               (field "activeParameter" (argument-index call index))))))))))
+               (field "activeParameter" (active-parameter call index parameters))))))))))
 
 (define (workspace-root-of params)
   "Return the directory an `initialize' request says the workspace is under."
@@ -853,6 +928,234 @@ than answering nothing."
       [else
         (let ((path (json-ref params "rootPath" #f)))
           (and (string? path) (not (string-null? path)) path))])))
+
+;;; ===== Refactors =====
+;;;
+;;; Two extractions, and both are the same three steps: find the expression the
+;;; cursor is in, name it, and write the name where the expression was.  What
+;;; differs is where the expression goes -- into a `let' binding around the
+;;; form that held it, or into a procedure beside the definition it came from.
+;;;
+;;; A refactor that has to be told what to call things is a refactor nobody
+;;; runs, so the name is read from the expression: the operator of a call names
+;;; what it computes, and the fallback names anything that does not.  A name
+;;; the document already uses is not reused -- `area' becomes `area-2' -- so an
+;;; extraction cannot shadow the procedure the call came from.
+
+(define (form-at ast index)
+  "Return two values: the innermost form of @var{ast} holding @var{index}, and
+its ancestors, nearest first."
+  (define (inside? node)
+    (and (<= (form-start node) index)
+      (< index (max (form-start node) (form-end node)))))
+  (define (descend node ancestors)
+    (let ((child (find (lambda (candidate)
+                         (and (node-data? candidate) (inside? candidate)))
+                       (if (node-list? node) (node-elements node) '()))))
+      (if child
+        (descend child (cons node ancestors))
+        (values node ancestors))))
+  (let loop ((nodes ast))
+    (cond
+      [(null? nodes) (values #f '())]
+      [(and (node-data? (car nodes)) (inside? (car nodes)))
+       (descend (car nodes) '())]
+      [else (loop (cdr nodes))])))
+
+(define (expression-at ast index)
+  "Return two values: the expression a request at @var{index} is about, and
+its ancestors.
+
+An atom is an expression, but the head of a call is not what a reader means by
+\"this expression\": `(compute-area w h)' with the cursor on `compute-area' is
+a request about the call, so the call is what an extraction works on."
+  (call-with-values (lambda () (form-at ast index))
+    (lambda (node ancestors)
+      (if (and node (pair? ancestors)
+            (eq? node (node-head (car ancestors))))
+        (values (car ancestors) (cdr ancestors))
+        (values node ancestors)))))
+
+(define (symbol-names node)
+  "Return every symbol @var{node} writes, in source order."
+  (cond
+    [(not node) '()]
+    [(node-atom? node)
+     (if (eq? (node-atom-type node) 'symbol) (list (node-value node)) '())]
+    [(node-list? node) (append-map symbol-names (node-elements node))]
+    [(node-prefix? node) (symbol-names (node-child node))]
+    [else '()]))
+
+(define (document-names ast)
+  "Return every symbol the document writes, for choosing a name nobody uses."
+  (delete-duplicates (append-map symbol-names (filter node-data? ast))))
+
+(define (parameter-names-of form)
+  "Return the names a definition form binds as parameters."
+  (filter-map (lambda (node)
+                (and (node-atom? node)
+                  (eq? (node-atom-type node) 'symbol)
+                  (node-value node)))
+              (and form (definition-formals form))))
+
+(define (let-names-of form)
+  "Return the names a `let' form binds, or @code{'()}."
+  (let ((arguments (form-arguments form)))
+    (and (pair? arguments)
+      (let* ((named (and (node-atom? (car arguments)) (pair? (cdr arguments))))
+             (bindings (if named (cadr arguments) (car arguments))))
+        (and (node-list? bindings)
+          (filter-map (lambda (binding)
+                        (and (node-list? binding)
+                          (let ((head (node-head binding)))
+                            (and head (node-atom? head) (node-value head)))))
+                      (node-elements bindings)))))))
+
+(define (enclosing-names ancestors)
+  "Return the names the forms around an expression bind.
+
+A parameter or a `let' variable is what an expression can be pulled out of and
+still need: everything else it mentions is either defined at the top level --
+still in scope for a procedure written beside it -- or bound inside the
+expression itself, and so not an argument."
+  (delete-duplicates
+   (append-map
+    (lambda (ancestor)
+      (cond
+        [(not (node-list? ancestor)) '()]
+        [(memq (node-head-name ancestor) '(let let* letrec letrec*))
+         (or (let-names-of ancestor) '())]
+        [(definition-form? ancestor)
+         (append-map parameter-names-of (parse-definitions (list ancestor)))]
+        [else '()]))
+    ancestors)))
+
+(define (free-names node ancestors)
+  "Return the names @var{node} uses that an enclosing form binds."
+  (let ((enclosing (enclosing-names ancestors)))
+    (delete-duplicates
+     (filter (lambda (name) (member name enclosing)) (symbol-names node)))))
+
+(define (name-from-form node fallback)
+  "Return the name an expression suggests, or @var{fallback}.
+
+`(compute-area w h)' computes an area, and `compute-area' is the name a reader
+would have chosen; `(* w h)' suggests nothing a variable should be called, so
+the fallback is used instead of `*'."
+  (let* ((head (and (node-list? node) (node-head node)))
+         (text (cond
+                 [(and head (node-atom? head)
+                    (eq? (node-atom-type head) 'symbol)) (node-value head)]
+                 [(and (node-atom? node)
+                    (eq? (node-atom-type node) 'symbol)) (node-value node)]
+                 [else ""]))
+         (clean (list->string
+                 (filter (lambda (character)
+                           (or (char-alphabetic? character)
+                             (char-numeric? character)
+                             (char=? character #\-)))
+                         (string->list (or text ""))))))
+    (if (and (positive? (string-length clean))
+          (char-alphabetic? (string-ref clean 0)))
+      clean
+      fallback)))
+
+(define (fresh-name base used)
+  "Return @var{base}, or the first `base-N' that is not in @var{used}."
+  (if (not (member base used))
+    base
+    (let loop ((counter 2))
+      (let ((candidate (format #f "~a-~a" base counter)))
+        (if (member candidate used) (loop (+ counter 1)) candidate)))))
+
+(define (wrapped-line text)
+  "Return @var{text} with every line but the first indented by two spaces."
+  (string-join (string-split text #\newline) "\n  "))
+
+(define* (extract-to-let text ast start end #:key (uri "") (version #f))
+  "Return the action that binds the selected expression to a name, or #f.
+
+The binding goes around the form the expression is written in -- the smallest
+form that still reads with the name where the expression was -- so
+`(f (g x) (h y))' with `(g x)' chosen becomes
+`(let ((value (g x))) (f value (h y)))'."
+  (call-with-values (lambda () (expression-at ast end))
+    (lambda (node ancestors)
+      (let ((parent (and (pair? ancestors) (car ancestors))))
+        (and node parent (node-list? parent)
+          (not (definition-form? parent))
+          (not (and (formals-holder? parent)
+                 (eq? (formals-of-form parent) node)))
+          (let* ((excerpt (substring text (form-start node) (form-end node)))
+                 (name (fresh-name (name-from-form node "value")
+                                   (document-names ast)))
+                 (rewritten (string-append
+                             (substring text (form-start parent) (form-start node))
+                             name
+                             (substring text (form-end node) (form-end parent))))
+                 (replacement (format #f "(let ((~a ~a)) ~a)"
+                                      name excerpt rewritten)))
+            (json-object
+             (field "title" (format #f "sift: bind this expression to `~a`" name))
+             (field "kind" "refactor.extract")
+             (field "edit"
+                    (workspace-edit uri version text (form-start parent)
+                                    (form-end parent) replacement)))))))))
+
+(define* (extract-to-procedure text ast start end #:key (uri "") (version #f))
+  "Return the action that moves the selected expression into a procedure, or #f.
+
+The procedure takes what the expression uses and the enclosing forms bind --
+its parameters and its `let' variables -- and it is written after the top-level
+form the expression came from, which is where the rest of the file's procedures
+are.  What the expression uses from the top level stays there: a definition is
+in scope from a procedure written beside it, so passing it as an argument would
+be a copy nobody asked for."
+  (call-with-values (lambda () (expression-at ast end))
+    (lambda (node ancestors)
+      (let ((top (and (pair? ancestors) (last ancestors))))
+        (and node top (not (eq? node top))
+          (let* ((excerpt (substring text (form-start node) (form-end node)))
+                 (arguments (free-names node ancestors))
+                 (name (fresh-name (name-from-form node "extracted")
+                                   (document-names ast)))
+                 (call (if (null? arguments)
+                         (format #f "(~a)" name)
+                         (format #f "(~a ~a)" name (string-join arguments " "))))
+                 (procedure (format #f "(define (~a~@[ ~a~])~%~a~a)"
+                                    name
+                                    (and (pair? arguments)
+                                      (string-join arguments " "))
+                                    "  "
+                                    (wrapped-line excerpt)))
+                 (edits
+                  (vector
+                   (json-object
+                    (field "range" (json-range text (form-start node)
+                                               (form-end node)))
+                    (field "newText" call))
+                   (json-object
+                    (field "range" (json-range text (form-end top) (form-end top)))
+                    (field "newText" (string-append "\n\n" procedure))))))
+            (json-object
+             (field "title"
+                    (format #f "sift: extract this expression to the procedure `~a`" name))
+             (field "kind" "refactor.extract")
+             (field "edit"
+                    (json-object
+                     (field "documentChanges"
+                            (vector
+                             (json-object
+                              (field "textDocument" (text-document-of uri version))
+                              (field "edits" edits)))))))))))))
+
+(define* (extract-actions text dialect start end #:key (uri "") (version #f))
+  "Return the extraction actions that apply to @var{start}..@var{end}."
+  (let ((ast (ast-of-text text dialect)))
+    (filter identity
+            (list (extract-to-let text ast start end #:uri uri #:version version)
+                  (extract-to-procedure text ast start end
+                                        #:uri uri #:version version)))))
 
 ;;; ===== Inlay hints =====
 ;;;
