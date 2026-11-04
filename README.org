@@ -1,3 +1,7 @@
+
+#+attr_html: :width 160 :alt sift logo
+[[file:logo.svg]]
+
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
