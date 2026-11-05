@@ -14,8 +14,7 @@
 #+description: A dialect-aware formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp. Formatting is a fixed point on text that preserves every comment, blank line and reader macro, and every fixture in the test suite asserts it.
 #+keywords: scheme emacs-lisp common-lisp formatter linter lsp guile emacs static-analysis
 
-*Formatting is a fixed point on text: the second run changes nothing, and every
-comment, blank line and reader macro of the input survives the first.*
+*an idempotent formatter, a rule-based linter and a language server for Scheme, Emacs Lisp and Common Lisp*
 
 [[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.22.0-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-92-2f6f4f.svg]]
 
