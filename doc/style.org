@@ -6,33 +6,33 @@
 #+options: toc:2 num:nil
 #+language: en
 
-/FORMAT THE FORM, NOT THE PROGRAM/ — every choice below changes how a Lisp
-file is *read*, never what it *does*.
+The form is formatted, the program is not: every choice below changes how a
+Lisp file is *read*, never what it *does*.
 
-* Why a style at all
+* Why a style is enforced
 :PROPERTIES:
 :CUSTOM_ID: why
 :END:
 
-A Lisp is written for two readers: the compiler, and a person scanning a
-buffer for the shape of the program.  The second reader is the one a style
-serves.  Lisp's advantage over other languages is that its structure is
-visible — parentheses, and nothing else — and a formatter that respects
-that structure makes the shape obvious at a glance.
+A Lisp file has two readers: the compiler, and a person scanning a buffer for
+the shape of the program.  A style serves the second.  The structure of a
+Lisp program is visible in its parentheses and in nothing else, and a
+formatter that respects that structure makes the shape legible in one
+glance.
 
-sift enforces a style because a project with two styles has none.  But it
-enforces it in the narrowest way it can: it moves whitespace and delimiter
-characters, and it suggests what a human should do next.  It never rewrites
-an expression's meaning, never reflows a form, and never fixes anything
-without being asked.
+A project with two styles has none, which is why sift enforces one — in the
+narrowest way available to it: it moves whitespace and delimiter characters
+and reports what a human should do next.  An expression's meaning is never
+rewritten, a form is never reflowed, and nothing is fixed unasked.
 
-The three principles behind every rule:
+Three invariants underlie every rule:
 
 1. *The tree is the truth.*  Indentation follows the nesting, not the
-   author's earlier indentation.  That is why formatting is idempotent.
+   indentation the author left behind.  Idempotence of formatting follows
+   from this.
 2. *Nothing is lost.*  A comment, a blank line and a `'` are content, not
-   noise; the formatter carries them through.
-3. *Say what you mean, once.*  `when` instead of `(if x y)`, `unless`
+   noise, and the formatter carries them through unchanged.
+3. *A form states its meaning once.*  `when` instead of `(if x y)`, `unless`
    instead of `(if (not x) y)`, `let` instead of a paragraph-long
    expression, `:key` instead of the sixth positional argument.
 
@@ -57,16 +57,16 @@ Every body indents two columns from the opening parenthesis:
   (+ a b))
 #+end_src
 
-*Why two?*  A Lisp line starts with a form and its operator; two columns is
-the smallest step that is visibly a step, and it leaves the most room for
-the form itself.  It is what Emacs Lisp's own manual shows, what the Scheme
-standard's examples show, and what every Lisp I have read for thirty years
-does.  Four columns make a nested form run off the right edge; one column
-is not a step at all.
+*Rationale.*  A Lisp line begins with a form and its operator, so two columns
+is the smallest step that is visibly a step and the one that leaves the most
+room for the form itself.  It is the step shown in the Emacs Lisp manual and
+in the examples of the Scheme standard, and the step every Lisp of the last
+thirty years takes.  Four columns push a nested form off the right edge; one
+column is not a step.
 
-The exception is a form whose operator has arguments on its own line: those
-arguments line up under the first one, because they are a column of arguments
-and not a body.
+The exception is a form whose operator takes arguments on a line of its own:
+those arguments align under the first of them, because they are a column of
+arguments and not a body.
 
 #+begin_src scheme
 (list (car x)
@@ -77,12 +77,12 @@ and not a body.
              :height 20)
 #+end_src
 
-*Why?*  It is what every Lisp editor does with a call, it is what Emacs does
+*Rationale.*  It is what every Lisp editor does with a call, what Emacs does
 by default, and it keeps a list of arguments readable however long the
-operator is — `(with-something-long ...)` does not push its arguments six
-columns in, it puts them where the first one is.  An operator alone on its
-line has nothing to line up under, so what follows it goes one column in from
-the opener.
+operator is: `(with-something-long ...)` does not push its arguments six
+columns in, it puts them where the first one stands.  An operator alone on
+its line has nothing to align under, so what follows it moves one column in
+from the opener.
 
 The same exception covers a *data list* — a binding list, a quoted
 structure — whose elements line up under the first element:
@@ -93,15 +93,14 @@ structure — whose elements line up under the first element:
   ...)
 #+end_src
 
-*Why?*  Those elements are not a body; they are a column of things, and a
-column is easier to scan when it is aligned.
+*Rationale.*  Those elements are not a body; they are a column of things, and
+a column is scanned more easily when it is aligned.
 
 A *vector* is such a list even when its first element is a symbol.
 `#(foo bar)` holds two symbols and is not a call to `foo`, so its elements
-line up under the first one like the bindings above; `#u8(1 2 3)` is the same
-rule with numbers in it.  Reading a vector as a call is how a formatter ends
-up aligning `#(a b` `     c)` under the wrong column for no reason the author
-can see.
+align under the first one like the bindings above; `#u8(1 2 3)` is the same
+rule with numbers in it.  Reading a vector as a call is how a formatter comes
+to align `#(a b` `     c)` under a column the author cannot account for.
 
 A *clause* is the exception to the exception.  The clause of a `cond`,
 `case`, `handler-case` or `condition-case` is a condition and a body, so its
@@ -125,9 +124,9 @@ Forms at top level are separated by at most one blank line, and runs of
 three or more inside a form are collapsed to two.  sift never *inserts* a
 blank line where there was none: the author's grouping survives.
 
-*Why?*  A blank line is a paragraph break.  In Lisp, a top-level form is a
-paragraph, and two forms that belong together are separated by one.  Three
-blank lines mean the same as one, at four times the cost.
+*Rationale.*  A blank line is a paragraph break.  In Lisp, a top-level form is
+a paragraph, and two forms that belong together are separated by one.  Three
+blank lines state what one states, at four times the cost.
 
 ** Closing delimiters trail — by default
 :PROPERTIES:
@@ -156,13 +155,13 @@ aligned with its opener:
 )
 #+end_src
 
-*Why is trailing the default?*  Because it is what every Lisp community
-does, and because a closer that trails is a closer you can *see* closing
-something.  A line holding only `)` is a line that carries no information
-except "one form ended somewhere above" — which the indentation already
-told you.  Emacs Lisp code never dangles; Common Lisp style guides say not
-to; Scheme code does not.  Dangling is available because a project that has
-already chosen it should not have to fight the formatter, but it is opt-in.
+*Why trailing is the default.*  Because it is what every Lisp community
+does, and because a trailing closer is *seen* to close something.  A line
+holding only `)` carries no information except that one form ended somewhere
+above, which the indentation has already stated.  Emacs Lisp code never
+dangles; Common Lisp style guides say not to; Scheme code does not.  Dangling
+is available because a project that has already chosen it should not have to
+fight the formatter, and it is opt-in.
 
 ** Square brackets for `cond` clauses, in Scheme
 :PROPERTIES:
@@ -175,23 +174,23 @@ already chosen it should not have to fight the formatter, but it is opt-in.
       [else 'positive])
 #+end_src
 
-*Why?*  A `cond` clause is not a call: it is a pair of *test* and *body*,
-and the bracket says where the pair ends without asking the reader to
-count parentheses.  Guile's own sources and the Guix code base write it
-this way, and since Scheme reads `[` and `(` interchangeably, the change is
-purely visual — which is the only kind of change a formatter may make.
+*Rationale.*  A `cond` clause is not a call: it is a pair of *test* and
+*body*, and the bracket marks where the pair ends without requiring the
+reader to count parentheses.  Guile's own sources and the Guix code base are
+written this way, and since Scheme reads `[` and `(` interchangeably, the
+change is purely visual — the only kind of change a formatter may make.
 
 sift applies it to the clause lists of `cond` (and `case`, when the project
-asks for it), and nowhere else: a binding list is already aligned, and
-turning every list into a bracket would be noise.  A project that prefers
-parentheses sets `brackets: parens`, or runs `--brackets=parens`; a project
-that wants to keep whatever is written sets `brackets: preserve`.
+asks for it) and to nothing else: a binding list is already aligned, and
+bracketing every list would be noise.  A project that prefers parentheses
+sets `brackets: parens`, or runs `--brackets=parens`; a project that keeps
+whatever is written sets `brackets: preserve`.
 
 It never applies to Emacs Lisp or Common Lisp, whatever the setting says: a
-square bracket is not syntax in either, so a `sift.yaml` that asks for square
-brackets and a directory that holds an `.el` file would otherwise produce a
-file Emacs cannot read.  The setting is about Scheme because the argument for
-it is about Scheme.
+square bracket is syntax in neither dialect, so a `sift.yaml` that asks for
+square brackets and a directory holding an `.el` file would otherwise produce
+a file Emacs cannot read.  The setting concerns Scheme because the argument
+for it concerns Scheme.
 
 ** Keyword arguments line up
 
@@ -203,15 +202,15 @@ A call that passes keyword arguments lines them up under its first argument:
              :height 20)
 #+end_src
 
-*Why?*  The keywords become a column of names and values instead of a
-staircase, and the reader can compare two calls by looking down the same
-column.  It is what Emacs does for a call it knows, and what a reader does for
-a call they do not.
+*Rationale.*  The keywords become a column of names and values instead of a
+staircase, and two calls can be compared by reading down the same column.  It
+is what Emacs does for a call it knows, and what a reader does for a call
+they do not.
 
-** A project's macros are the project's business
+** Macro indentation is a project's own rule
 
-When a macro is not in sift's table, sift indents it by the generic rule; when
-a project knows better, it says so in its configuration:
+A macro that is not in sift's table is indented by the generic rule; a
+project that knows better states the rule in its configuration:
 
 #+begin_src yaml
 indent-rules:
@@ -219,8 +218,8 @@ indent-rules:
   - [deftransaction, 1]
 #+end_src
 
-A project rule wins over the built-in table, so a local convention can be
-expressed without patching the tool.
+A project rule takes precedence over the built-in table, so a local
+convention is expressed without patching the tool.
 
 `use-package` is the one third-party macro already in the table, because it is
 the form an Emacs configuration is written in:
@@ -234,21 +233,22 @@ the form an Emacs configuration is written in:
   (evil-mode 1))
 #+end_src
 
-*Why?*  A `use-package` form is not a call with arguments; it is a sequence of
-clauses — `:ensure`, `:init`, `:config`, `:bind`, `:hook`, `:custom` and the
-rest — and each clause owns what follows it.  The macro says so itself, with
-`(declare (indent defun))`, which is why Emacs puts every keyword, and every
-body form under `:init` or `:config`, two columns in from the opener.  Every
-configuration written by someone who pressed `TAB` looks like the form above.
+*Rationale.*  A `use-package` form is not a call with arguments; it is a
+sequence of clauses — `:ensure`, `:init`, `:config`, `:bind`, `:hook`,
+`:custom` and the rest — and each clause owns what follows it.  The macro
+declares this itself, with `(declare (indent defun))`, which is why Emacs
+puts every keyword, and every body form under `:init` or `:config`, two
+columns in from the opener.  A configuration formatted by pressing `TAB` is
+the form above.
 
-The generic rule would do something else: the first argument — the package
-name — is on the operator's line, so everything after it would line up under
-the name, thirteen columns in for `(use-package evil`.  That is what a call
-does with its arguments, and what a form made of clauses is not: a file
-written that way has two indentation schemes in it, thirteen columns for the
-configuration and two for everything else.  A form this common is not a case
-for `indent-rules` in every project's `sift.yaml`; it is a fact about the
-macro, and it belongs in the table.
+The generic rule gives a different result: the first argument — the package
+name — stands on the operator's line, so everything after it aligns under the
+name, thirteen columns in for `(use-package evil`.  That is what a call does
+with its arguments, and it is not what a form made of clauses is: a file
+written that way carries two indentation schemes, thirteen columns for the
+configuration and two for everything else.  A form this common is a fact
+about the macro rather than a case for `indent-rules` in every project's
+`sift.yaml`, and it belongs in the table.
 
 ** No reflowing
 :PROPERTIES:
@@ -259,11 +259,11 @@ sift never moves a line break that the author put somewhere structurally
 meaningful, and it never joins two lines that the author split.  It fixes
 indentation and spacing on the lines that exist.
 
-*Why?*  Line breaks in Lisp are where the author decided a form was getting
-long.  A pretty-printer that re-decides them produces diffs that are not
-about the change being made, and a formatter whose diffs nobody reads is a
-formatter nobody runs.  It also means the formatter is safe on a file being
-edited: it cannot move a line out from under a cursor.
+*Rationale.*  A line break in Lisp records where the author judged a form to
+be getting long.  A pretty-printer that decides the breaks again produces
+diffs that are not about the change being made, and diffs of that kind stop
+being read.  The same property makes the formatter safe on a file being
+edited: no line moves out from under a cursor.
 
 ** Reader prefixes are glued to their datum
 :PROPERTIES:
@@ -274,9 +274,9 @@ edited: it cannot move a line out from under a cursor.
 The formatter closes any gap between a prefix and its datum, and
 `reader-prefix-break` (SIFT007) reports a file that has one.
 
-*Why?*  A prefix is not a form; it is part of the next form's name.  A line
-break between them reads as a break at the wrong level, and in Common Lisp
-a whitespace-sensitive feature expression makes it a real hazard.
+*Rationale.*  A prefix is not a form; it is part of the next form's name.  A
+line break between the two reads as a break at the wrong level, and in Common
+Lisp a whitespace-sensitive feature expression turns it into a hazard.
 
 ** Comments stay on their line
 :PROPERTIES:
@@ -296,11 +296,11 @@ is on:
 A standalone comment keeps its own line and takes the indentation of the
 form it is in.
 
-*Why?*  A comment's position is its meaning: `; the default is 0` on the
-line of a binding is about that binding.  Moving it is editing the program's
-documentation, which no formatter should do silently.
+*Rationale.*  A comment's position is part of its meaning: `; the default is
+0` on the line of a binding is about that binding.  Moving it edits the
+program's documentation, which no formatter should do silently.
 
-** Docstrings are documentation, not decoration
+** A docstring is written for the tools that render it
 :PROPERTIES:
 :CUSTOM_ID: docstrings
 :END:
@@ -328,13 +328,13 @@ Return the sum, which is a number."
   (+ a b))
 #+end_src
 
-*Why?*  A docstring is the only documentation most functions will ever
-have, and the tools that show it — `C-h f`, `apropos`, `(help add)`, the
-Guile manual — render it in a particular way.  A third-person opening reads
-as a description of the function rather than an instruction to the reader;
-an argument that is never mentioned is an argument the reader has to infer.
+*Rationale.*  A docstring is the only documentation most functions will ever
+have, and the tools that display it — `C-h f`, `apropos`, `(help add)`, the
+Guile manual — render it in a fixed way.  A third-person opening reads as a
+description of the function rather than as an instruction to its caller, and
+an argument that is never mentioned is an argument the reader must infer.
 
-** `when` and `unless` say it once
+** `when` and `unless` state the test once
 :PROPERTIES:
 :CUSTOM_ID: when-unless
 :END:
@@ -345,17 +345,18 @@ an argument that is never mentioned is an argument the reader has to infer.
 (when (not (ready?)) (wait))    ; => (unless (ready?) (wait))
 #+end_src
 
-*Why?*  An `if` with one branch is a `when`.  An `if` whose test is negated
-asks the reader to perform a negation while reading, and reading code
-should not require arithmetic.  Both rewrites are purely syntactic: the
+*Rationale.*  An `if` with one branch is a `when`.  An `if` whose test is
+negated requires the reader to perform a negation while reading, and reading
+code should not require arithmetic.  Both rewrites are purely syntactic: the
 same test is evaluated and the same forms run.  The checks are SIFT012
 (`if-without-else`), SIFT033 (`negated-if`), SIFT013 and SIFT014.
 
 ** Names carry the type
 
-A Lisp has no type declarations to read, so the name is most of what a reader
-knows: `positive?` is a boolean, `positive` is a number, `*port*` is special,
-`+pi+` is a constant.  Four rules keep the three dialects' conventions apart:
+A Lisp has no type declarations to read, so a name carries most of what a
+reader knows of a value: `positive?` is a boolean, `positive` is a number,
+`*port*` is special, `+pi+` is a constant.  Four rules keep the conventions of
+the three dialects apart:
 
 - *SIFT040* `naming-convention`: a definition name with an underscore
   (`read_file`) or camelCase (`readFile`) is not a Lisp name.  The rule looks
@@ -371,7 +372,7 @@ knows: `positive?` is a boolean, `positive` is a number, `*port*` is special,
 - None of them has a fix.  Renaming a definition changes every call site in
   every file, and a formatter that renames one of them has broken the program.
 
-** A long expression is a `let` waiting to happen
+** A long expression is bound with `let`
 :PROPERTIES:
 :CUSTOM_ID: let
 :END:
@@ -388,16 +389,17 @@ knows: `positive?` is a boolean, `positive` is a number, `*port*` is special,
           (car (cdr (assq 'b rest))))))
 #+end_src
 
-*Why?*  `let` is how Lisp names an intermediate result, and a name is how a
-reader stops re-deriving it.  Deep nesting (more than four levels) or a very
-long body form (more than twelve elements) is the signal that the
+*Rationale.*  `let` is how Lisp names an intermediate result, and a name is
+what stops a reader re-deriving it.  Deep nesting (more than four levels) or a
+very long body form (more than twelve elements) is the signal that the
 expression wants a step.  `let*` is the right form when a later binding
-refers to an earlier one; `let` when the bindings are independent — and a
+refers to an earlier one, and `let` when the bindings are independent; a
 binding that does not refer to itself belongs in a `let`, which is what
-SIFT015 says about a `letrec` with one binding.
+SIFT015 states of a `letrec` with one binding.
 
-The check has no fix: choosing the name and the split is the author's work,
-and a formatter that guesses names is a formatter that writes code.
+The check has no fix: the name and the split are the author's work, and a
+formatter that supplied them would be writing the program rather than
+formatting it.
 
 ** Keyword arguments past five
 :PROPERTIES:
@@ -409,12 +411,12 @@ and a formatter that guesses names is a formatter that writes code.
 (make-window x y :width 10 :height 20 :title "s") ; says what it means
 #+end_src
 
-*Why?*  A positional argument is only readable when the reader remembers
-the argument list.  Five is where that stops being true in practice: at the
-call site, the sixth `#t` says nothing, and a keyword says everything.
-`sift` reports the call, not the definition, because the callee's shape is
-the author's to decide; the rule skips special forms and the calls that are
-meant to be variadic (`list`, `format`, `+`), and the limit is
+*Rationale.*  A positional argument is readable only while the reader
+remembers the argument list.  That memory holds for five arguments: at the
+call site the sixth `#t` states nothing, and a keyword states the parameter's
+name.  `sift` reports the call rather than the definition, because the shape
+of the callee is the author's to decide; the rule skips special forms and the
+calls meant to be variadic (`list`, `format`, `+`), and the limit is
 configuration (`max-positional`).
 
 A *record* macro is the other thing that is not a call, and it is the one that
@@ -432,7 +434,7 @@ matters most in a Guix file:
 #+end_src
 
 Each argument of `package` is a *field* of the record it builds, so their
-number is the size of a package description and not the length of somebody's
+number is the size of a package description and not the length of a
 parameter list; `(package :name "hello" :version "2.12")` is not Guix, and a
 rule that asked for it would be asking for code no Guix command reads.
 `package` and `operating-system` are exempt out of the box, and `field-macros`
@@ -471,12 +473,11 @@ onwards is the caller's choice.
 :CUSTOM_ID: packages
 :END:
 
-In Common Lisp, an exported symbol is written with its package prefix
-(`app:run`), and a double colon (`other::internal`) is for debugging, not
-production.  SIFT025 and SIFT026 say so, because a file that uses
-`other::internal` is a file that breaks when `other` is reorganised, and a
-file that uses `run` unqualified depends on whatever `*package*` happens to
-be at read time.
+In Common Lisp an exported symbol is written with its package prefix
+(`app:run`), and a double colon (`other::internal`) belongs to debugging, not
+production.  SIFT025 and SIFT026 enforce this: a use of `other::internal`
+breaks when `other` is reorganised, and an unqualified `run` depends on
+whatever `*package*` happens to be at read time.
 
 ** A file says what it uses
 :PROPERTIES:
@@ -493,15 +494,15 @@ sentence rather than the names inside the libraries:
 (import (scheme base) (my lib))    ; SIFT061: no file declares `(my lib)'
 #+end_src
 
-*Why?*  An import nothing uses is a claim the file stopped keeping, and an
-import of a library that does not exist is a program that will not run.  Both
-are answerable without knowing anything about the library's contents, which is
-the line sift holds everywhere else: it reads the text it was given.
+*Rationale.*  An import nothing uses is a claim the file has stopped keeping,
+and an import of a library that does not exist is a program that will not run.
+Both questions are decidable without any knowledge of the library's contents,
+which is the line sift holds everywhere else: it reads the text it was given.
 
 Where sift *can* see the contents -- the names an `only' or `rename' clause
 spells out, and the `(export ...)' of a library the project declares -- it
 reports the unused one by name, and its fix deletes exactly that.  Where it
-cannot, it is silent: a plain `(import (scheme base))' is never reported,
+cannot, it stays silent: a plain `(import (scheme base))' is never reported,
 because most of what a standard library offers is used indirectly.  The
 `library-not-found' rule says nothing at all in a project that declares no
 libraries, so a project whose libraries live outside its tree gets no findings
@@ -541,18 +542,18 @@ nothing at all about a file with no `define-module`, which is most Scheme.
 The one place sift looks outside the file it was handed is this: the libraries
 beside it, read for their `(library ...)' and `(define-library ...)' forms and
 for their `define-module' -- the same three ways a file names itself and says
-what it exports.  The scan is bounded and cached per directory, because "does
-this library exist" is a question about the project.
+what it exports.  The scan is bounded and cached per directory, because whether
+a library exists is a question about the project.
 
 * Riastradh's rules, and which of them sift keeps
 :PROPERTIES:
 :CUSTOM_ID: riastradh
 :END:
 
-Taylor R. Campbell's *Lisp Style Rules* -- cited everywhere as Riastradh's
-style guide -- is the sharpest short argument for the choices above.  sift
-agrees with it more often than not, and where it does not the difference is a
-setting rather than an opinion baked into the program.
+Taylor R. Campbell's *Lisp Style Rules* -- cited as Riastradh's style guide --
+is the shortest sharp argument for the choices above.  sift agrees with it
+more often than not, and every disagreement is stated as a setting rather than
+fixed as an opinion in the program.
 
 ** Alignment: the same rule, already implemented
 :PROPERTIES:
@@ -583,12 +584,12 @@ first element is.
 
 The third form is the one editors disagree about: GNU Emacs indents a list
 whose operator is itself a list under the first *operand*, and Campbell
-argues -- correctly, and sift agrees -- that the operands of a call should
-share a column whatever the operator looks like, because an operand that is
-indented differently from its siblings hides from the reader.
+argues -- correctly, and sift agrees -- that the operands of a call share a
+column whatever the operator looks like, because an operand indented
+differently from its siblings no longer reads as a sibling.
 
-That rule is why keyword arguments need no rule of their own: `:width' is
-just the second argument, and it lines up where every second argument does.
+That rule is why keyword arguments require no rule of their own: `:width' is
+just the second argument, and it aligns where every second argument does.
 
 ** Comment levels
 :PROPERTIES:
@@ -617,13 +618,13 @@ only in a margin comment, where the semicolon is a gesture rather than a
 level.  A margin comment is never reported: it belongs to the line of code it
 ends, and its level is not a claim about anything.
 
-The rule carries a fix, and it is the mechanical half of it.  How many
-semicolons a comment takes is decided by the position it sits in, and that is
+The rule carries a fix, and it is the mechanical half of the rule.  How many
+semicolons a comment takes is decided by the position it occupies, which is
 something the reader knows, so ~sift fix~ re-levels every comment it reports --
 one at the end of a line, two inside a form, three at top level, a heading of
 four left alone -- and puts a space after the semicolons.  The sentence of the
 comment is untouched.  Whether the comment is about the right thing, and
-whether it is in the right place at all, is still a question only the author
+whether it is in the right place at all, remains a question the author alone
 can answer.
 
 ** One blank line, and not one more
@@ -631,7 +632,7 @@ can answer.
 :CUSTOM_ID: riastradh-blank-lines
 :END:
 
-Two blank lines mean the same as one, at twice the cost, and a blank line in
+Two blank lines state what one states, at twice the cost, and a blank line in
 the middle of a body is a paragraph break inside a paragraph.  Campbell's rule
 is one blank line between top-level forms, and none inside a body except to
 separate internal definitions.
@@ -709,9 +710,9 @@ than a variable.
 :CUSTOM_ID: rules
 :END:
 
-Every rule has a name (what you type) and a code (what an editor shows and
-what a bug report quotes).  The code is stable: it is never reused, and a new
-rule takes the next number.
+Every rule carries a name (the string a configuration uses) and a code (the
+token an editor shows and a bug report quotes).  The code is stable: it is
+never reused, and a new rule takes the next number.
 
 The complete, generated list — every rule with its code, dialects, severity,
 example and fix — is in [[file:rules.org][rules.org]], written by ~maak docs~ from the rule
@@ -754,27 +755,25 @@ grouped by dialect, with the case for each one.
 | SIFT068 | append-nothing          | info     | an `append` with the empty list among its arguments        |
 | SIFT069 | case-literal-datum      | warning  | a `case` datum `eqv?` cannot decide, such as a string      |
 
-Why these are cross-dialect: they are about the *text* (whitespace, length,
-delimiters) or about a form all three dialects share (`if`, `when`,
-`progn`, `let`).  Everything about a specific dialect's bookkeeping is in
-that dialect's section.
+These rules are cross-dialect because they read the *text* (whitespace, length,
+delimiters) or a form all three dialects share (`if`, `when`, `progn`, `let`).
+Bookkeeping specific to one dialect is in that dialect's section.
 
-*Why SIFT003 is 96 columns:* the limit is soft -- it warns, and sift will not
-reflow the line for you.  Scheme and Common Lisp get 96; Emacs Lisp gets 80,
-the width the Emacs manual assumes for a docstring's first line and for a
-source file read side by side.  The number is a default, not a law:
-`--line-length`, or `line-length:` in a config file, moves it for a project
-that writes to a different width.
+*SIFT003 at 96 columns:* the limit is soft -- it warns, and the line is not
+reflowed.  Scheme and Common Lisp get 96; Emacs Lisp gets 80, the width the
+Emacs manual assumes for a docstring's first line and for two source files
+read side by side.  The number is a default rather than a law: `--line-length`,
+or `line-length:` in a config file, moves it for a project that writes to a
+different width.
 
-*Why SIFT001 and SIFT002 matter:* trailing whitespace is invisible and
-shows up in every diff; a tab renders at a different width in every editor,
-so indentation that uses one is not indentation the next reader will see.
+*The case for SIFT001 and SIFT002:* trailing whitespace is invisible and
+appears in every diff; a tab renders at a different width in every editor, so
+indentation written with one is not indentation the next reader will see.
 
-*Why SIFT004 has no fix:* putting a `)` where sift thinks it belongs is a
-guess about what the program means.  sift reports the opening delimiter and
-stops.
+*SIFT004 has no fix:* placing a `)` where it is supposed to belong is a guess
+at what the program means.  sift reports the opening delimiter and stops.
 
-*Why SIFT006 exists:* `(define (f) (progn (a) (b)))` says "a progn" twice —
+*The case for SIFT006:* `(define (f) (progn (a) (b)))` says "a progn" twice —
 the body of a definition is already a sequence.
 
 *SIFT051, SIFT052 and SIFT053* are the three layout rules borrowed from
@@ -835,10 +834,10 @@ manual, which is what a parameter is.
 | SIFT075 | save-excursion-set-buffer         | warning  | `set-buffer` inside `save-excursion`                     |
 | SIFT076 | interactive-without-arguments     | warning  | a command with parameters whose spec supplies none       |
 
-These are the Emacs Lisp Reference Manual's own requirements, taken one at
-a time so a project can adopt them one at a time.  *SIFT020* is the one with
-consequences beyond style: a file without the header is loaded with dynamic
-binding, which changes what a closure captures.
+These are the Emacs Lisp Reference Manual's own requirements, stated one at a
+time so that a project can adopt them one at a time.  *SIFT020* is the one
+with consequences beyond style: a file without the header is loaded with
+dynamic binding, which changes what a closure captures.
 
 ** Common Lisp rules
 
@@ -855,14 +854,14 @@ binding, which changes what a closure captures.
 | SIFT072 | ecase-otherwise       | warning  | a default clause in `ecase`, which turns off its check     |
 | SIFT073 | mixed-lambda-list     | warning  | a lambda list with both `&optional` and `&key`             |
 
-*SIFT027* is the Common Lisp half of the community-style decision: the
-Google Common Lisp style guide, and every Lisp I know, keeps the closer on
-the last line.
+*SIFT027* is the Common Lisp half of the community-style decision: the Google
+Common Lisp style guide keeps the closer on the last line, and so does every
+Lisp file seen in practice.
 
-*SIFT029* is the only rule that is silent by default: LOOP accepts both
-`for` and `:for`, communities differ, and a rule that fires on half the
-world's `loop` forms is a rule that gets switched off.  Set
-`loop-keywords: literal` (or `symbolic`) to enforce one.
+*SIFT029* is the only rule silent by default: LOOP accepts both `for` and
+`:for`, communities differ, and a rule that fires on half the world's `loop`
+forms is switched off.  `loop-keywords: literal` (or `symbolic`) enforces
+one.
 
 *SIFT030*: `identity` in value position is a no-op, and `(funcall #'foo x)`
 is `(foo x)`.
@@ -873,8 +872,8 @@ The Guix manual's packaging chapter and the manual's own G-Expressions
 chapter are the fourth style document a Scheme file can be held to, and
 sift reads them as Scheme: a `.scm` package definition is a file of forms,
 `#~(...)` is a reader prefix on a datum, and a build phase is a lambda.  Four
-of these rules are about the gexp seam itself, three about what a gexp says
-where another form would say it more plainly, and four about the package
+of these rules concern the gexp seam itself, three concern what a gexp states
+where another form would state it more plainly, and four concern the package
 record's own vocabulary.
 
 | Code    | Rule                        | Severity | What it says                                             |
@@ -951,17 +950,17 @@ of the file has been read.
 | SIFT091 | unused-import-from        | info     | a `:import-from` name the file never uses              |
 | SIFT092 | eq-non-symbol             | warning  | `eq`/`eq?` of a literal that identity cannot decide     |
 
-*Why these are not inferences.*  A type system would answer all five and cost
-a compiler, and a language server that guessed would be wrong in the one place
-a reader trusts it.  What every one of them reads is the source itself: `+`
+*Reading, not inference.*  A type system would answer all five and cost a
+compiler, and a language server that guessed would be wrong in the one place a
+reader trusts it.  Every one of these rules reads the source itself: `+`
 takes numbers because that is what the operator is, `string-append` takes
 strings because that is what its name says, `1` is a number, `"1"` is a
 string, `(eq? x 1)` cannot decide two numbers that were read separately, and a
-name imported into a package and never mentioned is a name nobody used.  A
-variable is not typed by any of them: `(string-append "a" b)` says nothing
-about `b`, and sift says nothing either.
+name imported into a package and never mentioned is a name nobody used.  No
+variable is typed by any of them: `(string-append "a" b)` says nothing about
+`b`, and sift says nothing either.
 
-*Why they run after the rest.*  Each needs the file's definition table, which
+*The pass order.*  Each of these needs the file's definition table, which
 means the whole buffer has been read and, for `call-arity`, walked.  That is
 fast -- milliseconds on a file of a few thousand lines -- but it is not free,
 so the language server publishes the findings that need only the form in front
@@ -980,8 +979,8 @@ A survey of the documents each community writes for itself -- Riastradh's
 *Lisp Style Rules* and the R7RS report for Scheme, the Google Common Lisp
 style guide and Mallet's rule catalogue for Common Lisp, the Emacs Lisp
 Reference Manual's Coding Conventions together with `checkdoc', `package-lint'
-and `elisp-lint` for Emacs Lisp -- found the shapes below, each of which is
-about the text rather than about what the author meant.
+and `elisp-lint` for Emacs Lisp -- yields the shapes below, each of which
+concerns the text rather than what the author meant.
 
 Three are simplifications the guides state as equivalences, so they carry
 fixes:
@@ -1009,10 +1008,10 @@ string, so `(case x (("a") 1))` is a clause that can never match.
 
 *SIFT070* is R7RS's rule for `letrec`: an initializer may not refer to the
 value of any variable the form is binding, because none of them has been
-assigned when it runs.  All-lambda initializers satisfy that automatically,
-which is why `letrec` is normally a set of mutually recursive procedures;
-another initializer that mentions a binding is a `letrec*' under the wrong
-name.
+assigned when it runs.  All-lambda initializers satisfy that condition
+automatically, which is why `letrec` normally holds a set of mutually
+recursive procedures; another initializer that mentions a binding is a
+`letrec*' under the wrong name.
 
 The Guix manual is the fourth of these documents, and the one a Scheme
 packager is held to besides the language: its packaging chapter supplies
@@ -1055,12 +1054,12 @@ f
 (f)
 #+end_src
 
-*Why?*  A Lisp rewards saying the same thing in fewer parentheses, and these
-four shapes are not a matter of taste: each of them *is* the shorter form.  A
-lambda that passes its argument straight on is the procedure; a lambda applied
-where it is written is a `let`; a lambda whose body is one call around another
-is a composition; a `let` that binds a name to return it is its value, and a
-`let` with no bindings is its body.
+*Rationale.*  These four shapes are syntactic equivalences rather than matters
+of taste: each of them *is* the shorter form.  A lambda that passes its
+argument straight on is the procedure; a lambda applied where it is written is
+a `let`; a lambda whose body is one call around another is a composition; a
+`let` that binds a name only to return it is its value, and a `let` with no
+bindings is its body.
 
 The rules are the shape, not the style, and every condition that would make
 the rewrite wrong is checked first: one plain formal, exactly that formal
@@ -1072,7 +1071,8 @@ call says something the lambda does not.  SIFT045 and SIFT047 are Scheme only:
 is Guile's.
 
 All four have fixes, because each one is a syntactic equivalence and nothing
-has to be named.  A fix sift cannot state that confidently is not a fix.
+has to be named.  A fix is emitted only where the equivalence can be stated
+with that confidence.
 
 ** SXML is markup, and markup has rules
 
@@ -1094,20 +1094,20 @@ has to be named.  A fix sift cannot state that confidently is not a fix.
 (div (@ (class "card")) "")
 #+end_src
 
-*Why?*  SXML is Lisp used as markup — `(element (@ (attribute "value")) child
-...)` — and a formatter does not need to know that: an element is a list, and
-the attribute list, being the first argument, lines up under itself the way
-every call does.  A linter can say the three things the shape itself cannot:
-the attribute list belongs first and there is one of it, a child is an element,
-a string or a number rather than a list of them, and an element with no
-children at all is an element whose tag will not be closed.
+*Rationale.*  SXML is Lisp used as markup — `(element (@ (attribute "value"))
+child ...)` — and a formatter needs no knowledge of that: an element is a
+list, and the attribute list, being the first argument, aligns under itself as
+in every call.  A linter can state the three things the shape cannot: the
+attribute list comes first and occurs once, a child is an element, a string or
+a number rather than a list of them, and an element with no children at all is
+an element whose tag will not be closed.
 
-What makes these rules safe to ship is the test for "is this markup": the
-attribute list itself.  A list whose head is a symbol and that holds an
-`(@ ...)` child is an element, and nothing else is judged.  `(f "a" "b")` in
-ordinary code is a call with two strings, and SXML has no opinion about it.
+What makes these rules safe to state is the test for markup: the attribute
+list itself.  A list whose head is a symbol and that holds an `(@ ...)` child
+is an element, and nothing else is judged.  `(f "a" "b")` in ordinary code is
+a call with two strings, and SXML says nothing about it.
 
-*Why SIFT063 is a warning:* `(div (@ (class "card")))` serializes as
+*The severity of SIFT063:* `(div (@ (class "card")))` serializes as
 `<div class="card"/>`.  XML reads that as a complete element; HTML does not —
 the self-closing form exists only for the void elements, so a browser keeps the
 `div` open and every following element ends up inside it.  One omitted child
@@ -1155,7 +1155,8 @@ form of the body, so a string after `(interactive)` documents nothing and
 
 - *It will not reflow.*  Long lines are reported (SIFT003), not broken.
 - *It will not guess.*  An unbalanced file is refused, with the position of
-  the opening delimiter, unless `--force` says "format what you can read".
+  the opening delimiter, unless `--force` directs it to format what it can
+  read.
 - *It will not fix without `--fix`,* and it will not apply a fix that makes
   the file parse worse.  A fix that would introduce a new parse error is
   discarded along with every other fix of that run.
@@ -1192,7 +1193,7 @@ form of the body, so a string after `(interactive)` documents nothing and
 
 4. *Ask why:* `sift explain RULE` prints the rule's code, description,
    dialects, severity, a failing example and the fix it expects; and
-   `M-x sift-explain-at-point` in Emacs does it from the line you are on.
+   `M-x sift-explain-at-point` in Emacs does it at the line at point.
 
 * The style in one page
 :PROPERTIES:

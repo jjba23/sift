@@ -7,20 +7,20 @@
 #+options: toc:2 num:nil
 #+language: en
 
-What `sift lsp` answers, request by request, and what it refuses.
-A missing feature is a line here rather than a guess made from the editor's
-side.
+The requests `sift lsp` answers, request by request, and the requests it
+refuses.  A feature that is absent is a line here, rather than a guess made
+from the editor's side.
 
 * What the language server answers
 :PROPERTIES:
 :CUSTOM_ID: lsp-coverage
 :END:
 
-~sift lsp~ answers what sift can answer truthfully and refuses the rest with
-the protocol's own "method not found", because a server that answered every
-request an editor can make would be lying about half of them.  This table is
-the whole of it, so a missing feature is a line here rather than a guess made
-from the editor's side.
+~sift lsp~ answers what sift can answer truthfully and refuses the remainder
+with the protocol's own "method not found" error, since a server that answered
+every request an editor can make would be misrepresenting half of them.  The
+table below is exhaustive, so a feature absent from it is absent from the
+server.
 
 | Request                                              | Status  | What sift does                                                                    |
 |------------------------------------------------------+---------+-----------------------------------------------------------------------------------|
@@ -55,35 +55,36 @@ from the editor's side.
 | ~textDocument/diagnostic~ (pull)                     | no      | findings are pushed after every change                                            |
 | ~workspace/didChangeWorkspaceFolders~                | no      | the root is read once, at ~initialize~                                            |
 
-Two limits belong next to the table rather than in an issue.  A reference is
-matched *by name, within one dialect*: sift expands no macro, follows no
-~define-module~ import and reads no ~defpackage~, so a name a macro invents is
-invisible to ~references~ and to ~rename~.  And the project is read once per
-session, on the first request that needs it: what refreshes it afterwards is
-the client saying so -- a ~didSave~, a file changed on disk, a configuration
-edited and saved -- which is why the server asks for ~openClose~, a full change
-and ~save~ in its synchronisation options instead of the bare change kind ~1~.
-An editor that sends none of those is an editor sift can only answer from what
-it read when the session started.
+Two limitations belong beside the table rather than in an issue tracker.  A
+reference is matched *by name, within one dialect*: sift expands no macro,
+follows no ~define-module~ import and reads no ~defpackage~, so a name
+introduced by a macro is invisible to ~references~ and to ~rename~.  The
+project is read once per session, on the first request that requires it;
+afterwards it is refreshed only when the client says so -- a ~didSave~, a file
+changed on disk, a configuration edited and saved -- which is why the server
+requests ~openClose~, a full change and ~save~ in its synchronisation options
+rather than the bare change kind ~1~.  An editor that sends none of these
+leaves the server answering from what it read when the session started.
 
-The code actions are the five things sift can do without being told what to
-call anything: fix the finding under the cursor (~quickfix~); bind the
-expression under the cursor to a name around the form that held it, move it
-into a procedure beside the definition it came from, or give a lambda a name of
-its own and move that to the top level (all ~refactor.extract~); replace a call
-with the body it calls (~refactor.inline~); and fix or reformat what the cursor
-is inside (~source.fixAll.sift~, ~refactor.rewrite~, the latter offered only
-for a top-level form because the formatter indents from column zero and a
-fragment would land at the margin).
-An extraction names what it extracts from the expression -- `(compute-area w
+The code actions are the five operations sift can perform without being told
+what anything should be called: fix the finding under the cursor (~quickfix~);
+bind the expression under the cursor to a name around the form that held it,
+move it into a procedure beside the definition it came from, or give a lambda
+a name of its own and move that to the top level (all ~refactor.extract~);
+replace a call with the body it calls (~refactor.inline~); and fix or reformat
+the form the cursor is inside (~source.fixAll.sift~, ~refactor.rewrite~, the
+latter offered only for a top-level form, because the formatter indents from
+column zero and a fragment would land at the margin).
+An extraction derives its name from the expression -- `(compute-area w
 h)' becomes ~compute-area~ -- and a name the file already uses becomes
 ~compute-area-2~ rather than shadowing it.  An extraction that moves a lambda
-writes its definition before the form the lambda was in, and inlining is only
-offered where it needs no guessing: a definition in this buffer with one
-expression in its body, plain positional parameters, and none of them rebound
-inside the body -- otherwise there is no action rather than an approximation.
-A rename is a refactor too, but it needs a new name, so it is the protocol's
-own ~textDocument/rename~ rather than an action that would have to invent one
--- which is the same line ~sift fix~ draws everywhere else.
+writes its definition before the form in which the lambda occurred, and
+inlining is offered only where it requires no guessing: a definition in this
+buffer, with a single expression in its body, plain positional parameters, and
+none of them rebound inside the body -- otherwise no action is offered in
+place of an approximation.  A rename is a refactor as well, but it requires a
+new name, so it is the protocol's own ~textDocument/rename~ rather than an
+action that would have to invent one -- the same line ~sift fix~ draws
+everywhere else.
 
 Back to the [[file:../README.org][README]].

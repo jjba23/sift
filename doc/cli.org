@@ -7,8 +7,9 @@
 #+options: toc:2 num:nil
 #+language: en
 
-Every command sift has, every option it takes, and every status it
-exits with.  The README is the tour; this page is the reference.
+The commands sift provides, the options each of them accepts, and the exit
+statuses the program returns.  The README is the introduction; this page is
+the reference.
 
 * The commands
 :PROPERTIES:
@@ -30,23 +31,24 @@ sift doctor
 sift version
 #+end_src
 
-~sift --help~ prints a synopsis of the same commands, so you can always ask
-the program what it can do.
+~sift --help~ prints a synopsis of the same commands, so the program states
+its own interface.
 
-With no files and no ~--stdin~, ~format~, ~lint~ and ~check~ read standard
-input, the way a filter should.  With ~--stdin~, at most one file may be
-named, and it is used only as the label in diagnostics — which is how an
-editor lints an unsaved buffer.  A directory is read as "every Lisp file
-under here", sorted, so ~sift ci .~ means what it looks like it means.
+Given neither a file argument nor ~--stdin~, ~format~, ~lint~ and ~check~
+read standard input, in the manner of a filter.  With ~--stdin~, at most one
+file may be named, and it serves only as the label of the diagnostics -- which
+is how an editor lints an unsaved buffer.  A directory argument denotes the
+set of every Lisp file below it, in sorted order, so ~sift ci .~ applies the
+pipeline to the tree.
 
 ** Options
 :PROPERTIES:
 :CUSTOM_ID: options
 :END:
 
-I keep this table complete because a tool you cannot look up is a tool you
-stop using.  Every option can also be set in a configuration file; the
-command line wins.
+The table is exhaustive, since an option absent from the reference is an
+option nobody looks up.  Every option also has a configuration-file
+counterpart, over which the command line takes precedence.
 
 | Option                     | Where                           | What it does                                                          |
 |----------------------------+---------------------------------+-----------------------------------------------------------------------|
@@ -77,8 +79,9 @@ command line wins.
 | ~--trust-config~           | all                             | Allow this project's Scheme configuration to be evaluated             |
 | ~--~                       | all                             | Stop option parsing; everything after it is a file                    |
 
-Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
-~--dialect elisp~, and both ~--dialect elisp~ and ~--dialect=elisp~ work.
+A long option may be abbreviated to any prefix that is unambiguous: ~--dial
+elisp~ denotes ~--dialect elisp~, and both ~--dialect elisp~ and
+~--dialect=elisp~ are accepted.
 
 ** Exit codes
 :PROPERTIES:
@@ -91,11 +94,11 @@ Long options may be abbreviated to any unambiguous prefix: ~--dial elisp~ is
 | 1    | findings at or above that severity, or a file that ~format~ would change |
 | 2    | a usage error, an unreadable file, or a file that cannot be parsed       |
 
-A usage error is an unknown dialect, an unknown rule in ~--checker~, a
-malformed value, ~--write~ together with ~--stdout~, or ~ci~ together with
+A usage error is an unknown dialect, an unknown rule named in ~--checker~, a
+malformed value, ~--write~ combined with ~--stdout~, or ~ci~ combined with
 ~--fix~.  A file with an unbalanced delimiter is *recoverable*: ~lint~ reports
-it as a finding (status 1), while ~format~ and ~fix~ refuse to write (status 2)
-unless you pass ~--force~, in which case the balanced prefix is formatted and
-the broken tail is copied as it was.
+it as a finding (status 1), whereas ~format~ and ~fix~ refuse to write
+(status 2) unless ~--force~ is given, in which case the balanced prefix is
+formatted and the unbalanced tail is copied unchanged.
 
 Back to the [[file:../README.org][README]].

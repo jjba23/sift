@@ -7,28 +7,28 @@
 #+options: toc:2 num:nil
 #+language: en
 
-The two files sift reads, the four layers they are read in, and the one knob
-that is not a setting.  Everything here is data: a configuration can never run
-anything.
+The two configuration files, the four layers in which they are read, and the
+single knob that is not a setting.  Configuration is data throughout: a
+configuration file cannot execute anything.
 
 * Configuration
 :PROPERTIES:
 :CUSTOM_ID: configuration
 :END:
 
-A ~file-filter~ decides what a *directory* holds when sift walks one: ~*~
-stops at a separator, ~**~ crosses one, a leading ~!~ excludes, and the last
-pattern that matches a file decides.  A file you name on the command line is
-always read — a filter is a rule about walking, not about what you said.
+A ~file-filter~ determines what a *directory* denotes when sift walks it: ~*~
+does not cross a path separator, ~**~ does, a leading ~!~ negates a pattern,
+and the last pattern that matches a file decides.  A file named on the command
+line is always read: the filter constrains the walk, not the arguments.
 
-Four layers, each winning over the one before: built-in defaults, the system
-file (~/etc/sift/config.yaml~), your user file (~$XDG_CONFIG_HOME/sift/~), the
-project's file, and finally the command line.  Discovery walks up from the
-current directory and stops at the repository root, so a file in your home
-directory cannot silently apply to an unrelated checkout.
+Four layers, each taking precedence over the one before it: built-in defaults,
+the system file (~/etc/sift/config.yaml~), the user file
+(~$XDG_CONFIG_HOME/sift/~), the project file, and finally the command line.
+Discovery ascends from the current directory and stops at the repository root,
+so a file in a home directory cannot silently apply to an unrelated checkout.
 
-There are two formats and one schema.  YAML is data: it is read, validated and
-can never run anything, so it is the one to check in.
+Two formats share one schema.  YAML is data, read and validated, and it cannot
+execute anything, which makes it the format to keep under version control.
 
 #+begin_src yaml
 dialect: elisp
@@ -50,11 +50,11 @@ indent-rules:
   - [with-my-thing, 2]
 #+end_src
 
-Scheme is code, and is only loaded when it is trusted: named with ~--config~,
-allowed for this run with ~SIFT_TRUST_CONFIG=1~, or recorded once with
+Scheme is code, and is loaded only when it is trusted: named with ~--config~,
+permitted for a single run with ~SIFT_TRUST_CONFIG=1~, or recorded once with
 ~sift config trust sift.scm~, which adds the project to
-~$HOME/.config/sift/trusted-projects~.  A repository that is cloned and opened
-should not be able to run code merely because sift was pointed at it.
+~$HOME/.config/sift/trusted-projects~.  A repository that is cloned and then
+opened must not be able to run code merely because sift was pointed at it.
 
 #+begin_src scheme
 ;; sift.scm
@@ -63,23 +63,25 @@ should not be able to run code merely because sift was pointed at it.
   (indent-rules . ((with-my-thing . 2))))
 #+end_src
 
-A malformed configuration is an error, with a position:
+A malformed configuration is an error, reported with a position:
 
 #+begin_example
 sift: sift.yaml:1:1: unknown configuration key `line-lenght'
 #+end_example
 
-The language server is configured by these same files, so a project's
-~sift.yaml~ is the one place its editor behaviour is written down:
-~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~ say
-what the server answers.  An editor can send its own settings as well --
-Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
-~initializationOptions~ -- and they are layered over the files and validated the
-same way, with a key sift does not have reported in the editor's log rather than
-silently ignored.  [[file:editors.org][editors.org]] has the object each editor sends.
+The language server is configured from these same files, so a project's
+~sift.yaml~ is the single place where its editor behaviour is written down:
+~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~
+determine what the server answers.  An editor may send its own settings as
+well -- Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
+~initializationOptions~ -- and these are layered over the files and validated
+in the same way, with a key that sift does not define reported in the
+editor's log rather than silently ignored.  [[file:editors.org][editors.org]] gives the object
+each editor sends.
 
-A typo that is silently ignored is a setting you believe is in effect, so it
-is refused and named.  And you never have to guess which layer won:
+A typo that is silently ignored is indistinguishable from a setting in
+effect, so an unknown key is refused and named.  Which layer won is likewise
+never in doubt:
 
 #+begin_src shell
 $ sift config show --verbose
@@ -97,23 +99,24 @@ line-length
 #+end_src
 
 The complete list of keys, with their defaults and the flags that override
-them, is what ~sift config show~ prints; every key is documented by
-~sift config explain KEY~.  The Emacs package has its own settings, listed in
-[[file:emacs.org::#emacs-settings][doc/emacs.org]].
+them, is what ~sift config show~ prints, and every key is documented by
+~sift config explain KEY~.  The Emacs package carries its own settings, listed
+in [[file:emacs.org::#emacs-settings][doc/emacs.org]].
 
 * Running sift in parallel
 :PROPERTIES:
 :CUSTOM_ID: parallel
 :END:
 
-A run over a project is a run over one file at a time, and nothing a checker
-reads in one file is anything it reads in another, so ~lint~, ~format~,
-~check~ and ~ci~ spread the files over the processors.  The answers come back
-in file order and are printed in file order, so a parallel run writes exactly
-the bytes a sequential one writes; only the wall clock differs.
+A run over a project is a sequence of independent runs, one per file: nothing
+a checker reads in one file is anything it reads in another.  ~lint~,
+~format~, ~check~ and ~ci~ therefore spread the files over the processors.
+Results are collected in file order and printed in file order, so a parallel
+run emits exactly the bytes a sequential run emits; only the wall clock
+differs.
 
-Nothing needs to be configured.  ~SIFT_JOBS~ is the one knob, and it exists to
-make a parallel run comparable with a sequential one:
+No configuration is required.  ~SIFT_JOBS~ is the sole knob, and it exists to
+keep a parallel run comparable with a sequential one:
 
 #+begin_src shell
 SIFT_JOBS=1 sift ci .    # one thread, same bytes: for profiling, and for
@@ -122,17 +125,17 @@ SIFT_JOBS=4 sift ci .    # four workers, on a machine that has twelve
 #+end_src
 
 Two runs are never parallel: ~format --write~ and ~lint --fix~, which write the
-files they read.  Such a run stops at the first file it cannot read instead of
-half-rewriting a tree and then explaining itself.
+files they read.  Such a run stops at the first file it cannot read, rather
+than half-rewriting a tree and then reporting it.
 
 * The settings a project is likely to change
 :PROPERTIES:
 :CUSTOM_ID: settings
 :END:
 
-Every position in [[file:style.org][the style]] is a default, and the ones a project is likely
-to hold differently are settings rather than arguments to have in an issue
-thread:
+Every decision recorded in [[file:style.org][the style]] is a default.  The ones a project
+is likely to hold differently are settings rather than arguments to be had in
+an issue thread:
 
 | Setting               | Values                        | The default            |
 |-----------------------+-------------------------------+------------------------|
@@ -146,8 +149,8 @@ thread:
 | ~loop-keywords~       | ~literal~, ~symbolic~         | silent                 |
 | ~indent-rules~        | a list of ~[name, columns]~   | the built-in table     |
 
-A project that has decided should not have to fight its formatter, and a
-formatter that has decided should not have to argue: that is the whole reason
-these are data in ~sift.yaml~ rather than opinions in the code.
+A project that has settled a convention should not have to fight its
+formatter, and a formatter that has settled one should not have to argue;
+this is why these values are data in ~sift.yaml~ and not opinions in the code.
 
 Back to the [[file:../README.org][README]].

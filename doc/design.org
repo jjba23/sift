@@ -7,60 +7,63 @@
 #+options: toc:2 num:nil
 #+language: en
 
-Six convictions the code is measured against, and the decisions that follow
-from them.
+Six propositions the code is measured against, and the decisions that follow
+from them as consequences.
 
-* What sift believes
+* The propositions
 :PROPERTIES:
 :CUSTOM_ID: beliefs
 :END:
 
-The decisions in the next chapter are implementations of six convictions, and
-they are worth stating on their own, because they are what the code is measured
-against when a rule is added and somebody has to decide what it may do.
+The decisions in the next chapter derive from six propositions.  They are
+stated apart because they are the standard a rule is measured against when one
+is added and it has to be settled what that rule may do.
 
-1. *A file is not a string.*  Almost everything here — a comment that keeps its
-   column, a fix that replaces exactly one range, a diff that is about your
-   change — follows from reading Lisp as a tree of forms that carries positions,
-   rather than as text to be re-indented.  A formatter that treats a buffer as
-   lines of text can be fast or it can be safe; it cannot easily be both.
+1. *A source file is a datum, not a string.*  A comment that keeps its column,
+   a fix that replaces one range, a diff whose hunks are the change: all three
+   follow from reading a Lisp file as a tree of forms carrying source
+   positions.  A formatter that treats a buffer as lines of text can preserve
+   positions or it can be fast; the two are hard to hold at once.
 
-2. *A tool you have to check is a tool you stop running.*  So formatting is a
-   fixed point, a file comes back byte for byte, and a fix is thrown away rather
-   than guessed at.  The test suite asserts idempotence over every fixture,
-   because a promise that is not a test is a promise that expires quietly.
+2. *Formatting is a fixed point, and the property is tested.*  A file returns
+   byte for byte, a fix that cannot be verified is discarded rather than
+   guessed at, and the test suite asserts idempotence over every fixture: the
+   property holds by measurement, not by declaration.
 
-3. *The author decides what the code says; the tool decides where the whitespace
-   goes.*  sift re-indents, re-spaces, re-levels comments and re-brackets a
-   ~cond~ clause.  It does not rename, does not reorder, does not inline a
-   procedure you wrote by hand, and does not invent a delimiter.  The rules that
-   would need to know what you meant — ~wrap-in-let~, ~line-length~, the naming
-   rules — report, and stop there.
+3. *The author owns the program; the tool owns the layout.*  sift re-indents,
+   re-spaces, re-levels comments and re-brackets a ~cond~ clause.  It does not
+   rename, does not reorder, does not inline a procedure written by hand, and
+   does not introduce a delimiter.  The rules whose correctness would require
+   the author's intent — ~wrap-in-let~, ~line-length~, the naming rules —
+   report, and stop there.
 
 4. *A dialect is a language, not a variant.*  Common Lisp is not Scheme with
    longer names: its package prefixes, its ~LOOP~, its docstrings and its
-   dangling parentheses are read as itself, and the same file is not reformatted
-   as Scheme because it was opened in the wrong mode.  A tool that guesses the
-   dialect is a tool that rewrites your Common Lisp as Scheme one day.
+   dangling parentheses are read as itself, and the same file is not
+   reformatted as Scheme because it was opened in the wrong mode.  A formatter
+   that infers the dialect will, one day, rewrite Common Lisp as Scheme.
 
-5. *Say what you can prove, and refuse the rest.*  The language server answers
-   the requests in [[file:language-server.org][the language server page]] and answers the others with "method not
-   found".  [[file:../README.org::#web][The browser build]] has no project to read, so the two rules that
-   need one say nothing at all.  A refusal is a feature when the only
-   alternative is a plausible lie.
+5. *A request is answered only where the answer can be justified.*  The
+   language server answers the requests in
+   [[file:language-server.org][the language server page]] and answers the others
+   with "method not found".
+   [[file:../README.org::#web][The browser build]] has no project to read, so
+   the two rules that need one say nothing at all.  A refusal is a feature
+   when the only alternative is a plausible lie.
 
-6. *Everything a program says should be available as data.*  A finding is the
+6. *Every utterance of the program is available as data.*  A finding is the
    same finding in five output formats and over LSP, a rule is a record before
    it is a document, and every integration in this repository is a thin wrapper
-   over the program rather than a second implementation of it.  That is also why
-   [[file:../README.org::#web][the browser]] is a compile of the same modules and not a JavaScript rewrite:
-   two implementations of a style are two styles.
+   over the program rather than a second implementation of it.  The same
+   argument makes [[file:../README.org::#web][the browser]] a compile of the
+   same modules and not a JavaScript rewrite: two implementations of a style
+   are two styles.
 
-None of that is a promise to be clever.  A formatter earns its place by being
-boring and predictable, and every rule here that looks clever is a rule where
-the boring version would have lost something the reader needed.
+None of this is a claim to cleverness.  A formatter is useful in proportion to
+how predictable it is, and every rule here that looks clever is a rule whose
+plain version would have lost something the reader needed.
 
-* Why it is like this
+* The decisions that follow
 :PROPERTIES:
 :CUSTOM_ID: decisions
 :END:
@@ -70,57 +73,58 @@ the boring version would have lost something the reader needed.
 :CUSTOM_ID: own-reader
 :END:
 
-~read~ discards comments and keeps no positions, and cannot represent a block
-comment, a datum comment or a reader prefix as a node.  Every promise here —
+~read~ discards comments, keeps no source positions, and cannot represent a
+block comment, a datum comment or a reader prefix as a node: the abstract
+syntax it returns has no place to put them.  Each property claimed here —
 round trip, idempotence, a fix that replaces exactly one range, a comment that
-stays on its line — needs those nodes.  The reader is also deliberately
+stays on its line — requires those nodes.  The reader is also deliberately
 permissive: a file with one broken form still gets a tree, because a linter
-that refuses to say anything about a file it could not fully parse is useless
-exactly when it is needed.  The language server lives off the same property: a
-buffer being typed is a buffer with a broken tail, and it still gets the
-findings for everything before it.
+that reports nothing about a file it could not fully parse fails exactly when
+it is needed.  The language server rests on the same property: a buffer being
+typed is a buffer with a broken tail, and it still receives the findings for
+everything before the break.
 
-** One walk, and the answers kept
+** One traversal, and the answers kept
 :PROPERTIES:
 :CUSTOM_ID: one-walk
 :END:
 
-Three questions dominated the cost of a lint, and all three were answered by
-walking something again.  Whether a node is code or data -- it is data inside a
+Three questions dominated the cost of a lint, and each was answered by walking
+something a second time.  Whether a node is code or data -- it is data inside a
 quote, inside a vector literal, in the datum of a ~case~ clause, in a parameter
 list -- was decided by walking *up* the ancestors for every node of every
-checker's walk, which is a walk per node per level.  What a form is called, and
-which of its children carry a datum, was recomputed by walking its children
-every time any checker asked.  And where the lines of a
+checker's walk, which is one walk per node per enclosing level.  What a form is
+called, and which of its children carry a datum, was recomputed by walking its
+children every time any checker asked.  And where the lines of a
 file begin was worked out afresh for every finding, by consing the list of
 every line in the file.
 
-Each is now computed once and carried or kept: the data-or-code answer is
-carried *down* by the walk that asks it, the two questions about a node are
-answered on its first asking and kept in a cache slot on the node (a node never
-changes, so the cache can never be stale), and a text's line starts are kept
-until a different text is asked about.  Together they took a lint of this
+Each is now computed once and either carried or kept: the data-or-code answer
+is carried *down* by the walk that asks it, the two questions about a node are
+answered on their first asking and kept in a cache slot on the node (a node is
+immutable, so the cache cannot go stale), and the line starts of a text are
+kept until a different text is asked about.  Together they took a lint of this
 repository from twenty-five seconds to under one, and the allocation per lint
-from a gigabyte and a half to a hundred and forty megabytes -- which is also
-what makes [[file:configuration.org::#parallel][the parallel run]] worth anything at all: Guile's garbage
+from a gigabyte and a half to a hundred and forty megabytes.  The same figure
+governs [[file:configuration.org::#parallel][the parallel run]]: Guile's garbage
 collector stops every thread, so a lint that allocates less is a lint that
 parallelises better.
 
-** Fuzzy formatting, not pretty-printing
+** Layout, not pretty-printing
 :PROPERTIES:
 :CUSTOM_ID: fuzzy
 :END:
 
-A pretty-printer re-decides where the line breaks go, which produces diffs
-that are not about the change being made.  sift moves whitespace and delimiter
-characters and leaves the shape you chose.
+A pretty-printer decides the line breaks again from scratch, which produces
+diffs that are not about the change being made.  sift moves whitespace and
+delimiter characters and leaves the chosen line structure intact.
 
 ** No fixing without ~--fix~
 :PROPERTIES:
 :CUSTOM_ID: no-fix-without
 :END:
 
-A linter that fixes by default cannot be used to check anything.  ~lint~
+A linter that fixes by default cannot be used to check anything.  Hence ~lint~
 reports, ~lint --fix~ fixes, ~ci~ refuses to do either.
 
 ** ~check~ and ~ci~ are separate commands
@@ -130,7 +134,7 @@ reports, ~lint --fix~ fixes, ~ci~ refuses to do either.
 
 ~format~ prints, ~--write~ writes, ~check~ answers with the status alone, and
 ~ci~ asks the formatting question and the lint question in one go.  These are
-the shapes a hook and a pipeline need, and giving them names keeps ~format~
+the shapes a hook and a pipeline require, and giving them names keeps ~format~
 safe to pipe.
 
 ** A small YAML reader
@@ -141,19 +145,21 @@ safe to pipe.
 The configuration needs block mappings, sequences, scalars, inline lists,
 comments and positions.  A full YAML implementation is more surface than sift
 itself; a data-only subset that refuses what it does not understand, with a
-line and a column, is smaller than the bugs a general one brings.  The same
-argument, later, produced [[file:../src/sift/json.scm][src/sift/json.scm]]: the language server needs JSON,
-and sift should not need a package installed before its own server starts.
+line and a column, is a smaller surface than the faults a general one brings.
+The same argument, later, produced
+[[file:../src/sift/json.scm][src/sift/json.scm]]: the language server
+needs JSON, and sift should not need a package installed before its own server
+starts.
 
 ** Codes that never move
 :PROPERTIES:
 :CUSTOM_ID: codes
 :END:
 
-A rule's name is what you type; its code (SIFT012) is what an editor attaches
-to a diagnostic and what a bug report quotes.  Codes are assigned by hand,
-never reused, and the catalogue is generated from them — so an old log still
-means what it meant.
+A rule's name is the token typed to select it; its code (SIFT012) is what an
+editor attaches to a diagnostic and what a bug report quotes.  Codes are
+assigned by hand, never reused, and the catalogue is generated from them, so a
+log from an earlier release still denotes what it denoted.
 
 
 Back to the [[file:../README.org][README]].

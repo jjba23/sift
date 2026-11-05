@@ -7,8 +7,8 @@
 #+options: toc:2 num:nil
 #+language: en
 
-The package, the two ways in, every setting, and the one place Emacs knows
-more than sift does.
+The package, the two entry points, every setting, and the one place where
+Emacs knows more than sift does.
 
 * In Emacs
 :PROPERTIES:
@@ -16,10 +16,10 @@ more than sift does.
 :END:
 
 ~emacs/sift.el~ is a thin package: Emacs carries the text to the executable and
-the findings back, and every decision stays in one place.  It needs Emacs 28.1
-or newer and no external package.
+the findings back, and every decision remains in the executable.  It requires
+Emacs 28.1 or newer and no external package.
 
-There are two ways in, and they answer different questions.
+There are two entry points, and they answer different questions.
 
 ** With Flymake, and nothing else
 :PROPERTIES:
@@ -47,18 +47,18 @@ There are two ways in, and they answer different questions.
 | ~C-c s d~ | ~sift-flymake-mode~     | Toggle the backend                                 |
 
 The Flymake backend sends the buffer to ~sift lint --stdin --format=json~ and
-turns each finding into a diagnostic whose text starts with the rule's code
-and whose data carries the rule's name and code — which is what makes
-~C-c s a~ able to fix just that rule and ~C-c s e~ able to explain it.  The run
-is asynchronous, so typing is never held up while sift reads the buffer.
+converts each finding into a diagnostic whose text begins with the rule's code
+and whose data carries the rule's name and code: that payload is what lets
+~C-c s a~ fix that rule alone and ~C-c s e~ explain it.  The run is
+asynchronous, so input is not delayed while sift reads the buffer.
 
 ** With Eglot, and code actions
 :PROPERTIES:
 :CUSTOM_ID: emacs-eglot
 :END:
 
-If you already use Eglot, sift is a language server like any other, and this is
-the integration that gives you code actions:
+Where Eglot is already in use, sift is a language server like any other, and
+this is the integration that provides code actions:
 
 #+begin_src elisp
 (add-to-list 'load-path "/path/to/sift/emacs")
@@ -66,10 +66,10 @@ the integration that gives you code actions:
 (sift-eglot-setup)
 #+end_src
 
-~sift-eglot-setup~ teaches ~eglot-server-programs~ about Scheme, Emacs Lisp and
-Lisp buffers, starts ~sift lsp~ for them, and turns on ~sift-mode~ for its
-keymap and its format-on-save hook.  It also keeps the Flymake backend out of
-Eglot buffers: two backends would report every finding twice.
+~sift-eglot-setup~ registers ~sift lsp~ in ~eglot-server-programs~ for Scheme,
+Emacs Lisp and Lisp buffers, and enables ~sift-mode~ for its keymap and its
+format-on-save hook.  It also keeps the Flymake backend out of Eglot buffers:
+two backends would report every finding twice.
 
 | In an Eglot buffer                  | What it does                                          |
 |-------------------------------------+-------------------------------------------------------|
@@ -78,18 +78,18 @@ Eglot buffers: two backends would report every finding twice.
 | ~C-d~ on a finding                  | Eglot's own key: the rule's description, and its page |
 | ~C-c s f~                           | format with the command instead, if you prefer        |
 
-The server is ~sift lsp~, and by default that is whatever ~sift-executable~
-names; ~sift-eglot-command~ is there for a server that lives somewhere else.
-If the program is missing, ~sift-eglot-contact~ says so in one sentence rather
-than starting a process that fails.
+The server is ~sift lsp~, by default whatever ~sift-executable~ names;
+~sift-eglot-command~ serves a server installed elsewhere.  When the program is
+missing, ~sift-eglot-contact~ reports that fact in one sentence rather than
+starting a process that fails.
 
 ** Settings
 :PROPERTIES:
 :CUSTOM_ID: emacs-settings
 :END:
 
-Every knob lives in the ~sift~ customization group, so ~M-x customize-group
-RET sift~ lists them all in one buffer:
+Every setting belongs to the ~sift~ customization group, so ~M-x
+customize-group RET sift~ lists them all in one buffer:
 
 | Variable               | Default              | What it does                                                                        |
 |------------------------+----------------------+-------------------------------------------------------------------------------------|
@@ -103,7 +103,7 @@ RET sift~ lists them all in one buffer:
 | ~sift-eglot-modes~     | the three Lisp modes | The major modes Eglot starts a server for                                           |
 | ~sift-eglot-command~   | ~nil~                | The argv that starts the server, instead of ~sift lsp~                              |
 
-A configuration that pins the interesting ones:
+A configuration that fixes the interesting ones:
 
 #+begin_src elisp
 (use-package sift
@@ -117,9 +117,9 @@ A configuration that pins the interesting ones:
   (sift-flymake-setup))
 #+end_src
 
-Two warnings worth having in the file rather than in an issue: turning on
-~sift-format-on-save~ only affects buffers where ~sift-mode~ is enabled, and a
-buffer with no dialect (say a ~.rkt~ file in ~scheme-mode~) says so instead of
+Two caveats belong in the file rather than in an issue: ~sift-format-on-save~
+affects only buffers where ~sift-mode~ is enabled, and a buffer with no
+dialect (a ~.rkt~ file in ~scheme-mode~, say) reports that fact instead of
 guessing.
 
 ** A note about Emacs Lisp indentation
@@ -129,13 +129,13 @@ guessing.
 
 Emacs knows every macro in the buffer, because each one carries a
 ~lisp-indent-function~ property.  sift knows the standard forms, ~use-package~,
-and whatever you list in ~indent-rules~, and nothing else.  So in an Emacs Lisp
-buffer, ~sift-format-buffer~ may disagree with ~TAB~ on a form headed by a
-third-party macro.  The order of adoption that works: turn on
-~sift-flymake-mode~ (or Eglot) for the rules, use ~sift-fix-buffer~ for the
-fixes, and leave formatting on save off unless your macros are in
-~indent-rules~.  In Scheme and Common Lisp there is no such ambiguity, because
-the editor has no better information than sift does.
+and the macros listed in ~indent-rules~, and nothing else.  In an Emacs Lisp
+buffer, ~sift-format-buffer~ may therefore disagree with ~TAB~ on a form headed
+by a third-party macro.  The workable order is: enable ~sift-flymake-mode~ (or
+Eglot) for the rules, use ~sift-fix-buffer~ for the fixes, and leave
+format-on-save disabled unless those macros are listed in ~indent-rules~.
+Scheme and Common Lisp carry no such ambiguity, because the editor holds no
+better information than sift does.
 
 
 Back to the [[file:../README.org][README]].

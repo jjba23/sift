@@ -8,25 +8,25 @@
 #+language: en
 
 What the formatter changes, the three rules it indents by, the read syntax of
-each dialect, and the four things it refuses to do.
+each dialect, and the four refusals it makes.
 
 * Formatting
 :PROPERTIES:
 :CUSTOM_ID: formatting
 :END:
 
-The formatter does six things and refuses to do more: it normalises line
+The formatter performs six operations and no others: it normalises line
 endings, normalises spacing between forms, places closing delimiters, computes
 indentation, optionally aligns inline comments, and preserves blank lines up
-to the limits the style sets.  Everything else — where the line breaks are,
-what the strings say, what the escapes spell — is yours.
+to the limits the style sets.  The rest — where the line breaks fall, what the
+strings say, what the escapes spell — is reproduced as written.
 
 ** Two styles
 :PROPERTIES:
 :CUSTOM_ID: styles
 :END:
 
-~community~ is the default, and its closing delimiters trail the last element:
+~community~ is the default, its closing delimiters trailing the last element:
 
 #+begin_src scheme
 (define (classify n)
@@ -36,8 +36,8 @@ what the strings say, what the escapes spell — is yours.
 #+end_src
 
 ~dangling~ puts each closer on a line of its own, aligned with the opener that
-closes.  It exists because some projects write that way and a formatter should
-not fight a project that has decided:
+closes.  It exists because some projects write that way, and a formatter does
+not argue with a project that has decided:
 
 #+begin_src scheme
 (define (classify n)
@@ -53,10 +53,10 @@ not fight a project that has decided:
 :CUSTOM_ID: brackets
 :END:
 
-In Scheme, a ~cond~ clause is written with square brackets, the way Guile's
-own sources and the Guix code base do it.  The bracket is the boundary of the
-clause — a test and a body — and Scheme reads ~[~ and ~(~ the same way, so the
-change is purely visual:
+In Scheme, a ~cond~ clause is written with square brackets, as in Guile's own
+sources and in the Guix code base.  The bracket is the boundary of the clause
+— a test and a body — and Scheme reads ~[~ and ~(~ the same way, so the change
+is purely visual:
 
 #+begin_src scheme
 (cond [(< n 0) 'negative]
@@ -65,7 +65,7 @@ change is purely visual:
 #+end_src
 
 It is a setting, not a law.  ~--brackets=parens~ writes parentheses,
-~--brackets=preserve~ leaves every clause as you wrote it, and Emacs Lisp and
+~--brackets=preserve~ leaves every clause as written, and Emacs Lisp and
 Common Lisp keep what they were given because no such convention exists there —
 nor could it, since a square bracket is not syntax in either.  The
 ~clause-brackets~ rule (SIFT036) reports a file that has not been formatted
@@ -82,7 +82,7 @@ yet, and its fix swaps the two delimiter characters and nothing else.
    the opening parenthesis; the table exists so that a form whose operator
    stands alone on its line is not indented from the operator instead.
 2. A form whose first element is not a symbol is a data list — a binding list,
-   a ~cond~ clause — and its elements line up under the first.  So does a
+   a ~cond~ clause — and its elements align under the first.  So does a
    vector, whatever its first element is: see [[#vectors][Read syntax, dialect
    by dialect]].
 3. Anything else: two columns in from the opener when the first argument is on
@@ -96,8 +96,8 @@ yet, and its fix swaps the two delimiter characters and nothing else.
              :height 20)
 #+end_src
 
-One form is in the table for this reason alone, and it is the one Emacs Lisp
-file everybody writes: ~use-package~.  Its arguments are clauses —
+One form is in the table for this reason alone, and it appears in nearly every
+Emacs Lisp file: ~use-package~.  Its arguments are clauses —
 ~:ensure~, ~:init~, ~:config~, ~:bind~, ~:hook~ — and each clause owns what
 follows it, so the keyword and its body belong in one column, two columns in
 from the opener:
@@ -112,11 +112,11 @@ from the opener:
 #+end_src
 
 That is where ~TAB~ puts them, because the macro declares
-~(declare (indent defun))~ itself.  The generic rule would put the keywords
+~(declare (indent defun))~ itself.  The generic rule would place the keywords
 under the package name instead — thirteen columns in for ~(use-package evil~ —
-and a file formatted that way would have two indentation schemes in it.
+and a file formatted that way would carry two indentation schemes.
 
-A project's own macros are not something sift can know, so it asks.  In
+A project's own macros cannot be known to sift, so they are declared.  In
 ~sift.yaml~:
 
 #+begin_src yaml
@@ -125,17 +125,17 @@ indent-rules:
   - [deftransaction, 1]
 #+end_src
 
-and a project rule wins over the built-in table.
+and a project rule takes precedence over the built-in table.
 
 ** Read syntax, dialect by dialect
 :PROPERTIES:
 :CUSTOM_ID: vectors
 :END:
 
-sift is written in Guile and for Guile, so what Guile reads is what it knows
-best.  It is not Guile-only: the reader knows the read syntax of R6RS, R7RS and
-the Schemes that follow them — Chez, Gauche, Chicken, Chibi, Gambit, MIT — and
-of the other two dialects sift formats.
+sift is written in Guile and for Guile, so the read syntax it knows best is
+Guile's.  It is not restricted to Guile: the reader implements the read syntax
+of R6RS, R7RS and the Schemes that follow them — Chez, Gauche, Chicken, Chibi,
+Gambit, MIT — and of the other two dialects sift formats.
 
 #+begin_src scheme
 (define table #(one two three))         ; a vector
@@ -146,9 +146,9 @@ of the other two dialects sift formats.
   #`(list #,x #,@xs))                   ; syntax-case: Guile and R6RS
 #+end_src
 
-- A vector's elements line up under its first element, whatever that element
+- A vector's elements align under its first element, whatever that element
   is.  ~#(foo bar)~ is a literal that holds two symbols, not a call to ~foo~,
-  so the formatter does not use a call's alignment on it.
+  so the formatter does not apply a call's alignment to it.
 - A bytevector is a vector whose elements are numbers, in either spelling:
   ~#u8(...)~ is the one Guile and R7RS write, ~#vu8(...)~ the one R6RS writes,
   and both are kept as they were written.
@@ -163,7 +163,7 @@ of the other two dialects sift formats.
 - What a vector holds is data, so no rule about the shape of a form reads it:
   ~#(if a b)~ holds three symbols, and is not an ~if~ with no else branch.
 
-A ~#~ dispatch character and the datum it applies to are one node.  That is
+A ~#~ dispatch character and the datum it applies to form one node.  That is
 what keeps the read macros of the other dialects readable and round-trippable:
 
 #+begin_src lisp
@@ -176,8 +176,9 @@ what keeps the read macros of the other dialects readable and round-trippable:
 #+end_src
 
 ~#2A((1 2))~ is an array and ~#2A ((1 2))~ is not, so the formatter never
-opens a space between a read macro and its datum.  A ~#~ token that nothing is
-glued to — ~#b1010~, ~#*1011~, ~#:uninterned~ — is an atom and is read as one.
+opens a space between a read macro and its datum.  A ~#~ token with nothing
+glued to it — ~#b1010~, ~#*1011~, ~#:uninterned~ — is an atom and is read as
+one.
 
 A ~#!~ line is read as a shebang when it names a program to run the file —
 ~#!/usr/bin/env guile~, or the same with a space after the ~#!~ — and as a
@@ -186,10 +187,10 @@ token everywhere else, so ~#!r6rs~, ~#!fold-case~, ~#!no-fold-case~, Chez's
 are.  A ~#!~ that names a path anywhere but the first line is still reported:
 a shebang in the middle of a file is a mistake.
 
-What *ends a symbol* is the dialects' business too, and the difference is not
-academic: the names Guile's own sources give their variables — ~number'~,
-~lst''~ — are single symbols, and reading the quote as a separate form leaves a
-list that never closes.
+Which characters *end a symbol* is likewise the dialects' business, and the
+difference is not academic: the names Guile's own sources give their variables
+— ~number'~, ~lst''~ — are single symbols, and reading the quote as a separate
+form leaves a list that never closes.
 
 | Character     | Scheme                | Emacs Lisp             | Common Lisp            |
 |---------------+-----------------------+------------------------+------------------------|
@@ -207,7 +208,7 @@ every byte of it — the braces are atoms and the text is copied — but they do
 not get bracket-aware formatting for it.
 
 Reading another dialect's syntax is not an error — sift keeps every byte of it
-— but it is reported, because a file that mixed two dialects is a bug worth
+— but it is reported, because a file that mixes two dialects is a defect worth
 seeing:
 
 | Construct                            | Read in      | Reported in     |
@@ -224,18 +225,18 @@ seeing:
 | ~#(...)~ vector, ~#<...>~ object     | all three    | —               |
 | ~#1=~ datum label                    | CL, Elisp, R7RS | —            |
 
-** What it will not do
+** What it does not do
 :PROPERTIES:
 :CUSTOM_ID: format-limits
 :END:
 
-It will not reflow a long line (the ~line-length~ rule warns instead), it will
-not invent a missing parenthesis, it will not rewrite an expression, and it
-will not format inside a ~#;~ datum comment, a ~#.~ form or a ~#<...>~ object —
-those are copied verbatim, because the reader was told not to enter them.
-Formatting is deterministic and idempotent; the test suite formats every
-fixture, then formats the result again, and asserts the second pass changed
-nothing.
+The formatter does not reflow a long line (the ~line-length~ rule warns
+instead), does not invent a missing parenthesis, does not rewrite an
+expression, and does not format inside a ~#;~ datum comment, a ~#.~ form or a
+~#<...>~ object — those are copied verbatim, because the reader was told not
+to enter them.  Formatting is deterministic and idempotent: the test suite
+formats every fixture, then formats the result again, and asserts that the
+second pass changed nothing.
 
 
 Back to the [[file:../README.org][README]].

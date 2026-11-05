@@ -6,9 +6,9 @@
 #+options: toc:2 num:nil
 #+language: en
 
-sift was built to be *called*, not to be a monolith: every integration below
-is a few lines, because the program already speaks the three shapes an editor
-or a pipeline needs.
+sift is a program to be *called*, not a library to be linked: every
+integration below consists of a few lines, because the executable already
+speaks the three shapes an editor or a pipeline needs.
 
 | Shape              | What it is for                                              |
 |--------------------+-------------------------------------------------------------|
@@ -18,18 +18,19 @@ or a pipeline needs.
 | =--format=github=  | workflow commands: =::warning file=…,line=…,col=…,title=SIFT012 [rule]::…= |
 | =--format=null=    | nothing at all, for a script that only wants the exit status |
 
-Two habits make any integration a pleasant one: pass =--stdin= with a
-=--label= so that an unsaved buffer can be checked with the right name in the
-diagnostics, and pass =--dialect= when the file is new or has no extension.
+Two conventions carry most of the weight: =--stdin= together with =--label=
+checks an unsaved buffer under the name it should carry in the diagnostics,
+and =--dialect= names the dialect of a file that is new or has no extension.
 
 * Emacs
 :PROPERTIES:
 :CUSTOM_ID: emacs
 :END:
 
-=emacs/sift.el= is the full integration: a Flymake backend, code actions and a
-minor mode.  [[file:emacs.org][doc/emacs.org]] describes it in full -- both ways in, every
-setting, and the one place Emacs knows more than sift does; the short version is
+=emacs/sift.el= is the complete integration: a Flymake backend, code actions,
+and a minor mode.  Both entry points, every setting, and the one place where
+Emacs knows more than sift does are set out in
+[[file:emacs.org][doc/emacs.org]]; the minimal configuration is
 
 #+begin_src elisp
 (add-to-list 'load-path "/path/to/sift/emacs")
@@ -38,22 +39,21 @@ setting, and the one place Emacs knows more than sift does; the short version is
 (sift-flymake-setup)
 #+end_src
 
-and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
+after which `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
 x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
 whole-project check.
 
-The backend is asynchronous, and it keeps two things about the run it started:
-the process, so that the question a new keystroke replaces is cancelled rather
-than answered late, and a generation number, so that an answer which arrives
-anyway is dropped.  Flymake calls an answer to a question it is no longer
-asking an /obsolete report/ and writes it in *Messages* on every keystroke;
-cancelling and numbering is what stops that.  Checking the buffer and
-explaining a rule are asynchronous for the same reason -- their answer is a
-message, not something the next command depends on -- while formatting and
-fixing still have the text in hand before they return, because the save that
-follows writes it.
+The backend is asynchronous, and it retains two facts about the run it started:
+the process, so that a question superseded by a new keystroke is cancelled
+rather than answered late, and a generation number, so that an answer arriving
+after supersession is discarded.  Flymake names an answer to a question no
+longer being asked an /obsolete report/, and writes it in *Messages* on every
+keystroke; cancellation and numbering prevent that.  Buffer checking and rule
+explanation are asynchronous for the same reason -- their result is a message,
+and no later command depends on it -- whereas formatting and fixing hold the
+text before they return, because the save that follows writes it.
 
-If you would rather not load the package, =compile= is enough:
+The package itself is optional; =compile= suffices:
 
 #+begin_src elisp
 (setq compile-command "sift ci .")
@@ -64,11 +64,11 @@ If you would rather not load the package, =compile= is enough:
 :CUSTOM_ID: eglot
 :END:
 
-sift speaks the Language Server Protocol, so Eglot can talk to it: ~sift lsp~
-is a server on standard input and output that reports the findings, answers
-`textDocument/codeAction' with sift's own fixes, and formats the buffer.  That
-is the integration with *code actions* — `M-x eglot-code-actions' offers the
-same edits `sift fix' applies.
+sift implements the Language Server Protocol, so Eglot can act as its
+client: ~sift lsp~ is a server over standard input and output that publishes
+the findings, answers `textDocument/codeAction' with sift's own fixes, and
+formats the buffer.  Code actions are the reason to prefer it:
+`M-x eglot-code-actions' offers the same edits `sift fix' applies.
 
 #+begin_src elisp
 (add-to-list 'load-path "/path/to/sift/emacs")
@@ -76,12 +76,13 @@ same edits `sift fix' applies.
 (sift-eglot-setup)
 #+end_src
 
-`sift-eglot-setup` teaches `eglot-server-programs' about the three Lisp modes,
-turns `sift-mode` on for its keymap and its format-on-save hook, and keeps the
-parts of sift the server already does out of the buffer: the Flymake backend,
-because two backends would report every finding twice, and the format-on-save
-hook, because the server formats on save and two formatters writing one buffer
-on one save is two round trips and two undo entries for one keystroke.
+`sift-eglot-setup` registers `sift lsp` in `eglot-server-programs' for the
+three Lisp modes, enables `sift-mode` for its keymap and its format-on-save
+hook, and withholds from the buffer what the server already performs: the
+Flymake backend, since two backends would report every finding twice, and the
+format-on-save hook, since the server formats on save, and two formatters
+writing one buffer on one save cost two round trips and two undo entries for
+one keystroke.
 
 | In an Eglot buffer     | What it does                                            |
 |------------------------+---------------------------------------------------------|
@@ -90,8 +91,8 @@ on one save is two round trips and two undo entries for one keystroke.
 | =C-d= on a finding     | Eglot's own key: the rule's description, and its page   |
 | =C-c s f=              | format with the command instead, if you prefer          |
 
-The server asks its client for three things, and each of them is a moment it
-checks the buffer again:
+The server asks its client for three things, and each of them is a moment at
+which the buffer is checked again:
 
 | What the client sends   | What sift does with it                                |
 |-------------------------+-------------------------------------------------------|
@@ -100,16 +101,18 @@ checks the buffer again:
 | =didChangeWatchedFiles=  | the same, for a file changed or deleted outside the editor |
 | =didChangeConfiguration= | reads =sift.yaml= again -- the line length, the severity floor, which rules run -- and checks every open buffer against it |
 
-So editing =sift.yaml= takes effect in the session you are already in: save it,
-and the findings come back measured against the new settings.  So does adding a
-definition in one buffer and jumping to it from another -- the jump is answered
-from an index the save refreshed, not from the one the server started with.
+Editing =sift.yaml= therefore takes effect in the session already in
+progress: after the save, the findings return measured against the new
+settings.  The same holds for a definition added in one buffer and jumped to
+from another -- the jump is answered from an index the save refreshed, not
+from the one the server started with.
 
-The server also says what it is doing, at information level, over
-~window/logMessage~: the root it serves, the dialect each buffer is read as, how
-many findings each report carries, and every re-read it was asked for.  Eglot
-shows those lines in its own events buffer (=M-x eglot-events-buffer=), so a
-buffer with no squiggles can be told apart from a server that is not running:
+The server also reports its own activity at information level over
+~window/logMessage~: the root it serves, the dialect each buffer is read as,
+the number of findings each report carries, and every re-read it was asked to
+perform.  Eglot displays those lines in its own events buffer
+(=M-x eglot-events-buffer=), which distinguishes a buffer with no findings from
+a server that is not running:
 
 #+begin_example
 sift 1.22.0: serving /home/you/src/project
@@ -120,48 +123,49 @@ sift: re-read core.scm after a save
 sift: 1 finding in core.scm
 #+end_example
 
-The server is `sift lsp` by default.  If the program is not on your ~PATH~,
-`sift-executable` and `sift-eglot-command` say where it is; `sift-eglot-contact`
-is what Eglot calls, and it says so plainly when the program is missing.
+The server is `sift lsp` by default.  When the program is not on the ~PATH~,
+`sift-executable` and `sift-eglot-command` name its location;
+`sift-eglot-contact` is the function Eglot calls, and it reports a missing
+program explicitly.
 
 ** Inlay hints
 
 The server answers `textDocument/inlayHint' with the name of a parameter beside
-each positional argument of a call it can resolve, so that
-`(make-window root 640 480 "Main")' reads as what it is without opening
-`make-window':
+each positional argument of a call whose definition it can resolve, so that
+`(make-window root 640 480 "Main")' reads as its own signature without a visit
+to `make-window':
 
 #+begin_example
 (make-window root parent 640 width 480 height "Main" title)
 #+end_example
 
-What is hinted is what sift knows: the definition's own formal list, resolved
-the way a jump resolves it.  A call to a procedure in a library sift cannot
-read gets no hint at all, and neither does an argument that is already a
-keyword -- `#:height' says its own name.  Eglot shows hints once
-`M-x eglot-inlay-hints-mode' is on, and Neovim 0.10 and later with
+A hint carries only what sift knows: the definition's own formal list, resolved
+by the same mechanism that answers a jump.  A call to a procedure in a library
+sift cannot read receives no hint, and neither does an argument that is
+already a keyword -- `#:height' states its own name.  Eglot displays hints
+once `M-x eglot-inlay-hints-mode' is enabled; Neovim 0.10 and later through
 `vim.lsp.inlay_hint.enable(true, { bufnr = bufnr })'.
 
-A hint can also say what type an argument states outright, which is off by
-default and turned on with `inlay-hints: [parameters, types]`:
+A hint can also state the type an argument declares outright; the kind is off
+by default and enabled with `inlay-hints: [parameters, types]`:
 
 #+begin_example
 (make-window root parent 640 width number 480 height number "Main" title string)
 #+end_example
 
-That is the whole of the claim sift makes about types, and it is why the kind
-is opt-in: the source has to say it.  A string literal is a string, `#t` is a
-boolean, `(lambda ...)` is a procedure, `'(1 2)` is a list.  A variable gets no
-type hint -- `root` could hold anything, and sift will not follow it to find
-out, because an inlay hint that guessed would be worse than a blank space.
+This is the entire claim sift makes about types, and the reason the kind is
+opt-in: the source must state the type itself.  A string literal is a string,
+`#t` is a boolean, `(lambda ...)` is a procedure, `'(1 2)` is a list.  A
+variable receives no type hint -- `root` may hold anything, and sift will not
+follow it to find out, since a hint that guessed would be worse than none.
 
 ** Configuring the server
 
-`sift lsp` is configured in the same place as the rest of sift, and in one
-more.  These can go in a project's `sift.yaml` or in the editor's own
-configuration, which is sent to the server and layered over the files, because
-what the editor says is the most specific thing anyone can say about this
-session:
+`sift lsp` reads the same configuration as the rest of sift, plus one further
+source.  These settings may appear in a project's `sift.yaml` or in the
+editor's own configuration, which is sent to the server and layered over the
+files, since the editor's statement is the most specific one that can be made
+about this session:
 
 | Setting       | Default      | What it does                                     |
 |---------------+--------------+--------------------------------------------------|
@@ -169,11 +173,11 @@ session:
 | =hover=       | =true=       | answer the hover with a rule or a definition     |
 | =completion=  | =true=       | offer the names the project defines while typing |
 
-Every other setting is the server's too -- `severity`, `line-length`,
+Every other setting reaches the server as well -- `severity`, `line-length`,
 `checkers`, `exclude-checkers`, `field-macros` -- because the server computes
-its answers with the same configuration the command line does.  A key sift does
-not have is not a silent no-op: it is reported in the editor's log, where a
-typo in an editor's settings can be seen.
+its answers from the same configuration the command line reads.  An unknown
+key is not a silent no-op: it is reported in the editor's log, so that a typo
+in an editor's settings becomes visible.
 
 In Emacs, `eglot-workspace-configuration` is the object Eglot sends:
 
@@ -193,12 +197,12 @@ vim.lsp.config("sift", {
 })
 #+end_src
 
-Changing one of these takes effect at once: the server reads its files again
-under the new settings and re-checks every open buffer, which is the same path
-a saved `sift.yaml` takes.
+A change takes effect at once: the server reads its files again under the new
+settings and re-checks every open buffer, which is also the path a saved
+`sift.yaml` takes.
 
-Without Eglot, the package's Flymake backend is the integration and needs
-nothing installed:
+Without Eglot the package's Flymake backend provides the integration and
+requires nothing else installed:
 
 #+begin_src elisp
 (require 'sift)
@@ -206,22 +210,21 @@ nothing installed:
 (sift-flymake-setup)
 #+end_src
 
-and then `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
+after which `C-c s f` formats, `C-c s l` lints into a compilation buffer, `C-c s
 x` fixes, `C-c s e` explains the rule under the cursor and `C-c s p` runs the
 whole-project check.
 
-The backend is asynchronous, and it keeps two things about the run it started:
-the process, so that the question a new keystroke replaces is cancelled rather
-than answered late, and a generation number, so that an answer which arrives
-anyway is dropped.  Flymake calls an answer to a question it is no longer
-asking an /obsolete report/ and writes it in *Messages* on every keystroke;
-cancelling and numbering is what stops that.  Checking the buffer and
-explaining a rule are asynchronous for the same reason -- their answer is a
-message, not something the next command depends on -- while formatting and
-fixing still have the text in hand before they return, because the save that
-follows writes it.
+The backend is asynchronous, and it retains two facts about the run it started:
+the process, so that a question superseded by a new keystroke is cancelled
+rather than answered late, and a generation number, so that an answer arriving
+after supersession is discarded.  Flymake names an answer to a question no
+longer being asked an /obsolete report/, and writes it in *Messages* on every
+keystroke; cancellation and numbering prevent that.  Buffer checking and rule
+explanation are asynchronous for the same reason -- their result is a message,
+and no later command depends on it -- whereas formatting and fixing hold the
+text before they return, because the save that follows writes it.
 
-If you would rather not load the package, =compile= is enough:
+The package itself is optional; =compile= suffices:
 
 #+begin_src elisp
 (setq compile-command "sift ci .")
@@ -232,9 +235,10 @@ If you would rather not load the package, =compile= is enough:
 :CUSTOM_ID: neovim
 :END:
 
-Neovim speaks the same protocol as Eglot, so the integration is a `vim.lsp`
-configuration and no plugin at all.  [[file:../editors/vim/neovim.lua][~editors/vim/neovim.lua~]] is a complete
-one: copy it, or require it from `init.lua`.
+Neovim implements the same protocol, so the integration is a `vim.lsp`
+configuration and no plugin.  A complete configuration, to be copied or
+required from `init.lua`, is
+[[file:../editors/vim/neovim.lua][~editors/vim/neovim.lua~]].
 
 #+begin_src lua
 vim.lsp.start({
@@ -248,17 +252,17 @@ vim.lsp.start({
 })
 #+end_src
 
-The root directory is what makes one server answer for a whole project: the
-same configuration, the same rules, and one process instead of one per file.
+The root directory is what makes a single server answer for a whole project:
+one configuration, one rule set, and one process instead of one per file.
 
 * When a buffer does not parse
 :PROPERTIES:
 :CUSTOM_ID: broken
 :END:
 
-A half-written form is the normal state of a buffer being typed, so every
-integration here has an answer for ~(define (f x)~ with the rest of the form
-still to come, and none of them is "stop working".
+A half-written form is the normal state of a buffer under editing, so every
+integration here has an answer for ~(define (f x)~ with the remainder of the
+form still to come, and none of them answers by ceasing to work.
 
 | What you ask        | What happens when the text is not a program                   |
 |---------------------+---------------------------------------------------------------|
@@ -268,13 +272,13 @@ still to come, and none of them is "stop working".
 | fix                 | refused, the same way: a fix computed around a missing parenthesis would be a guess at where it goes. ~--force~ overrides it for a caller who knows better |
 | hover               | whatever rule is on the position, if any                              |
 
-The reason the language server can be this relaxed is that sift's reader
-never abandons a file: ~read-source~ returns the forms it could read *and*
-the errors it found, and the linter runs the rules over what it got.  A buffer
-with a broken tail therefore has findings for its whole beginning, which is
-what an editor needs while someone is typing.
+The server can be this tolerant because sift's reader never abandons a file:
+~read-source~ returns both the forms it could read *and* the errors it found,
+and the linter runs the rules over the forms it obtained.  A buffer with a
+broken tail therefore carries findings for its whole beginning, which is what
+an editor requires while text is being typed.
 
-The server itself is written to keep answering:
+The server itself is built to keep answering:
 
 | What goes wrong             | What the server does                                   |
 |-----------------------------+--------------------------------------------------------|
@@ -287,18 +291,19 @@ The server itself is written to keep answering:
 | a buffer with no language identifier | reads the dialect from the file's own extension, rather than failing to read the buffer at all |
 | ~sift.yaml~ saved mid-session, and it does not parse | keeps the configuration it has, says so in the log, and goes on checking the buffers |
 
-The tests for all of that are in ~tests/lsp.scm~, and they talk to the process
-the way an editor does: a session is a list of messages on its standard input
-and the frames that come back.
+The tests for these cases are in ~tests/lsp.scm~, and they address the process
+as an editor does: a session is a list of messages on its standard input
+together with the frames that return.
 
 * Vim
 :PROPERTIES:
 :CUSTOM_ID: vim
 :END:
 
-Vim has no language client of its own, so the plugin in
-[[file:../editors/vim][~editors/vim/~]] calls the program.  Copy the directory into `~/.vim`, or point a
-plugin manager at it, and the commands appear in the Lisp filetypes:
+Vim carries no language client of its own, so the plugin in
+[[file:../editors/vim][~editors/vim/~]] invokes the program.
+Copying the directory into `~/.vim`, or pointing a plugin manager at it,
+makes the commands available in the Lisp filetypes:
 
 | Command       | What it does                                                  |
 |---------------+---------------------------------------------------------------|
@@ -307,9 +312,9 @@ plugin manager at it, and the commands appear in the Lisp filetypes:
 | ~:SiftFix~    | apply every fix, then lint again                               |
 | ~:SiftExplain~ | print what the rule on this line wants                        |
 
-The quickfix list is built from ~--format=json=, so an entry says which rule
-fired (`SIFT012`), which checker it is, and what it wants; `:cnext` walks them
-and `:SiftExplain` reads the rule's page for the one under the cursor.
+The quickfix list is built from ~--format=json=, so an entry carries the rule
+that fired (`SIFT012`), its checker, and its message; `:cnext` walks the list
+and `:SiftExplain` opens the rule's page for the entry under the cursor.
 
 For `:make` instead, the compiler plugin is `:compiler sift`:
 
@@ -318,12 +323,13 @@ For `:make` instead, the compiler plugin is `:compiler sift`:
 :make
 #+end_src
 
-which runs `sift ci` over the current file: both questions, one list.  Set
-`b:sift_makeprg` to `check` or `lint` before `:make` to ask only one of them.
+which runs `sift ci` over the current file: both questions, one list.
+Setting `b:sift_makeprg` to `check` or `lint` before `:make` asks only one of
+them.
 
-Vim projects that already have an LSP client plugin — `vim-lsp`, `coc.nvim`,
-`ALE` — can point it at `sift lsp` instead, and get the same server Neovim
-gets:
+A Vim project that already has an LSP client plugin — `vim-lsp`, `coc.nvim`,
+`ALE` — can point it at `sift lsp` instead, and obtains the same server
+Neovim does:
 
 #+begin_src vim
 " vim-lsp
@@ -341,10 +347,10 @@ endif
 :CUSTOM_ID: vscode
 :END:
 
-The extension in [[file:../editors/vscode][~editors/vscode/~]] is a pipe and nothing else: diagnostics come
-from ~sift lint --format=json~, quickfixes from ~sift fix~ for the rule that
-fired, and formatting from ~sift format~.  It has no dependencies and no build
-step, so packaging it is one command:
+The extension in [[file:../editors/vscode][~editors/vscode/~]] is a pipe:
+diagnostics come from ~sift lint --format=json~, quickfixes from ~sift fix~
+restricted to the rule that fired, and formatting from ~sift format~.  It has
+no dependencies and no build step, so packaging it takes one command:
 
 #+begin_src shell
 cd editors/vscode
@@ -363,13 +369,13 @@ The settings:
 | ~sift.formatOnSave~    | ~false~ | format before saving                                       |
 
 The commands are `sift: lint this file`, `sift: apply every fix in this file`,
-and `sift: explain the rule at the cursor`.  A quickfix appears on a finding,
-and it runs `sift fix --checker=<rule>` so that it fixes *that* rule and not
-every rule at once; the edit it applies is the smallest range that differs.
+and `sift: explain the rule at the cursor`.  A quickfix is attached to a
+finding and runs `sift fix --checker=<rule>`, so that it applies *that* rule
+alone and not every rule at once; the edit it applies is the smallest range
+that differs.
 
-A project that would rather not install an extension can point any generic
-language client extension at `sift lsp`, and get the server the other two
-editors get.
+A project that prefers no extension can point any generic language client
+extension at `sift lsp`, and obtains the same server as the other two editors.
 
 * Git hooks
 :PROPERTIES:
@@ -377,7 +383,7 @@ editors get.
 :END:
 
 =sift install-hooks= writes a =pre-commit= hook that runs ~sift ci~ over the
-repository.  For a hook that checks only what is being committed:
+repository.  A hook that checks only what is being committed takes this form:
 
 #+begin_src shell
 #!/bin/sh
@@ -389,9 +395,9 @@ sift check $files || {
 }
 #+end_src
 
-With the [[https://pre-commit.com][pre-commit]] framework, the repository's
+Under the [[https://pre-commit.com][pre-commit]] framework, the repository's
 =.pre-commit-hooks.yaml= declares =sift-format= (rewrites), =sift-check=
-(fails) and =sift-lint=:
+(fails), and =sift-lint=:
 
 #+begin_src yaml
 repos:
@@ -405,7 +411,7 @@ repos:
 :CUSTOM_ID: ci
 :END:
 
-One command asks both questions, and the exit status is the answer:
+One command asks both questions, and the exit status carries the answer:
 
 #+begin_src shell
 sift ci src/ tests/
@@ -413,7 +419,7 @@ sift ci src/ tests/
 
 ** The reusable workflow
 
-A repository that wants sift in its pipeline writes one file and gets both
+A repository that wants sift in its pipeline writes one file and receives both
 halves of the answer: annotations on the lines of the pull request, and a
 SARIF document in the Security tab.
 
@@ -439,15 +445,15 @@ The workflow takes inputs, all of them optional:
 | ~upload-sarif~    | ~true~       | upload the document to code scanning                           |
 | ~sift-ref~        | ~main~       | which revision of sift provides the action                     |
 
-Two permissions matter.  The job asks for =security-events: write= so that the
-upload can happen; a caller that has narrowed the workflow's permissions must
-allow it too, and the findings are then still annotations, with the upload as
-the only step that fails.
+Two permissions matter.  The job requests =security-events: write= so that the
+upload can occur; a caller that has narrowed the workflow's permissions must
+allow it as well, in which case the findings remain annotations and only the
+upload step fails.
 
 ** The action on its own
 
-The workflow is a caller of =action.yml= at the root of the repository, which
-is a composite action a job can use beside its other steps:
+The workflow is a caller of =action.yml= at the root of the repository, a
+composite action that a job can use beside its other steps:
 
 #+begin_src yaml
 - uses: actions/checkout@v4
@@ -461,11 +467,11 @@ is a composite action a job can use beside its other steps:
     sarif_file: sift.sarif
 #+end_src
 
-It takes the same inputs as the workflow, minus ~upload-sarif~ and
-~sift-ref~, and answers with two outputs: ~sarif-file~, and ~findings~, the
+It takes the same inputs as the workflow, except ~upload-sarif~ and
+~sift-ref~, and produces two outputs: ~sarif-file~, and ~findings~, the
 number of findings the document holds.  The action never uploads anything
-itself, because a step that quietly needs a permission the caller did not
-grant fails for a reason that has nothing to do with the code being judged.
+itself: a step that silently required a permission the caller did not grant
+would fail for a reason unrelated to the code being judged.
 
 The work is done by [[file:../ci/sift-action.sh][=ci/sift-action.sh=]], a POSIX shell script this file only
 wraps, so the action can be run and tested without a runner:
@@ -485,8 +491,8 @@ an annotation on the pull request:
 #+end_src
 
 =--format=sarif= writes a document that GitHub code scanning reads, which is
-what puts the findings in the repository's Security tab.  It is one document
-for the whole run, whichever mode asked for it, which is what makes it safe to
+what places the findings in the repository's Security tab.  The document
+covers the whole run, whichever mode requested it, and is therefore safe to
 redirect to a file:
 
 #+begin_src yaml
@@ -500,8 +506,8 @@ redirect to a file:
     sarif_file: sift.sarif
 #+end_src
 
-The job that only needs a pass or a fail uses =--format=null=, which prints
-nothing and keeps the status:
+A job that needs only a pass or a fail uses =--format=null=, which prints
+nothing and keeps the exit status:
 
 #+begin_src shell
 sift ci --format=null . || exit 1
@@ -512,8 +518,8 @@ sift ci --format=null . || exit 1
 :CUSTOM_ID: thresholds
 :END:
 
-A pipeline should fail on what the project calls wrong, and only on that.  The
-dial is the severity:
+A pipeline fails on what the project calls wrong, and on nothing else.  The
+threshold is the severity:
 
 #+begin_src shell
 sift ci --severity=error .    # only errors stop the build
@@ -521,16 +527,16 @@ sift ci --severity=warning .  # warnings too; the usual choice
 sift ci .                     # everything, suggestions included
 #+end_src
 
-Most projects settle on =warning= and put it in the repository rather than in
-a flag, so that the local run and the CI run agree:
+Most projects settle on =warning= and record it in the repository rather than
+in a flag, so that the local run and the CI run agree:
 
 #+begin_src yaml
 # sift.yaml
 severity: warning
 #+end_src
 
-That is what this repository does, and =sift doctor= is how you check which
-layer decided it:
+This repository does so, and =sift doctor= reports which layer decided the
+value:
 
 #+begin_src shell
 $ sift doctor
