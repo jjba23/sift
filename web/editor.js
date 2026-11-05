@@ -447,6 +447,29 @@ function format() {
   }
 }
 
+/** Extract the expression at the caret, and put the rewritten buffer back. */
+function extract(to) {
+  try {
+    const started = performance.now();
+    const result = askOrThrow({
+      op: "extract",
+      source: source.value,
+      dialect: dialect.value,
+      offset: caret(),
+      to,
+    });
+    replaceBuffer(result.source);
+    status.textContent = result.changed
+      ? `${result.title} in ${Math.round(performance.now() - started)} ms`
+      : "nothing to extract here";
+    status.classList.remove("bad");
+    lint();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("bad");
+  }
+}
+
 function fix() {
   try {
     const started = performance.now();
@@ -538,6 +561,14 @@ source.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "x") {
     event.preventDefault();
     fix();
+  }
+  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "e") {
+    event.preventDefault();
+    extract("let");
+  }
+  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "r") {
+    event.preventDefault();
+    extract("procedure");
   }
   if (event.key === "F12") {
     event.preventDefault();

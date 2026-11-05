@@ -492,6 +492,28 @@ exactly the bug that would reach a tab and no test."
 
     ;; --- the questions an editor asks --------------------------------
 
+    (test "an expression is extracted to a let, and the buffer comes back"
+      (let* ((source "(define (area w h)\n  (+ (* w h) 1))\n")
+             (result (result-of (asked (cons "op" "extract")
+                                       (cons "source" source)
+                                       (cons "offset" 26)
+                                       (cons "to" "let"))))
+             (rewritten (field-of result "source")))
+        (assert-equal #:expect json-true #:got (json-ref result "changed")
+          #:name "the answer says the buffer moved")
+        (assert-contains #:expect rewritten #:got "(let ((value (* w h))) (+ value 1))"
+          #:name "the expression is bound where it was written")
+        (assert-equal #:expect "(define (area w h)\n  (let ((value (* w h))) (+ value 1)))\n"
+          #:got rewritten
+          #:name "and the definition around it is intact")))
+
+    (test "extracting where there is nothing to extract is a usage failure"
+      (assert-refused #:kind "usage"
+                      #:name "a definition is not an expression"
+                      #:request (asked (cons "op" "extract")
+                                       (cons "source" "(define (f) 1)\n")
+                                       (cons "offset" 2))))
+
     (test "the outline names what the buffer defines"
       (let* ((result (result-of (asked (cons "op" "symbols")
                                        (cons "source" "(define (square x)\n  (* x x))\n"))))

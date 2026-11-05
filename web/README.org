@@ -142,6 +142,7 @@ too high), and it compresses the module.  The one behaviour it has to be worked
 | lint as you type                     | every rule the dialect applies to            |
 | ~Format~, or ~Ctrl-Shift-F~          | the formatter, with the style and the dialect |
 | ~Fix~, or ~Ctrl-Shift-X~             | the same all-or-nothing fix run ~sift fix~ does |
+| ~Ctrl-Shift-E~, ~Ctrl-Shift-R~       | extract the expression at the caret to a ~let~, or to a procedure |
 | the findings panel                   | rule, code (~SIFT012~), severity, place      |
 | click a finding                      | the cursor goes to it                        |
 | the context bar                      | a hover: what the symbol under the caret is  |
@@ -256,6 +257,7 @@ which a tab reports rather than dies of).
 | ~check~     | the same, which is exactly the question ~sift check~ asks             |
 | ~lint~      | ~{"warnings":W,"counts":C,"severity":A}~                               |
 | ~fix~       | ~{"source":S'',"applied":N,"changed":B,"warnings":W}~                  |
+| ~extract~   | ~{"source":S',"title":T,"changed":B}~ -- the expression at ~offset~, bound |
 | ~checkers~  | ~{"version":V,"checkers":K}~ -- the rule catalogue, with examples      |
 | ~version~   | ~{"version":V}~                                                       |
 | ~hover~     | ~{"hover":{contents,range}}~ or ~null~ -- what the symbol is           |

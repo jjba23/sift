@@ -43,6 +43,8 @@
 ;;   {"op":"check", "source":S}     the same as format, which is what `sift check' asks
 ;;   {"op":"lint",  "source":S}     {"ok":true,"result":{"warnings":W,"counts":C}}
 ;;   {"op":"fix",   "source":S}     {"ok":true,"result":{"source":S'',"applied":N,"warnings":W}}
+;;   {"op":"extract", "source":S,"offset":N,"to":T}
+;;                                 {"ok":true,"result":{"source":S',"title":T,"changed":B}}
 ;;   {"op":"checkers"}              {"ok":true,"result":{"checkers":K,"version":V}}
 ;;   {"op":"version"}               {"ok":true,"result":{"version":V}}
 ;;
@@ -490,6 +492,72 @@ does rather than on how it was written down."
                           (lsp-inlay-hints empty-workspace empty-documents
                                            buffer-uri source dialect from to)))))
 
+(define (edit-span text edit)
+  "Return @code{(START . END)} of one edit of a `WorkspaceEdit' in @var{text}."
+  (let ((range (json-ref edit "range" (json-object))))
+    (cons (index-of-text-position text (json-ref range "start" (json-object)))
+          (index-of-text-position text (json-ref range "end" (json-object))))))
+
+(define (apply-edits text edits)
+  "Return @var{text} with @var{edits} applied.
+
+An edit is a range and the text that replaces it.  They are applied from the
+end of the buffer backwards, because an offset computed against the original
+text stops meaning what it said the moment an earlier edit changes the length."
+  (fold (lambda (edit acc)
+          (let* ((span (edit-span acc edit))
+                 (start (car span))
+                 (end (cdr span)))
+            (string-append (substring acc 0 start)
+                           (or (json-ref edit "newText" "") "")
+                           (substring acc end))))
+        text
+        (sort edits (lambda (a b) (> (car (edit-span text a))
+                                     (car (edit-span text b)))))))
+
+(define (edits-of action)
+  "Return the edits of @var{action}, whichever shape its `edit' has."
+  (let ((edit (json-ref action "edit" (json-object))))
+    (let ((changes (json-ref edit "documentChanges" #f)))
+      (cond
+        [(and (vector? changes) (> (vector-length changes) 0))
+         (vector->list (json-ref (vector-ref changes 0) "edits"))]
+        [(vector? (json-ref edit "edits" #f))
+         (vector->list (json-ref edit "edits"))]
+        [else '()]))))
+
+(define (extraction-title-phrase to)
+  "Return the words that name the extraction @var{to} asks for."
+  (cond
+    [(string=? to "procedure") "procedure"]
+    [(string=? to "lambda") "lambda"]
+    [else "bind"]))
+
+(define (request-extract request source dialect)
+  "Answer a request to extract the expression at the caret into a binding.
+
+@var{to} is `let' (the default), `procedure' or `lambda', and it picks among
+the actions the language server offers at the same place.  The answer is the
+whole rewritten buffer rather than a `WorkspaceEdit', so a page that has one
+buffer does not have to learn to apply edits in order -- and a request that
+finds nothing to extract says so instead of answering the buffer unchanged."
+  (let* ((index (request-offset request source))
+         (to (request-string request "to" "let"))
+         (phrase (extraction-title-phrase to))
+         (actions (extract-actions source dialect index index #:uri buffer-uri))
+         (action (find (lambda (candidate)
+                         (string-contains (json-ref candidate "title") phrase))
+                       actions)))
+    (if (not action)
+      (usage-failure
+       "there is no expression to extract to a ~a at offset ~a" to index)
+      (let* ((rewritten (apply-edits source (edits-of action)))
+             (title (json-ref action "title")))
+        (success (object (field "source" rewritten)
+                         (field "title" title)
+                         (field "changed"
+                                (if (string=? rewritten source) #f #t))))))))
+
 (define (answer-question op request)
   "Answer one of the questions an editor asks about a place in the buffer."
   (let* ((source (request-source request))
@@ -531,10 +599,12 @@ does rather than on how it was written down."
          (request-lint request (request-source request) (request-dialect request))]
         [(string=? op "fix")
          (request-fix request (request-source request) (request-dialect request))]
+        [(string=? op "extract")
+         (request-extract request (request-source request) (request-dialect request))]
         [(member op question-ops) (answer-question op request)]
         [else
           (usage-failure
-           "unknown op: ~a (format, check, lint, fix, checkers, version, or one of ~a)"
+           "unknown op: ~a (format, check, lint, fix, extract, checkers, version, or one of ~a)"
            op
            (string-join question-ops ", "))]))
     (usage-failure "a request is a JSON object")))

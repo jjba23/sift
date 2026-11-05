@@ -283,7 +283,7 @@ cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
                       proc severity example))
 
-(define sift-version "1.23.0")
+(define sift-version "1.24.0")
 
 (define dialects '(scheme elisp cl))
 
@@ -616,7 +616,13 @@ treat it as code."
                          [(null? rest) (reverse! kept)]
                          [(node-data? (car rest)) (loop (cdr rest) (cons (car rest) kept))]
                          [else (loop (cdr rest) kept)])))
-           (computed (vector elements (head-name-of elements))))
+           ;; A vector and a bytevector have no operator.  Answering that once,
+           ;; with the children, is what keeps `node-head-name' down to one
+           ;; vector reference: it was the largest single cost a lint had.
+           (computed (vector elements
+                             (and (not (node-vector? node))
+                               (not (node-bytevector? node))
+                               (head-name-of elements)))))
       (set-node-cache! node computed)
       computed)))
 
@@ -693,8 +699,6 @@ The answer is computed once and kept on the node: every checker asks it about
 every node, and interning the same name again for each of them is the largest
 single cost a lint has."
   (and (node-list? node)
-    (not (node-vector? node))
-    (not (node-bytevector? node))
     (vector-ref (node-list-cache node) 1)))
 
 (define (node->string node)

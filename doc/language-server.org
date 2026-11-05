@@ -69,15 +69,21 @@ leaves the server answering from what it read when the session started.
 The code actions are the five operations sift can perform without being told
 what anything should be called: fix the finding under the cursor (~quickfix~);
 bind the expression under the cursor to a name around the form that held it,
-move it into a procedure beside the definition it came from, or give a lambda
-a name of its own and move that to the top level (all ~refactor.extract~);
+move it into a procedure beside the definition it came from, give a lambda a
+name of its own and move that to the top level, or write a `define` whose whole
+value is a lambda as the procedure it is, under the definition's own name (all
+~refactor.extract~); 
 replace a call with the body it calls (~refactor.inline~); and fix or reformat
 the form the cursor is inside (~source.fixAll.sift~, ~refactor.rewrite~, the
 latter offered only for a top-level form, because the formatter indents from
 column zero and a fragment would land at the margin).
-An extraction derives its name from the expression -- `(compute-area w
-h)' becomes ~compute-area~ -- and a name the file already uses becomes
-~compute-area-2~ rather than shadowing it.  An extraction that moves a lambda
+An expression written inside a binding list -- the `(compute 1)' of
+`(let ((x (compute 1))) x)' -- is bound around the `let`, and not around the
+binding list it sits in, because the latter would write
+`(let ((v (compute 1))) ((x v)))', which is not a program.  An extraction
+derives its name from the expression -- `(compute-area w h)' becomes
+~compute-area~ -- and a name the file already uses becomes ~compute-area-2~
+rather than shadowing it.  An extraction that moves a lambda
 writes its definition before the form in which the lambda occurred, and
 inlining is offered only where it requires no guessing: a definition in this
 buffer, with a single expression in its body, plain positional parameters, and

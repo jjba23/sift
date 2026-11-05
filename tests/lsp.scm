@@ -760,6 +760,45 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-contains #:expect (cadr texts) #:got "(define (extracted w h)"
           #:name "and the procedure takes the enclosing parameters")))
 
+    (test "an expression in a let binding is extracted around the let"
+      (let* ((text "(let ((x (compute 1)))\n  x)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 0 11
+                                                              '("refactor.extract")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (action (find (lambda (candidate)
+                             (string-contains (json-ref candidate "title") "bind"))
+                           actions))
+             (changes (and action (json-ref (json-ref action "edit") "documentChanges")))
+             (edits (and changes (json-ref (vector-ref changes 0) "edits")))
+             (replacement (and edits (json-ref (vector-ref edits 0) "newText"))))
+        (assert-true (and action #t) #:name "the binding value can be extracted")
+        (assert-contains #:expect replacement
+          #:got "(let ((compute-2 (compute 1))) (let ((x compute-2))"
+          #:name "the let is wrapped, not the binding list")))
+
+    (test "a lambda that is a definition's value keeps the definition's name"
+      (let* ((text "(define square (lambda (x) (* x x)))\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 0 17
+                                                              '("refactor.extract")))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (action (find (lambda (candidate)
+                             (string-contains (json-ref candidate "title")
+                                              "write this lambda"))
+                           actions))
+             (changes (and action (json-ref (json-ref action "edit") "documentChanges")))
+             (edits (and changes (json-ref (vector-ref changes 0) "edits")))
+             (replacement (and edits (json-ref (vector-ref edits 0) "newText"))))
+        (assert-true (and action #t) #:name "the definition shape was offered")
+        (assert-equal #:expect "(define (square x)\n  (* x x))"
+          #:got replacement
+          #:name "named after the definition, not `procedure`")))
+
     (test "a client that asks for quickfixes gets no extraction"
       (let* ((text "(define (area w h)\n  (+ (* w h) 1))\n")
              (result (session (list (initialize-request 1)

@@ -1107,6 +1107,37 @@ the fallback is used instead of `*'."
   "Return @var{text} with every line but the first indented by two spaces."
   (string-join (string-split text #\newline) "\n  "))
 
+(define (list-headed? node)
+  "Return @code{#t} when @var{node} is a list whose first datum is a list.
+
+That is the shape of a binding list, a `cond' clause and a `let' clause -- a
+sequence of forms rather than a call -- and it is what tells a binding
+`(x (g y))' apart from the call it holds."
+  (and (node-list? node)
+    (let ((head (node-head node)))
+      (and head (node-list? head)))))
+
+(define (wrappable-parent node ancestors)
+  "Return the nearest form around @var{node} that a `let' can wrap, or #f.
+
+A binding list and a formal list are not expressions: in
+`(let ((x (g y))) x)' the expression `(g y)' sits inside the binding list
+`((x (g y)))', and wrapping that list would write
+`(let ((v (g y))) ((x v)))', which is not a program.  The walk climbs to the
+enclosing form instead, so the binding goes around the `let' that holds it."
+  (let loop ((node node) (rest ancestors))
+    (let ((parent (and (pair? rest) (car rest))))
+      (cond
+        [(not parent) #f]
+        [(and (formals-holder? parent) (eq? (formals-of-form parent) node))
+         (loop parent (cdr rest))]
+        [(or (list-headed? parent)
+           (and (pair? (cdr rest)) (list-headed? (cadr rest))))
+         (loop parent (cdr rest))]
+        [(definition-form? parent) #f]
+        [(node-list? parent) parent]
+        [else #f]))))
+
 (define* (extract-to-let text ast start end #:key (uri "") (version #f))
   "Return the action that binds the selected expression to a name, or #f.
 
@@ -1116,11 +1147,8 @@ form that still reads with the name where the expression was -- so
 `(let ((value (g x))) (f value (h y)))'."
   (call-with-values (lambda () (expression-at ast end))
     (lambda (node ancestors)
-      (let ((parent (and (pair? ancestors) (car ancestors))))
-        (and node parent (node-list? parent)
-          (not (definition-form? parent))
-          (not (and (formals-holder? parent)
-                 (eq? (formals-of-form parent) node)))
+      (let ((parent (and node (wrappable-parent node ancestors))))
+        (and parent
           (let* ((excerpt (substring text (form-start node) (form-end node)))
                  (name (fresh-name (name-from-form node "value")
                                    (document-names ast)))
@@ -1194,7 +1222,9 @@ be a copy nobody asked for."
   "Return the extraction actions that apply to @var{start}..@var{end}."
   (let ((ast (ast-of-text text dialect)))
     (filter identity
-            (list (extract-lambda text ast start end #:uri uri #:version version)
+            (list (extract-lambda-definition text ast start end
+                                             #:uri uri #:version version)
+                  (extract-lambda text ast start end #:uri uri #:version version)
                   (extract-to-let text ast start end #:uri uri #:version version)
                   (extract-to-procedure text ast start end
                                         #:uri uri #:version version)))))
@@ -1251,6 +1281,63 @@ and the reader's dotted tail is a third dot rather than a binding."
          [else #f]))
      elements)))
 
+;;; --- a `define' whose value is a `lambda' -------------------------------
+;;;
+;;; `(define square (lambda (x) (* x x)))' and `(define (square x) (* x x))'
+;;; are one procedure written two ways, and the second is the way a Scheme
+;;; reader expects it.  Naming the lambda after the definition keeps the name
+;;; the author chose, which is what makes this an improvement on the generic
+;;; extraction rather than a rename nobody asked for.
+
+(define (definition-lambda node ancestors)
+  "Return @code{(FORM . NAME)} when the `lambda' @var{node} is a `define''s
+whole value, or @code{#f}.
+
+A definition with a docstring or with anything else beside the lambda is not
+this shape: the rewrite would have to decide what to do with the rest, and a
+refactor that guesses is worse than one that does not offer."
+  (let ((parent (and (pair? ancestors) (car ancestors))))
+    (and parent (definition-form? parent)
+      (let ((elements (node-elements parent)))
+        (and (= (length elements) 3)
+          (eq? (caddr elements) node)
+          (let ((name (and (node-atom? (cadr elements))
+                        (node-value (cadr elements)))))
+            (and name (cons parent name))))))))
+
+(define* (extract-lambda-definition text ast start end #:key (uri "") (version #f))
+  "Return the action that writes a `lambda'-valued definition as a procedure."
+  (call-with-values (lambda () (expression-at ast end))
+    (lambda (node ancestors)
+      (let ((cell (and node (definition-lambda node ancestors))))
+        (and cell (lambda-form? node)
+          (let ((arguments (form-arguments node)))
+            (and (pair? arguments) (node-list? (car arguments))
+              (pair? (cdr arguments))
+              (let* ((parent (car cell))
+                     (name (cdr cell))
+                     (formals (car arguments))
+                     (body (cdr arguments))
+                     (formals-text (substring text (form-start formals)
+                                              (form-end formals)))
+                     (inner (substring formals-text 1
+                                       (- (string-length formals-text) 1)))
+                     (body-text (substring text (form-start (car body))
+                                           (form-end (last body))))
+                     (replacement
+                      (format #f "(define (~a~@[ ~a~])~%~a)"
+                              name
+                              (and (positive? (string-length inner)) inner)
+                              (string-append "  " (wrapped-line body-text)))))
+                (json-object
+                 (field "title"
+                        (format #f "sift: write this lambda as the definition `~a`"
+                                name))
+                 (field "kind" "refactor.extract")
+                 (field "edit"
+                        (workspace-edit uri version text (form-start parent)
+                                        (form-end parent) replacement)))))))))))
+
 (define* (extract-lambda text ast start end #:key (uri "") (version #f))
   "Return the action that names a `lambda' and moves it to the top level, or #f.
 
@@ -1268,6 +1355,7 @@ reformats what it moves is a second change nobody asked for."
                            (eq? (formals-of-form top) node)))
                     top))
         (and node top (lambda-form? node)
+          (not (definition-lambda node ancestors))
           (let ((arguments (form-arguments node)))
             (and (pair? arguments) (node-list? (car arguments))
               (pair? (cdr arguments))
