@@ -129,6 +129,11 @@ such convention, so they keep whatever the author wrote."
 ;;; listed, because the generic rule would otherwise indent it from the
 ;;; operator's column and drift away from the community style.
 ;;;
+;;; A *pair form* -- `(setq a 1 b 2)', `(setopt ...)', `(setf ...)' -- is the
+;;; exception at the other end, and it is left out of both tables on purpose:
+;;; Emacs lines the second pair up under the first variable, which is what the
+;;; generic rule does and what an entry of 2 would undo.
+;;;
 ;;; `use-package' is the clearest case of that in Emacs Lisp, and the reason it
 ;;; has an entry of its own: its arguments are not arguments but clauses --
 ;;; `:ensure', `:init', `:config', `:bind' and the rest -- each with its own
@@ -212,7 +217,7 @@ such convention, so they keep whatever the author wrote."
     (lambda . 2) (quote . 2) (function . 2) (backquote . 2)
     (interactive . 2) (declare . 2) (require . 2) (provide . 2)
     (use-package . 2)
-    (add-hook . 2) (remove-hook . 2) (setq . 2) (setq-default . 2)
+    (add-hook . 2) (remove-hook . 2)
     (ert-deftest . 2) (should . 2) (should-error . 2) (should-not . 2)
     (cl-letf . 2) (dolist-with-progress-reporter . 2)))
 
@@ -236,7 +241,7 @@ such convention, so they keep whatever the author wrote."
     (handler-bind . 2) (restart-case . 2) (restart-bind . 2)
     (ignore-errors . 2)
     (when . 2) (unless . 2) (if . 2) (and . 2) (or . 2)
-    (lambda . 2) (function . 2) (quote . 2) (setf . 2) (setq . 2)
+    (lambda . 2) (function . 2) (quote . 2)
     (push . 2) (pushnew . 2) (incf . 2) (decf . 2) (assert . 2)
     (check-type . 2) (eval-when . 2) (locally . 2) (declaim . 2)
     (declare . 2) (in-package . 2) (use-package . 2) (import . 2) (export . 2)))

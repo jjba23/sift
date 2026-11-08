@@ -85,16 +85,20 @@ yet, and its fix swaps the two delimiter characters and nothing else.
    a ~cond~ clause — and its elements align under the first.  So does a
    vector, whatever its first element is: see [[#vectors][Read syntax, dialect
    by dialect]].
-3. Anything else: two columns in from the opener when the first argument is on
-   the operator's line, two columns in from the operator when it is not.  A
-   call with keyword arguments lines those up under the first argument
-   instead, because that is where a reader looks for the next keyword:
+3. Anything else — a call whose operator the table does not know — lines its
+   arguments up under the first one, which is what every Lisp editor does with
+   a function call, keywords included, because that is where a reader looks for
+   the next one:
 
 #+begin_src scheme
 (make-window title
              :width 10
              :height 20)
 #+end_src
+
+   With nothing but the operator on its line there is nothing to line up
+   under, so the rest of the form goes one column in from the opener, which is
+   the position Emacs gives it as well.
 
 One form is in the table for this reason alone, and it appears in nearly every
 Emacs Lisp file: ~use-package~.  Its arguments are clauses —
@@ -115,6 +119,22 @@ That is where ~TAB~ puts them, because the macro declares
 ~(declare (indent defun))~ itself.  The generic rule would place the keywords
 under the package name instead — thirteen columns in for ~(use-package evil~ —
 and a file formatted that way would carry two indentation schemes.
+
+A *pair form* is the opposite case: ~setq~, ~setq-default~, ~setq-local~,
+~setopt~, ~setf~, ~psetf~ and ~psetq~ state their arguments two at a time,
+and Emacs lines the second pair up under the first variable, in Common Lisp as
+in Emacs Lisp:
+
+#+begin_src elisp
+(setq a 1
+      b 2)
+#+end_src
+
+Leaving them out of the table is what makes that happen, since the generic
+rule already lines a call up under its first argument.  An entry of two would
+indent the second pair two columns in from the opener instead — ~(setq a 1~
+and then ~  b 2)~ — and the file would carry an indentation scheme that ~TAB~
+in Emacs, pressed on the next pair, immediately undoes.
 
 A project's own macros cannot be known to sift, so they are declared.  In
 ~sift.yaml~:

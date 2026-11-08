@@ -49,6 +49,19 @@
        #:got (format-string "(handler-case (foo)\n(error (e)\n(print e)))"
                             #:dialect 'cl)))
 
+    ;; A pair form states its places and values as ordinary arguments, and
+    ;; Emacs lines the second pair up under the first place, in Common Lisp as
+    ;; it does in Emacs Lisp.
+    (test "a setq lines its pairs up under the first variable"
+      (assert-same-text
+       #:expect "(setq a 1\n      b 2)"
+       #:got (format-string "(setq a 1\nb 2)" #:dialect 'cl)))
+
+    (test "a setf lines its places up under the first one"
+      (assert-same-text
+       #:expect "(setf a 1\n      b 2)"
+       #:got (format-string "(setf a 1\nb 2)" #:dialect 'cl)))
+
     (test "a LOOP keeps its keyword atoms and indents them two in"
       (assert-same-text
        #:expect "(loop :for x :in xs\n  :do (print x))"

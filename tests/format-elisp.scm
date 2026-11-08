@@ -45,6 +45,27 @@
        #:expect "(let ((a 1)\n      (b 2))\n  (+ a b))"
        #:got (format-string "(let ((a 1)\n(b 2))\n(+ a b))" #:dialect 'elisp)))
 
+    ;; Emacs lines the pairs of a pair form up under the first of them --
+    ;; `(setq a 1' and then `      b 2)' -- because they are arguments like any
+    ;; other.  `setq' and `setq-default' were in the table, which indented them
+    ;; two columns in instead, and a file written with `TAB' in Emacs came out
+    ;; different.
+    (test "a setq lines its pairs up under the first variable"
+      (assert-same-text
+       #:expect "(setq a 1\n      b 2)"
+       #:got (format-string "(setq a 1\nb 2)" #:dialect 'elisp)))
+
+    (test "a setq-default lines its pairs up under the first variable"
+      (assert-same-text
+       #:expect "(setq-default indent-tabs-mode nil\n              tab-width 8)"
+       #:got (format-string "(setq-default indent-tabs-mode nil\ntab-width 8)"
+                            #:dialect 'elisp)))
+
+    (test "a setopt lines its pairs up under the first variable"
+      (assert-same-text
+       #:expect "(setopt a 1\n        b 2)"
+       #:got (format-string "(setopt a 1\nb 2)" #:dialect 'elisp)))
+
     (test "condition-case indents its protected form and handlers two in"
       (assert-same-text
        #:expect "(condition-case nil\n  (foo)\n  (error (message \"no\")))"
