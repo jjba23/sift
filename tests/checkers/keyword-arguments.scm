@@ -75,6 +75,30 @@
       (assert-warnings #:source "(make-window a b c)\n" #:checker 'keyword-arguments
                        #:options '((max-positional . 2)) #:expect '((1 1))))
 
+    ;; Emacs Lisp states several bindings in one form -- `(setq a 1 b 2)' --
+    ;; and that is idiomatic however many it states: what a reader counts is
+    ;; the declarations, not the arguments, so a `setq' of nine bindings is an
+    ;; ordinary thing to write where a call of nine arguments is not.
+    (test "a setq of many bindings is not a call with too many arguments"
+      (assert-warnings
+       #:source "(setq a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9)\n"
+       #:checker 'keyword-arguments #:dialect 'elisp #:expect '()))
+
+    (test "a setopt of many declarations is not a call with too many arguments"
+      (assert-warnings
+       #:source "(setopt a 1 b 2 c 3 d 4 e 5 f 6 g 7)\n"
+       #:checker 'keyword-arguments #:dialect 'elisp #:expect '()))
+
+    (test "the declarations of a pair form are counted, so a long one is still reported"
+      (assert-warnings
+       #:source "(setq a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9 j 10 k 11)\n"
+       #:checker 'keyword-arguments #:dialect 'elisp #:expect '((1 1))))
+
+    (test "the limit of a pair form is configuration too"
+      (assert-warnings #:source "(setq a 1 b 2 c 3)\n" #:checker 'keyword-arguments
+                       #:dialect 'elisp #:options '((max-positional . 1))
+                       #:expect '((1 1))))
+
     ;; A record macro takes one argument per field, so its argument count is
     ;; the size of the record and not the length of a parameter list.
     ;; `(package :name "x" :version "1")' is not Guix, and a rule that asked

@@ -468,6 +468,23 @@ table too, and a `too-many-arguments` finding counts only what a caller must
 pass positionally: everything from the first `&optional`, `&key` or dot
 onwards is the caller's choice.
 
+A *pair form* is the fourth: Emacs Lisp states several variables in one
+`setq`, `setq-default`, `setq-local` or `setopt`, and Emacs Lisp and Common
+Lisp state their places that way in `setf`, `psetf` and `psetq`.  What a
+reader counts there is the pairs -- a declaration is two arguments taken in as
+one line -- so a `setq` of ten declarations is an ordinary thing to write,
+where a call of twenty arguments is not:
+
+#+begin_src elisp
+(setq a 1 b 2 c 3 d 4 e 5 f 6 g 7 h 8 i 9)   ; nine pairs, no call
+#+end_src
+
+A pair form is judged on its pairs rather than on its argument count: the
+limit is twice `max-positional`, which at the default allows ten declarations
+in one form.  A `setq` with an argument left without a value is a different
+problem, and one SIFT032 does not state -- it counts the pairs it can read and
+says nothing about the rest.
+
 ** Packages are named, and never reached into
 :PROPERTIES:
 :CUSTOM_ID: packages

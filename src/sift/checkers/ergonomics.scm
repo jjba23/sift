@@ -247,6 +247,16 @@ their own; a parameter written `(name default)' contributes `name'."
 ;; whose field count is large enough to trip the rule on a first try.
 (define default-field-macros '(package operating-system))
 
+;; Forms that state their arguments in pairs: `(setq a 1 b 2)' sets two
+;; variables, `(setopt a 1 b 2)' sets two options, and the `setf', `psetf' and
+;; `psetq' of Emacs Lisp and Common Lisp are the same shape.  A declaration is
+;; two arguments a reader takes in as one line, so what counts is the pairs,
+;; not the arguments -- and twice as many of them fit in a form before it stops
+;; reading, because a `setq' of ten bindings is an ordinary thing to write
+;; where a call of twenty arguments is not.
+(define paired-binding-heads
+  '(setq setq-default setq-local setopt setf psetf psetq))
+
 (define (field-macro-names)
   "Return the macros whose arguments are fields, as symbols."
   (map (lambda (name)
@@ -254,6 +264,15 @@ their own; a parameter written `(name default)' contributes `name'."
                [(string? name) (string->symbol name)]
                [else #f]))
        (or (option 'field-macros default-field-macros) default-field-macros)))
+
+(define (too-long-call-message name count paired)
+  "Return what to say about a form that states more than a reader can hold.
+
+A pair form cannot be shortened with keywords -- `(setq :key 1)' states
+nothing -- so it is told to be split instead."
+  (if paired
+    (format #f "`~a` states ~a pairs in one form; split it" name count)
+    (format #f "`~a` takes ~a positional arguments; consider `:key`" name count)))
 
 (define (keyword-arguments-warnings ast source dialect)
   (let ((max-positional (or (option 'max-positional 5)))
@@ -268,19 +287,28 @@ their own; a parameter written `(name default)' contributes `name'."
        ;; what `for-each-form` already knows.
        (when (call-form? node)
          (let* ((name (node-head-name node))
-                (arguments (form-arguments node)))
+                (arguments (form-arguments node))
+                ;; a pair form states two arguments per declaration, and an
+                ;; argument nobody was given a value for is not a pair
+                (paired (and name (memq name paired-binding-heads)))
+                (count (if paired
+                         (quotient (length arguments) 2)
+                         (length arguments)))
+                (limit (if paired (* 2 max-positional) max-positional)))
            (when (and name
                    (not (memq name variadic-operators))
                    (not (memq name field-macros))
                    ;; a form in the indentation table is a special form or a
-                   ;; known macro, and knows its own argument list
-                   (not (indent-rule dialect name))
-                   (> (length arguments) max-positional)
+                   ;; known macro, and knows its own argument list.  A pair
+                   ;; form is the exception: `setq' is in the table for how it
+                   ;; indents, and what it states is judged by the count below.
+                   (or paired (not (indent-rule dialect name)))
+                   (> count limit)
                    (not (any keyword-node? arguments)))
              (set! warnings
                    (cons (make-lint-warning 'keyword-arguments 'info
-                                            (format #f "`~a` takes ~a positional arguments; consider `:key`"
-                                                    name (length arguments))
+                                            (too-long-call-message name count
+                                                                   paired)
                                             (node-start node))
                          warnings))))))
      ast)
