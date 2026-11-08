@@ -217,7 +217,6 @@ such convention, so they keep whatever the author wrote."
     (lambda . 2) (quote . 2) (function . 2) (backquote . 2)
     (interactive . 2) (declare . 2) (require . 2) (provide . 2)
     (use-package . 2)
-    (add-hook . 2) (remove-hook . 2)
     (ert-deftest . 2) (should . 2) (should-error . 2) (should-not . 2)
     (cl-letf . 2) (dolist-with-progress-reporter . 2)))
 

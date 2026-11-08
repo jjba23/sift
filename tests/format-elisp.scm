@@ -66,6 +66,19 @@
        #:expect "(setopt a 1\n        b 2)"
        #:got (format-string "(setopt a 1\nb 2)" #:dialect 'elisp)))
 
+    ;; `add-hook' and `remove-hook' are calls: a hook variable, a function, and
+    ;; then the depth and the local flag, all lined up under the hook the way
+    ;; Emacs lines them up.
+    (test "add-hook lines its arguments up under the hook variable"
+      (assert-same-text
+       #:expect "(add-hook 'foo-hook\n          #'bar\n          10 t)"
+       #:got (format-string "(add-hook 'foo-hook\n#'bar\n10 t)" #:dialect 'elisp)))
+
+    (test "remove-hook lines its arguments up under the hook variable"
+      (assert-same-text
+       #:expect "(remove-hook 'foo-hook\n             #'bar)"
+       #:got (format-string "(remove-hook 'foo-hook\n#'bar)" #:dialect 'elisp)))
+
     (test "condition-case indents its protected form and handlers two in"
       (assert-same-text
        #:expect "(condition-case nil\n  (foo)\n  (error (message \"no\")))"
