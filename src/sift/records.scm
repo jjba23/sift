@@ -283,7 +283,7 @@ cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
                       proc severity example))
 
-(define sift-version "1.24.1")
+(define sift-version "1.24.2")
 
 (define dialects '(scheme elisp cl))
 
