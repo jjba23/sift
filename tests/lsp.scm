@@ -254,18 +254,34 @@ bug; the server has to survive it."
                    (field "version" 1)
                    (field "text" text)))))))
 
+(define (settings-object pairs)
+  "Return an `initializationOptions' object holding @var{pairs} of settings.
+
+The suite turns the standard library off unless a test asks for one: what a
+machine happens to have installed is not something a test can assert about, and
+a test that read a thousand library files would be a test that takes a minute."
+  (json-object
+   (field "sift"
+          (apply json-object
+                 (map (lambda (pair) (field (car pair) (cdr pair))) pairs)))))
+
 (define (initialize-request id)
   (request id "initialize"
-           (json-object (field "capabilities" (json-object)))))
+           (json-object (field "capabilities" (json-object))
+                        (field "initializationOptions"
+                               (settings-object (list (cons "stdlib" json-false)))))))
 
-(define (initialize-with-root id root-uri)
+(define* (initialize-with-root id root-uri #:key (stdlib json-false))
   "Return an `initialize' message whose workspace is @var{root-uri}.
 
 A client that names a root is asking about a project, not only about the
-buffers it has open, and the server answers it from the files on disk."
+buffers it has open, and the server answers it from the files on disk; a test
+that wants a standard library names the directories of one instead."
   (request id "initialize"
            (json-object (field "rootUri" root-uri)
-                        (field "capabilities" (json-object)))))
+                        (field "capabilities" (json-object))
+                        (field "initializationOptions"
+                               (settings-object (list (cons "stdlib" stdlib)))))))
 
 (define (with-cache-home directory thunk)
   "Call @var{thunk} with the index cache kept inside @var{directory}.
@@ -1428,6 +1444,54 @@ the test can see it, and that nothing is left in the user's cache afterwards."
           #:name "the definition and the use")
         (assert-equal #:expect (list buffer-uri lib-uri) #:got uris
           #:name "this buffer's mention first, then the other one's")))
+
+    (test "references of a binding are the mentions inside it, not the project's"
+      ;; `(let ((x 1)) ...)' makes an `x' that has nothing to do with the `x'
+      ;; of the next definition, and a server that answered with every `x' in
+      ;; the project would be answering a question nobody asked.
+      (let* ((result (session (list (initialize-request 1)
+                                    (open (string-append
+                                           "(define (f y)\n"
+                                           "  (let ((x 1))\n"
+                                           "    (list x x)))\n"
+                                           "(define (g x)\n"
+                                           "  x)\n"))
+                                    (references-request 2 buffer-uri 2 10))))
+             (locations (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 3 #:got (vector-length locations)
+          #:name "the binding and the two mentions it has")))
+
+    (test "a name the project does not define is found in the standard library"
+      ;; The library is a directory of source like any other, handed over by
+      ;; the setting a reader who unpacked one somewhere would use.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (let ((project (string-append directory "/project"))
+                  (library (string-append directory "/library")))
+              (spit (string-append library "/probe.scm")
+                    "(define (make-widget size)\n  (* size 2))\n")
+              (spit (string-append project "/here.scm")
+                    "(make-widget 2)\n")
+              (let* ((root (string-append "file://" project))
+                     (here (string-append root "/here.scm"))
+                     (result (session
+                              (list (initialize-with-root
+                                     1 root #:stdlib (list->vector (list library)))
+                                    (open-at here "(make-widget 2)\n")
+                                    (definition-request 2 here 0 2))))
+                     (locations (json-ref (answer-to (cdr result) 2) "result"))
+                     (answer (and (vector? locations)
+                               (> (vector-length locations) 0)
+                               (vector-ref locations 0))))
+                (assert-true (and answer #t)
+                  #:name "the name the project does not define was found")
+                (when answer
+                  (assert-equal #:expect (string-append "file://" library "/probe.scm")
+                    #:got (json-ref answer "uri")
+                    #:name "in the library, not in the project")))))))))
 
     (test "the highlights mark the declaration apart from the uses"
       (let* ((result (session (list (initialize-request 1)

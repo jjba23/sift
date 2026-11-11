@@ -33,13 +33,13 @@ server.
 | ~textDocument/codeAction~                            | yes     | the rule's own fix as ~quickfix~; fix everything as ~source.fixAll.sift~; format this definition as ~refactor.rewrite~; extract an expression to a ~let~ binding or to a procedure, or a lambda to a procedure of its own, as ~refactor.extract~; replace a call with the body it calls as ~refactor.inline~; honours ~context.only~ |
 | ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
 | ~textDocument/formatting~                            | yes     | one edit for the buffer, or a message saying why it refuses                       |
-| ~textDocument/hover~                                 | yes     | a symbol's definition and docstring; a finding's rule otherwise                   |
-| ~textDocument/definition~                            | yes     | Scheme, Emacs Lisp and Common Lisp: scope first, then the file, then the project   |
-| ~textDocument/references~                            | yes     | every mention in the project, by name, within one dialect                         |
+| ~textDocument/hover~                                 | yes     | a symbol's definition and docstring, or what the implementation says about a builtin; a finding's rule otherwise |
+| ~textDocument/definition~                            | yes     | Scheme, Emacs Lisp and Common Lisp: scope first, then the file, then the project, then the standard library |
+| ~textDocument/references~                            | yes     | every mention in the project, by name, within one dialect; a binding's mentions are the ones inside the form that binds it |
 | ~textDocument/documentHighlight~                     | yes     | the mentions in this buffer, the declaration marked apart from the uses           |
 | ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
 | ~workspace/symbol~                                   | yes     | that outline searched by substring                                                |
-| ~textDocument/completion~                            | yes     | the names the buffer and the project define, ranked by what is being typed; no snippets, no arithmetic |
+| ~textDocument/completion~                            | yes     | the names the buffer, the project and the standard library define, the last of them only for what is being typed; no snippets, no arithmetic |
 | ~textDocument/inlayHint~                             | yes     | a parameter's name beside each positional argument of a call sift can resolve, and the type a literal states when ~inlay-hints: [parameters, types]~ asks for it |
 | ~textDocument/prepareRename~, ~rename~               | yes     | by name across the project; a name that is not a symbol is refused                |
 | ~window/showMessage~ (server to client)              | yes     | used to say why formatting or a rename was refused                                |
@@ -92,5 +92,70 @@ place of an approximation.  A rename is a refactor as well, but it requires a
 new name, so it is the protocol's own ~textDocument/rename~ rather than an
 action that would have to invent one -- the same line ~sift fix~ draws
 everywhere else.
+
+* Where the standard library comes from
+:PROPERTIES:
+:CUSTOM_ID: lsp-stdlib
+:END:
+
+A name a project does not define is usually a name the dialect does, and a
+server that answered "not here" to every one of them would be answering about
+one name in three.  So the library an implementation ships with itself is
+indexed as well, from its two halves.
+
+The first half is *source*.  Guile's own modules are the directories
+~%load-path~ names -- the ~ice-9~, ~srfi~, ~scheme~ and ~rnrs~ files of the
+installation, plus whatever a profile has added to them.  Emacs Lisp's are the
+files on ~load-path~.  Common Lisp has no such variable, so sift looks where
+ASDF does: ~common-lisp/source~ under the usual data directories, the SBCL
+contrib, and a Quicklisp or Roswell tree in the home directory.  Those files
+are read, parsed and asked the same question a project's files are, so
+`(srfi srfi-1)'s `fold` lands on the `define` that defines it, and the hover
+is the hover of any other definition.
+
+The second half is what an implementation *knows about itself*.  `car` is
+compiled into libguile and no file in the installation says where; `dolist` is
+a macro the Emacs binary carries; `loop` is a symbol in the `COMMON-LISP`
+package and its documentation is in SBCL.  Each implementation is therefore
+asked once, in a single process, to write down every name it documents, with
+the argument list and the prose it carries.  That file becomes an answer too:
+a jump to `car` lands on the entry that describes it, and the hover shows the
+argument list and the sentence, or says plainly that this installation carries
+no documentation for the name.  The file opens with a line saying what it is,
+so a reader who arrives there by jumping was told why they are there.
+
+Nothing is downloaded and nothing is guessed.  A standard library that is not
+installed is a standard library sift cannot read, and the answer is the smaller
+one: the project, the buffers, and the rule under the cursor.  Three things
+decide what is read.
+
+- the *setting*: ~stdlib: true~ (the default) reads what this machine has
+  installed; ~stdlib: false~ reads none of it; and a list of directories reads
+  those instead, which is how a source tree unpacked anywhere is handed over.
+  [[file:configuration.org::#configuration][configuration.org]] has the shape.
+- the *cache*: the index is written under ~$XDG_CACHE_HOME/sift/stdlib/~ --
+  ~<dialect>.json~ for the names, ~<dialect>-builtins.txt~ for the
+  documentation -- and read from there in later sessions.  It is keyed on the
+  implementation's own binary, so a Guile that was upgraded is read again
+  rather than answered about from an index of the old one; deleting the
+  directory is always safe.
+- the *clock*: the first read of a library takes a second or two for a small
+  one and a good deal longer for a machine with a thousand installed packages,
+  so it happens in a thread of its own when the client says it is ready.  A
+  name in the library answers nothing until that read has finished -- the
+  server says what it found, and how much, in its log -- and answers from then
+  on.
+
+Four limitations are worth knowing, and all four are the same promise the rest
+of sift makes: it reads the text there is.  A *compressed* Emacs Lisp source --
+~foo.el.gz~, which is how most distributions ship the library -- is not read;
+the documentation half covers those names, and it comes from the same place the
+editor's own ~C-h f~ reads.  A name an implementation binds without documenting
+-- Guile's `if`, in an installation whose docstrings were not built -- has an
+entry with its kind and its argument list and no prose, because there is none
+to read.  A name is matched, not *resolved*: sift never says which library
+exports a name, and never follows an import.  And a definition in the project
+always wins, because a definition in the project is the one the reader is
+asking about.
 
 Back to the [[file:../README.org][README]].

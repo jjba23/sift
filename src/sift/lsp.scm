@@ -100,6 +100,7 @@
   #:use-module (sift json)
   #:use-module (sift render)
   #:use-module (sift analysis)
+  #:use-module (sift stdlib)
   #:export (lsp-serve
             lsp-diagnostics
             lsp-code-actions
@@ -292,14 +293,9 @@ has to be right now, and a lazy entry would only defer the work by a moment."
                            (top-level-names definitions))))))
 (define cache-version 1)
 
-(define (cache-home)
-  "Return the directory sift keeps its caches in, or @code{#f} when it has none."
-  (let ((xdg (getenv "XDG_CACHE_HOME"))
-        (home (getenv "HOME")))
-    (cond
-      [(and xdg (not (string-null? xdg))) (string-append xdg "/sift")]
-      [(and home (not (string-null? home))) (string-append home "/.cache/sift")]
-      [else #f])))
+;; `cache-home' -- where a cache belongs -- is the standard library's, because
+;; a cache directory is one directory: two definitions of it would be two
+;; opinions about where a cache is, and they would drift.
 
 (define (path-hash text)
   "Return a short, deterministic name for @var{text}, for a cache file.
@@ -924,6 +920,21 @@ typed, and the findings for the part that could be read are still reported."
   (let ((checker (find-checker name)))
     (and checker (lint-checker-description checker))))
 
+(define (definition-hover text dialect definition)
+  "Return the hover for @var{definition}, which is what a jump would land on.
+
+A definition written in a file is described by its own form; a builtin has no
+form, and is described by what its implementation says about it."
+  (if (definition-form definition)
+    (symbol-hover text dialect definition)
+    (let ((markdown (stdlib-builtin-markdown (stdlib-for dialect)
+                                             (definition-name definition))))
+      (and markdown
+        (json-object
+         (field "contents"
+                (json-object (field "kind" "markdown")
+                             (field "value" markdown))))))))
+
 (define* (lsp-hover config text index #:key (dialect 'scheme) (uri #f))
   "Return the hover for the finding at @var{index}, or @code{#f}."
   (let ((warnings (warnings-for config text #:dialect dialect #:uri uri)))
@@ -1256,6 +1267,29 @@ alternative is a wrong line in a finding."
 
 (define *deep-results* '())
 
+(define (warm-standard-libraries! out)
+  "Read the standard library in a thread of its own, and say what it found.
+
+Reading a library is a second of work for a small one and a great deal more for
+a machine with a thousand installed packages, and the editor is waiting for the
+first jump rather than for this.  Nothing is written from the thread but one
+frame through the same lock every other writer takes, so a report about the
+library cannot land in the middle of a report about a buffer."
+  (let ((thread
+         (call-with-new-thread
+          (lambda ()
+            (catch #t
+                   (lambda ()
+                     (let ((found (stdlib-warm!)))
+                       (when (pair? found)
+                         (with-mutex *send-lock*
+                                     (notice! out
+                                              (format #f "sift: standard library -- ~a"
+                                                      (string-join found "; ")))))))
+                   (lambda (key . arguments) #f))))))
+    (set! *deep-threads* (cons thread *deep-threads*))
+    #t))
+
 (define (queue-deep-pass! out config document fast)
   "Compute the whole-file rules of @var{document} in a thread of their own.
 
@@ -1586,6 +1620,10 @@ dead server."
                               (settings-object-of (params) "initializationOptions"))
        (set-session-config! session
                             (settings-config session out (session-config session)))
+       ;; The standard library is where a name the project does not define
+       ;; usually lives, and whether to read one at all is a setting: `stdlib'
+       ;; is a switch, a list of directories, or nothing at all.
+       (stdlib-install! (config-ref (session-config session) 'stdlib #t))
        (reply! out id (initialize-result))
        (notice! out
                 (format #f "sift ~a: serving ~a"
@@ -1615,6 +1653,7 @@ dead server."
          (notice! out (string-append
                        "sift: this client does not watch files; "
                        "a save is the only news I get about the project")))
+       (warm-standard-libraries! out)
        'continue]
 
       [(and (request?) (not (json-ref message "method" #f)))
@@ -1763,7 +1802,7 @@ dead server."
                      ;; the rule under the cursor is the one sift alone can
                      ;; answer, so it is the fallback rather than the first
                      ;; answer.
-                     (or (and site (symbol-hover (cadr site) dialect (caddr site)))
+                     (or (and site (definition-hover (cadr site) dialect (caddr site)))
                        (lsp-hover config text index
                                   #:dialect dialect
                                   #:uri (document-uri document))

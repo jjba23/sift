@@ -115,7 +115,11 @@
             lsp-signature-help
             lsp-inlay-hints
             extract-actions
-            inline-actions))
+            inline-actions
+
+            ;; --- the standard library, filled by whoever has one ---
+            current-stdlib
+            current-stdlib-names))
 
 ;;; ===== The wire =====
 ;;;
@@ -323,6 +327,26 @@ A workspace starts with no root and nothing in it; what fills it is
     (begin ((current-index-loader) entry)
       (indexed-file-definitions entry))))
 
+;;; The *standard library* is the third place a name can be defined, after the
+;;; buffer and the project, and it is the one thing here that no caller can
+;;; find by itself: it lives wherever the dialect's implementation was
+;;; installed, and reading it is a question about this machine rather than
+;;; about the code being edited.  So it arrives as a procedure too, and the
+;;; answer to "nothing installed" is the empty list -- a jump that does not
+;;; leave the project, which is the answer sift gave before there was one.
+
+(define current-stdlib
+  (make-parameter
+   (lambda (dialect name)
+     "Return the places @var{dialect}'s standard library defines @var{name}."
+     '())))
+
+(define current-stdlib-names
+  (make-parameter
+   (lambda (dialect prefix)
+     "Return the names @var{dialect}'s standard library offers, matching PREFIX."
+     '())))
+
 (define (path->uri path)
   "Return the @code{file:} URI that names @var{path}."
   (format #f "file://~a" (percent-encode path)))
@@ -439,7 +463,12 @@ than an error."
 The AST is passed in rather than read here, because a request that asks the
 same question about many positions -- inlay hints ask it once per call in the
 range the editor is showing -- must parse the buffer once, not once per
-question."
+question.
+
+The order is the order a lookup goes in: what is in scope here, then the file's
+own definitions, then the buffers the editor is showing, then the project, and
+last the standard library -- which is the largest of them and the one a project
+is most entitled to shadow with a definition of its own."
   (let ((local (resolve-definition ast index)))
     (cond
       [local (list (list uri text local))]
@@ -448,7 +477,8 @@ question."
           (if (not name)
             '()
             (append (document-definition-sites documents name dialect uri)
-                    (workspace-definition-sites workspace name dialect))))])))
+                    (workspace-definition-sites workspace name dialect)
+                    ((current-stdlib) dialect name))))])))
 
 (define (definition-sites workspace documents uri text dialect index)
   "Return every place the symbol at @var{index} is defined, in the project."
@@ -480,36 +510,60 @@ question."
      (workspace-index workspace))
     (reverse sites)))
 
+(define (reference-location uri text node)
+  "Return the JSON location of one mention of a name."
+  (json-object
+   (field "uri" uri)
+   (field "range" (json-range text (form-start node) (form-end node)))))
+
 (define* (lsp-references workspace documents uri text dialect index
                          #:key (include-declaration #t))
-  "Return every location in the project that mentions the symbol at @var{index}."
+  "Return every location in the project that mentions the symbol at @var{index}.
+
+A name bound by a form is not a name the project has: `(let ((x 1)) x)' makes
+an `x' that has nothing to do with the `x' of the file next door, and answering
+with every `x' in the project would be answering a question nobody asked.  So a
+mention of a binding is looked for inside the form that binds it, and a mention
+of anything else is looked for in the project, which is where a definition
+lives."
   (let* ((ast (ast-of-text text dialect))
-         (name (resolve-name ast index)))
-    (if (not name)
-      (vector)
-      (let ((locations '()))
-        (for-each
-         (lambda (site)
-           (let* ((site-uri (car site))
-                  (site-text (cadr site))
-                  (site-ast (ast-of-text site-text dialect))
-                  (declarations
-                   (map (lambda (definition) (definition-index definition))
-                        (definitions-by-name site-ast name))))
-             (for-each
-              (lambda (node)
-                (unless (and (not include-declaration)
-                          (memv (form-start node) declarations))
-                  (set! locations
-                        (cons (json-object
-                               (field "uri" site-uri)
-                               (field "range" (json-range site-text
-                                                          (form-start node)
-                                                          (form-end node))))
-                              locations))))
-              (occurrences-of site-ast name))))
-         (project-texts workspace documents uri text dialect))
-        (list->vector (reverse locations))))))
+         (name (resolve-name ast index))
+         (definition (and name (resolve-definition ast index)))
+         (scope (and definition (definition-scope definition))))
+    (cond
+      [(not name) (vector)]
+      [scope
+        (let ((start (form-start scope))
+              (end (form-end scope)))
+          (list->vector
+           (filter-map
+            (lambda (node)
+              (and (<= start (form-start node))
+                (< (form-start node) end)
+                (or include-declaration
+                  (not (eq? node (definition-node definition))))
+                (reference-location uri text node)))
+            (occurrences-of ast name))))]
+      [else
+        (let ((locations '()))
+          (for-each
+           (lambda (site)
+             (let* ((site-uri (car site))
+                    (site-text (cadr site))
+                    (site-ast (ast-of-text site-text dialect))
+                    (declarations
+                     (map (lambda (candidate) (definition-index candidate))
+                          (definitions-by-name site-ast name))))
+               (for-each
+                (lambda (node)
+                  (unless (and (not include-declaration)
+                            (memv (form-start node) declarations))
+                    (set! locations
+                          (cons (reference-location site-uri site-text node)
+                                locations))))
+                (occurrences-of site-ast name))))
+           (project-texts workspace documents uri text dialect))
+          (list->vector (reverse locations)))])))
 
 (define (lsp-document-highlights text dialect index)
   "Return every mention of the symbol at @var{index} in @var{text}."
@@ -627,6 +681,11 @@ the start of."
      documents)
     (for-each (lambda (name) (add name 'variable #f))
               (workspace-names workspace dialect))
+    ;; The standard library is offered last and only for what is being typed: a
+    ;; library holds twenty thousand names on a machine with one of each
+    ;; installed, and a list that long is not a completion, it is a directory.
+    (for-each (lambda (entry) (add (car entry) (cdr entry) #f))
+              ((current-stdlib-names) dialect prefix))
     (list->vector
      (map (lambda (entry)
             (let* ((name (cdr entry))

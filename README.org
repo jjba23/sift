@@ -122,9 +122,10 @@ can be silenced without editing the code it objects to.
   and a range comment outlives the code it was written for.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
   input and output: diagnostics, quickfixes and formatting, go to definition
-  and references for all three dialects, an outline, completion, inlay hints
-  that name a call's arguments, and a hover that describes a symbol or the
-  rule under it.
+  and references for all three dialects -- including the names the standard
+  library defines, and the documentation an implementation carries for the
+  ones it compiled in -- an outline, completion, inlay hints that name a
+  call's arguments, and a hover that describes a symbol or the rule under it.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and

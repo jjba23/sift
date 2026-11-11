@@ -192,6 +192,11 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . (parameters))
      (flag . #f)
      (description . "Inlay hints the server answers: `parameters' (a parameter's name beside each positional argument), `types' (the type a literal states outright), both as a list, or #f for none. Config-only."))
+    (stdlib
+     (type . stdlib)
+     (default . #t)
+     (flag . #f)
+     (description . "The standard library the language server reads for the names the project does not define: true for the one this machine has installed, false for none, or a list of directories to read instead. Config-only."))
     (comment-align
      (type . boolean)
      (default . #f)
@@ -437,33 +442,62 @@ rule writes, and an error about brackets would be the wrong thing to say."
 
 ;; The kinds of inlay hint the language server can answer with.
 (define hint-kinds
-  '(parameters types))
-
-(define (hints-setting value bad)
-  "Return @var{value} as the kinds of inlay hint to answer with.
+  '(parameters types)) (define (hints-setting value bad)
+                         "Return @var{value} as the kinds of inlay hint to answer with.
 
 `false' is no hints at all, `true' is the parameter names -- what sift
 answered before there was a choice -- and a list names the kinds: `parameters'
 for a parameter's name beside its argument, `types' for the type a literal
 states outright.  A single name is written without brackets, because a
 one-element setting always is."
-  (define (as-kind item)
-    (let ((kind (cond [(symbol? item) item]
-                      [(string? item)
-                       (string->symbol
-                        (string-downcase (string-trim-both item)))]
-                      [else #f])))
-      (if (memq kind hint-kinds) kind (bad "parameters, types, true or false"))))
-  (let ((items (cond
-                 [(or (eq? value #f) (eq? value 'false)) 'none]
-                 [(or (eq? value #t) (eq? value 'true)) '(parameters)]
-                 [(string? value) (map string-trim-both (string-split value #\,))]
-                 [(symbol? value) (list (symbol->string value))]
-                 [(list? value) value]
-                 [else (bad "parameters, types, true or false")])))
-    (if (eq? items 'none)
-      '()
-      (delete-duplicates (map as-kind items)))))
+                         (define (as-kind item)
+                           (let ((kind (cond [(symbol? item) item]
+                                             [(string? item)
+                                              (string->symbol
+                                               (string-downcase (string-trim-both item)))]
+                                             [else #f])))
+                             (if (memq kind hint-kinds) kind (bad "parameters, types, true or false"))))
+                         (let ((items (cond
+                                        [(or (eq? value #f) (eq? value 'false)) 'none]
+                                        [(or (eq? value #t) (eq? value 'true)) '(parameters)]
+                                        [(string? value) (map string-trim-both (string-split value #\,))]
+                                        [(symbol? value) (list (symbol->string value))]
+                                        [(list? value) value]
+                                        [else (bad "parameters, types, true or false")])))
+                           (if (eq? items 'none)
+                             '()
+                             (delete-duplicates (map as-kind items)))))
+
+(define (stdlib-setting value bad)
+  "Return @var{value} as the standard library the language server is told about.
+
+`true' is the library this machine has installed, `false' is none at all -- the
+project is then the whole answer -- and a list is the directories to read
+instead, which is how a source tree unpacked anywhere is handed over.  A single
+directory is written without brackets, because a one-element setting always is."
+  (define (as-directory item)
+    (cond
+      [(string? item)
+       (let ((trimmed (string-trim-both item)))
+         (and (not (string-null? trimmed)) trimmed))]
+      [(symbol? item) (symbol->string item)]
+      [else #f]))
+  (cond
+    [(or (eq? value #t) (eq? value 'true)) #t]
+    [(or (not value) (eq? value #f) (eq? value 'false) (eq? value 'no)) #f]
+    [(and (string? value)
+       (member (string-downcase (string-trim-both value)) '("true" "yes" "on")))
+     #t]
+    [(and (string? value)
+       (member (string-downcase (string-trim-both value)) '("false" "no" "off")))
+     #f]
+    [(string? value) (or (as-directory value) (bad "true, false or a directory"))]
+    [(list? value)
+     (let ((directories (map as-directory value)))
+       (if (every identity directories)
+         directories
+         (bad "true, false or a list of directories")))]
+    [else (bad "true, false or a list of directories")]))
 
 ;;; The procedure that reads each kind of setting, keyed by the key's type.
 ;;;
@@ -485,7 +519,8 @@ one-element setting always is."
     (blank-lines . ,blank-lines-setting)
     (loop-style . ,loop-style-setting)
     (rules . ,rules-setting)
-    (patterns . ,patterns-setting)))
+    (patterns . ,patterns-setting)
+    (stdlib . ,stdlib-setting)))
 
 (define* (validate-setting key value #:key path line column)
   "Return @var{value} in its canonical form, or raise a configuration error."

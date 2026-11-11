@@ -41,6 +41,7 @@ field-macros: [package, operating-system, my-record]
 file-filter: ["src/**", "!src/generated/**"]
 max-positional: 4
 inlay-hints: [parameters, types]
+stdlib: true
 severity: warning
 checkers:
   - trailing-whitespace
@@ -72,7 +73,16 @@ sift: sift.yaml:1:1: unknown configuration key `line-lenght'
 The language server is configured from these same files, so a project's
 ~sift.yaml~ is the single place where its editor behaviour is written down:
 ~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~
-determine what the server answers.  An editor may send its own settings as
+determine what the server answers, and ~stdlib~ decides what it reads for the
+names the project does not define -- ~true~ for the library this machine has
+installed, ~false~ for none, and a list of directories to read instead:
+
+#+begin_src yaml
+stdlib: false                      # the project is the whole answer
+stdlib: [/opt/guile-src/module]    # a source tree unpacked somewhere
+#+end_src
+
+An editor may send its own settings as
 well -- Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
 ~initializationOptions~ -- and these are layered over the files and validated
 in the same way, with a key that sift does not define reported in the
@@ -148,6 +158,7 @@ an issue thread:
 | ~single-letter-names~ | a list, for index variables   | ~(i j)~                |
 | ~loop-keywords~       | ~literal~, ~symbolic~         | silent                 |
 | ~indent-rules~        | a list of ~[name, columns]~   | the built-in table     |
+| ~stdlib~              | ~true~, ~false~, directories  | ~true~                 |
 
 A project that has settled a convention should not have to fight its
 formatter, and a formatter that has settled one should not have to argue;
