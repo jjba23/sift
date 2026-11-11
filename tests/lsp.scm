@@ -22,6 +22,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (veritas veritas)
   #:use-module (sift json)
+  #:use-module (sift compiler)
   #:use-module (tests helpers)
   #:export (spec))
 
@@ -269,19 +270,35 @@ a test that read a thousand library files would be a test that takes a minute."
   (request id "initialize"
            (json-object (field "capabilities" (json-object))
                         (field "initializationOptions"
-                               (settings-object (list (cons "stdlib" json-false)))))))
+                               (settings-object
+                                (list (cons "stdlib" json-false)
+                                      (cons "compiler-diagnostics" json-false)))))))
 
-(define* (initialize-with-root id root-uri #:key (stdlib json-false))
+(define* (initialize-with-root id root-uri #:key (stdlib json-false)
+                               (compiler json-false))
   "Return an `initialize' message whose workspace is @var{root-uri}.
 
 A client that names a root is asking about a project, not only about the
 buffers it has open, and the server answers it from the files on disk; a test
-that wants a standard library names the directories of one instead."
+that wants a standard library names the directories of one instead.  The
+compiler is off unless a test asks for it: a compile is a process, and a suite
+that started one per buffer would be a suite that measured the compilers."
   (request id "initialize"
            (json-object (field "rootUri" root-uri)
                         (field "capabilities" (json-object))
                         (field "initializationOptions"
-                               (settings-object (list (cons "stdlib" stdlib)))))))
+                               (settings-object
+                                (list (cons "stdlib" stdlib)
+                                      (cons "compiler-diagnostics" compiler)))))))
+
+(define (initialize-with-compiler id)
+  "Return an `initialize' message that asks the compiler for its opinion."
+  (request id "initialize"
+           (json-object (field "capabilities" (json-object))
+                        (field "initializationOptions"
+                               (settings-object
+                                (list (cons "stdlib" json-false)
+                                      (cons "compiler-diagnostics" #t)))))))
 
 (define (with-cache-home directory thunk)
   "Call @var{thunk} with the index cache kept inside @var{directory}.
@@ -403,6 +420,13 @@ the test can see it, and that nothing is left in the user's cache afterwards."
             (field "position" (point line character))
             (field "newName" new-name))))
 
+(define (rename-file-request id old-uri new-uri)
+  (request id "workspace/willRenameFiles"
+           (json-object
+            (field "files"
+                   (vector (json-object (field "oldUri" old-uri)
+                                        (field "newUri" new-uri)))))))
+
 (define (workspace-symbol-request id query)
   (request id "workspace/symbol" (json-object (field "query" query))))
 
@@ -444,10 +468,12 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect #("quickfix" "refactor.extract"
                                  "refactor.inline" "refactor.rewrite"
                                  "source.fixAll" "source.fixAll.sift"
-                                 "source.organizeImports")
+                                 "source.organizeImports"
+                                 "source.optimizeImports.sift"
+                                 "source.sortImports.sift")
           #:got (json-ref (json-ref capabilities "codeActionProvider")
                           "codeActionKinds")
-          #:name "the server offers fixes, extractions, the one rewrite it can make, and import sorting")
+          #:name "the server offers fixes, extractions, the one rewrite it can make, and both import operations")
         (assert-equal #:expect 'true
           #:got (json-ref capabilities "hoverProvider")
           #:name "the server answers a hover")))
@@ -460,6 +486,23 @@ the test can see it, and that nothing is left in the user's cache afterwards."
           (when diagnostic
             (assert-equal #:expect 2 #:got (diagnostic-severity diagnostic)
               #:name "a warning is a warning")))))
+
+    (test "the compiler's findings are published after the reader's"
+      (if (not (compiler-available? 'scheme))
+        (assert-true #t #:name "guild is not installed; skipped")
+        (let* ((result (session (list (initialize-with-compiler 1)
+                                      (open "(define (f x)\n  (unbound-fn x 1))\n"))))
+               (diagnostics (published (cdr result) buffer-uri))
+               (compiler (and diagnostics
+                           (find (lambda (diagnostic)
+                                   (equal? (json-ref diagnostic "source") "guild"))
+                                 (vector->list diagnostics)))))
+          (assert-equal #:expect 0 #:got (car result))
+          (assert-true (and compiler #t)
+            #:name "a finding from the real compiler arrived")
+          (when compiler
+            (assert-contains #:expect (json-ref compiler "message")
+              #:got "unbound-fn")))))
 
     (test "a finding carries the range an editor highlights"
       (let* ((result (session (list (initialize-request 1) (open unclean))))
@@ -711,6 +754,30 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                           #:got replacement
                           #:name "the library that sorts first is written first")))
 
+    (test "organizing imports sorts the use-module clauses of a define-module"
+      (let* ((text (string-append
+                    "(define-module (app util)\n"
+                    "  #:use-module (srfi srfi-1)\n"
+                    "  #:use-module (ice-9 format)\n"
+                    "  #:export (f))\n"))
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-only-request 2 1 0
+                                                              '("source.organizeImports")))))
+             (actions (json-ref (answer-to (cdr result) 2) "result"))
+             (action (and (> (vector-length actions) 0) (vector-ref actions 0)))
+             (changes (json-ref (json-ref action "edit") "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits"))
+             (replacement (json-ref (vector-ref edits 0) "newText")))
+        (assert-same-text
+         #:expect (string-append
+                   "(define-module (app util)\n"
+                   "  #:use-module (ice-9 format)\n"
+                   "  #:use-module (srfi srfi-1)\n"
+                   "  #:export (f))\n")
+         #:got replacement
+         #:name "the clause whose library sorts first is written first")))
+
     (test "organizing imports removes the ones nothing uses"
       (let* ((text "(import (scheme base) (only (srfi 1) car))\n(display 1)\n")
              (result (session (list (initialize-request 1)
@@ -725,6 +792,35 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-same-text #:expect "(import (scheme base))\n(display 1)\n"
                           #:got replacement
                           #:name "the unused import went, and the file still reads")))
+
+    (test "optimize imports and sort imports are two actions by default"
+      (let* ((text "(import (only (srfi 1) car) (scheme base))\n(display 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (open text)
+                                    (code-action-request 2 1 0))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (titles (map (lambda (action) (json-ref action "title")) actions)))
+        (assert-true (and (member "sift: sort imports" titles) #t)
+          #:name "the sorting action is offered without being asked for")
+        (assert-true (and (member "sift: optimize imports" titles) #t)
+          #:name "and so is the one that removes unused imports")))
+
+    (test "sorting imports can be turned off and optimizing stays on"
+      (let* ((text "(import (only (srfi 1) car) (scheme base))\n(display 1)\n")
+             (result (session (list (initialize-request 1)
+                                    (configuration-with
+                                     (settings-object
+                                      (list (cons "sort-imports" json-false))))
+                                    (open text)
+                                    (code-action-request 2 1 0))))
+             (actions (vector->list
+                       (json-ref (answer-to (cdr result) 2) "result")))
+             (titles (map (lambda (action) (json-ref action "title")) actions)))
+        (assert-true (not (member "sift: sort imports" titles))
+          #:name "the sorting action is gone")
+        (assert-true (and (member "sift: optimize imports" titles) #t)
+          #:name "the other one stays")))
 
     (test "an import that is already organized has no action"
       (let* ((text "(import (scheme base) (srfi 1))\n(display 1)\n")
@@ -1461,6 +1557,46 @@ the test can see it, and that nothing is left in the user's cache afterwards."
         (assert-equal #:expect 3 #:got (vector-length locations)
           #:name "the binding and the two mentions it has")))
 
+    (test "references of a parameter are the uses in the definition"
+      ;; The parameter is written in the argument list and used in the body;
+      ;; the scope is the whole definition, not the list it is spelled in.
+      (let* ((result (session (list (initialize-request 1)
+                                    (open (string-append
+                                           "(define (f x)\n"
+                                           "  (list x x))\n"
+                                           "(define (g x) x)\n"))
+                                    (references-request 2 buffer-uri 0 11))))
+             (locations (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 3 #:got (vector-length locations)
+          #:name "the parameter and the two mentions it has")))
+
+    (test "a jump is answered from a compressed file in the project"
+      ;; Emacs ships its library compressed; a project that vendors one has
+      ;; the same shape, and a jump that cannot read it has nothing to land on.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (copy-file (fixture "compressed" "widget.el.gz")
+                       (string-append directory "/lib.el.gz"))
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.el"))
+                   (result (session (list (initialize-with-root 1 root)
+                                          (open-at here "(widget-size 2)\n"
+                                                   #:language "emacs-lisp")
+                                          (definition-request 2 here 0 2))))
+                   (locations (json-ref (answer-to (cdr result) 2) "result"))
+                   (answer (and (vector? locations)
+                             (> (vector-length locations) 0)
+                             (vector-ref locations 0))))
+              (assert-true (and answer #t)
+                #:name "the compressed file was indexed")
+              (when answer
+                (assert-equal #:expect (string-append root "/lib.el.gz")
+                  #:got (json-ref answer "uri")
+                  #:name "the jump names the compressed file itself"))))))))
+
     (test "a name the project does not define is found in the standard library"
       ;; The library is a directory of source like any other, handed over by
       ;; the setting a reader who unpacked one somewhere would use.
@@ -1573,6 +1709,104 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                                     (rename-request 2 buffer-uri 1 1 "(bad)"))))
              (answer (answer-to (cdr result) 2)))
         (assert-equal #:expect -32602 #:got (json-ref (json-ref answer "error") "code"))))
+
+    (test "a rename of a binding edits its scope and leaves the other binding alone"
+      ;; the `x' of `f' and the `x' of `g' are two names, and renaming one is
+      ;; not renaming the other
+      (let* ((result (session (list (initialize-request 1)
+                                    (open (string-append
+                                           "(define (f x)\n"
+                                           "  (list x x))\n"
+                                           "(define (g x) x)\n"))
+                                    (rename-request 2 buffer-uri 0 11 "y"))))
+             (edit (json-ref (answer-to (cdr result) 2) "result"))
+             (changes (json-ref edit "documentChanges"))
+             (edits (json-ref (vector-ref changes 0) "edits")))
+        (assert-equal #:expect 1 #:got (vector-length changes)
+          #:name "the edit stays in the buffer")
+        (assert-equal #:expect 3 #:got (vector-length edits)
+          #:name "the parameter and its two uses, and nothing from `g'")))
+
+    (test "renaming a Scheme file renames its module and the imports of it"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/util.scm")
+                  "(define-module (app util))\n(define (f) 1)\n")
+            (spit (string-append directory "/user.scm")
+                  "(import (app util))\n(f)\n")
+            (let* ((root (string-append "file://" directory))
+                   (old (string-append root "/util.scm"))
+                   (new (string-append root "/helpers.scm"))
+                   (result (session (list (initialize-with-root 1 root)
+                                          (rename-file-request 2 old new))))
+                   (edit (json-ref (answer-to (cdr result) 2) "result"))
+                   (changes (json-ref edit "documentChanges")))
+              (define (replacement-for uri)
+                (let loop ((at 0))
+                  (if (>= at (vector-length changes))
+                    #f
+                    (let ((change (vector-ref changes at)))
+                      (if (equal? (json-ref (json-ref change "textDocument") "uri")
+                                  uri)
+                        (json-ref (vector-ref (json-ref change "edits") 0)
+                                  "newText")
+                        (loop (+ at 1)))))))
+              (assert-equal #:expect "helpers" #:got (replacement-for new)
+                #:name "the renamed file's module names the new file")
+              (assert-equal #:expect "helpers"
+                #:got (replacement-for (string-append root "/user.scm"))
+                #:name "and the file that imports it names the new module")))))))
+
+    (test "renaming an Emacs Lisp file renames its provide and the requires"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/old.el") "(provide 'old-feature)\n")
+            (spit (string-append directory "/user.el") "(require 'old-feature)\n")
+            (let* ((root (string-append "file://" directory))
+                   (old (string-append root "/old.el"))
+                   (new (string-append root "/helpers.el"))
+                   (result (session (list (initialize-with-root 1 root)
+                                          (rename-file-request 2 old new))))
+                   (edit (json-ref (answer-to (cdr result) 2) "result"))
+                   (changes (json-ref edit "documentChanges")))
+              (define (replacement-for uri)
+                (let loop ((at 0))
+                  (if (>= at (vector-length changes))
+                    #f
+                    (let ((change (vector-ref changes at)))
+                      (if (equal? (json-ref (json-ref change "textDocument") "uri")
+                                  uri)
+                        (json-ref (vector-ref (json-ref change "edits") 0)
+                                  "newText")
+                        (loop (+ at 1)))))))
+              (assert-equal #:expect "helpers" #:got (replacement-for new)
+                #:name "the renamed file provides the new feature")
+              (assert-equal #:expect "helpers"
+                #:got (replacement-for (string-append root "/user.el"))
+                #:name "and the file that requires it asks for the new one")))))))
+
+    (test "renaming a Common Lisp file renames no package"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/old.lisp")
+                  "(defpackage #:old (:use #:cl))\n")
+            (let* ((root (string-append "file://" directory))
+                   (old (string-append root "/old.lisp"))
+                   (new (string-append root "/helpers.lisp"))
+                   (result (session (list (initialize-with-root 1 root)
+                                          (rename-file-request 2 old new)))))
+              (assert-equal #:expect json-null
+                #:got (json-ref (answer-to (cdr result) 2) "result")
+                #:name "a package is not a file, so there is nothing to rename")))))))
 
     (test "workspace/symbol searches the buffers the editor has open"
       (let* ((result (session (list (initialize-request 1)

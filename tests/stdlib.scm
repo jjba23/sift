@@ -118,6 +118,26 @@
            (assert-equal #:expect 'function #:got (definition-kind definition))
            (assert-true (string-suffix? "/base.scm" (car (car sites))))))))
 
+    (test "a compressed library source is read like the file it was"
+      ;; the Emacs library is installed compressed, and reading only the
+      ;; uncompressed half leaves every name it defines out of the index
+      (with-temp-directory
+       (lambda (directory)
+         (copy-file (fixture "compressed" "widget.el.gz")
+                    (string-append directory "/widget.el.gz"))
+         (let* ((library (index-standard-library
+                          #:dialect 'elisp
+                          #:roots (list directory)
+                          #:builtins-text ""))
+                (sites (stdlib-definitions library "widget-size"))
+                (site (and (pair? sites) (car sites))))
+           (assert-equal #:expect 1 #:got (length sites)
+             #:name "the compressed definition was read")
+           (assert-equal #:expect "widget-size"
+             #:got (and site (definition-name (caddr site))))
+           (assert-true (and site (string-suffix? "/widget.el.gz" (car site)))
+             #:name "the answer names the file it is really in")))))
+
     (test "a name the library does not define answers nothing"
       (with-temp-directory
        (lambda (directory)
@@ -153,6 +173,73 @@
                       #:builtins-text "")))
         (assert-equal #:expect '() #:got (stdlib-definitions library "car"))
         (assert-equal #:expect '() #:got (stdlib-names library))))
+
+    (test "a source URL is fetched only when download-sources is on"
+      (with-temp-directory
+       (lambda (directory)
+         (let* ((package (string-append directory "/pkg"))
+                (archive (string-append directory "/pkg.tar.gz"))
+                (cache (string-append directory "/cache"))
+                (url (string-append "file://" archive)))
+           (spit (string-append package "/a.scm") "(define (outside) 1)\n")
+           (assert-equal #:expect 0
+             #:got (system* "tar" "-czf" archive "-C" directory "pkg"))
+           (let ((previous (getenv "XDG_CACHE_HOME")))
+             (dynamic-wind
+               (lambda () (setenv "XDG_CACHE_HOME" cache))
+               (lambda ()
+                 (stdlib-install! (list url) #:download? #f)
+                 (assert-equal #:expect '() #:got (resolve-configured-roots!)
+                   #:name "the URL is not fetched without the setting")
+                 (stdlib-install! (list url) #:download? #t)
+                 (let ((roots (resolve-configured-roots!)))
+                   (assert-equal #:expect 1 #:got (length roots)
+                     #:name "the URL is fetched when the setting is on")
+                   (assert-true
+                     (and (pair? roots)
+                       (file-exists? (string-append (car roots) "/pkg/a.scm")))
+                     #:name "and the tree it unpacked is the root")))
+               (lambda ()
+                 (stdlib-install! #f)
+                 (if previous
+                   (setenv "XDG_CACHE_HOME" previous)
+                   (unsetenv "XDG_CACHE_HOME")))))))))
+
+    ;; ===== the directories a library is in =====
+
+    (test "the Emacs discovery script looks in the third-party package trees"
+      ;; `-Q' runs no init file, so the elpa packages are not on load-path
+      ;; unless the script puts them there, and a package nobody can navigate
+      ;; to is a package the tool does not know about.
+      (let ((script ((module-ref (resolve-module '(sift stdlib))
+                                 'dialect-script)
+                     'elisp)))
+        (assert-contains #:expect script #:got "package-user-dir")
+        (assert-contains #:expect script #:got "site-lisp"))
+      (assert-contains #:expect ((module-ref (resolve-module '(sift stdlib))
+                                             'dialect-script)
+                                 'scheme)
+        #:got "local/share/guile"))
+
+    (test "Common Lisp looks where Quicklisp installs its systems"
+      (with-temp-directory
+       (lambda (directory)
+         (let ((software (string-append directory
+                                        "/quicklisp/dists/quicklisp/software")))
+           (make-directories software)
+           (let ((previous (getenv "HOME")))
+             (dynamic-wind
+               (lambda () (setenv "HOME" directory))
+               (lambda ()
+                 (assert-true (and (member software
+                                           ((module-ref (resolve-module '(sift stdlib))
+                                                        'common-lisp-roots)))
+                                #t)
+                   #:name "the Quicklisp software directory is a root"))
+               (lambda ()
+                 (if previous
+                   (setenv "HOME" previous)
+                   (unsetenv "HOME")))))))))
 
     ;; ===== the builtins =====
 

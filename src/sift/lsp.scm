@@ -18,6 +18,8 @@
 ;;   textDocument/didSave              re-read the project, check it all again
 ;;   workspace/didChangeWatchedFiles   the same, for a file nobody has open
 ;;   workspace/didChangeConfiguration  read the settings again, check again
+;;   workspace/willRenameFiles         rename the module a file names, and its imports
+;;   workspace/didRenameFiles          re-read the renamed file
 ;;   textDocument/codeAction           each finding's fix, fix-all, format this definition
 ;;   textDocument/formatting           format the buffer
 ;;   textDocument/hover                a symbol's definition, or the rule under it
@@ -101,10 +103,12 @@
   #:use-module (sift render)
   #:use-module (sift analysis)
   #:use-module (sift stdlib)
+  #:use-module (sift compiler)
   #:export (lsp-serve
             lsp-diagnostics
             lsp-code-actions
-            lsp-formatting)
+            lsp-formatting
+            organize-imports-text)
   ;; The questions about a buffer are answered by `(sift analysis)', and they
   ;; are exported here as they always were: a caller of `(sift lsp)' should not
   ;; have to know which half of the server moved.
@@ -229,6 +233,18 @@ dead server rather than as a finding." ;; one bytevector, one write: a header an
 (define (directory? path)
   (eq? 'directory (false-if-exception (stat:type (stat path)))))
 
+(define (indexable-file? filter path root)
+  "Return @code{#t} when @var{path} is a file the server indexes.
+
+Navigation reads a compressed source as the file it holds, so a `.el.gz' is
+indexed when the project names no filter.  A project that names one keeps the
+last word, and can name `*.el.gz' itself; the command line never takes this
+path, because `sift format --write' must not write decompressed text over a
+compressed file."
+  (if (or (not filter) (null? filter))
+    (lisp-path? (without-compression path))
+    (file-included? filter path root)))
+
 (define* (files-under root #:optional (filter #f))
   "Return the Lisp files under @var{root}, at most `index-file-limit' of them.
 
@@ -250,21 +266,12 @@ first definition request slower than finding the file by hand."
                (let ((path (string-append dir "/" name)))
                  (cond
                    [(directory? path) (set! subdirectories (cons path subdirectories))]
-                   [(file-included? filter path root)
+                   [(indexable-file? filter path root)
                     (set! files (cons path files))]))))
            entries)
           (loop (append subdirectories (cdr pending))
                 (append files found)
                 (+ count (length files))))])))
-
-(define (read-file-text path)
-  "Return the text of @var{path}, or @code{#f} when it is not a file to read.
-
-A file that cannot be read, or is larger than a file anyone edits by hand, is
-left out: an editor asking for a definition should not wait while the server
-reads a generated file nobody edits."
-  (let ((text (false-if-exception (call-with-input-file path get-string-all))))
-    (and (string? text) (< (string-length text) index-byte-limit) text)))
 
 (define (parse-file-text text dialect path)
   "Return the definitions of @var{text}, read as @var{dialect}."
@@ -286,7 +293,7 @@ reads a generated file nobody edits."
 Used for a file the editor just saved or a watcher just reported: the answer
 has to be right now, and a lazy entry would only defer the work by a moment."
   (let ((dialect (detect-dialect #:file path))
-        (text (read-file-text path)))
+        (text (read-file-text path index-byte-limit)))
     (and dialect text
       (let ((definitions (parse-file-text text dialect path)))
         (make-indexed-file path text dialect definitions
@@ -431,7 +438,7 @@ project's -- deleted, or excluded by a filter the project has since changed --
 is forgotten rather than kept as a stale answer."
   (let* ((root (workspace-root workspace))
          (wanted? (and root (file-exists? path)
-                    (file-included? (workspace-filter workspace) path root))))
+                    (indexable-file? (workspace-filter workspace) path root))))
     (if wanted?
       (let ((entry (index-file path)))
         (if entry
@@ -442,7 +449,7 @@ is forgotten rather than kept as a stale answer."
 (define (load-indexed-file! entry)
   "Read @var{entry}'s file, filling in the text and the definitions it lacks."
   (let ((path (indexed-file-path entry)))
-    (let ((text (read-file-text path)))
+    (let ((text (read-file-text path index-byte-limit)))
       (when text
         (set-indexed-file-text! entry text)
         (set-indexed-file-definitions! entry
@@ -545,6 +552,217 @@ position covers one character, which is what an editor can highlight."
    (map (lambda (warning) (diagnostic-of warning text))
         (warnings-for config text #:dialect dialect #:uri uri))))
 
+;;; ===== Renaming a file, and the module it names =====
+;;;
+;;; A file is not a module in any of the three dialects, but it is the thing a
+;;; reader renames when the module changes: the editor asks before the move,
+;;; and the answer is the edits that keep the name and the file in step.  The
+;;; three dialects disagree about what a module is, so each has its own rule:
+;;; Scheme names a library in a form and imports it by that name; Emacs Lisp
+;;; names a feature with `provide' and asks for it with `require'; Common Lisp
+;;; has packages, and a package is not a file, so a file rename changes no
+;;; name there and the answer is nothing.
+
+(define (path-basename path)
+  "Return the last segment of @var{path}."
+  (let ((slash (string-rindex path #\/)))
+    (if slash (substring path (+ slash 1)) path)))
+
+(define (path-base path)
+  "Return the file name @var{path} ends in, without compression or extension."
+  (let ((name (path-basename path)))
+    (let ((name (if (string-suffix? ".gz" name)
+                  (string-drop-right name 3)
+                  name)))
+      (let ((dot (string-rindex name #\.)))
+        (if dot (substring name 0 dot) name)))))
+
+(define (module-part text)
+  "Return @var{text} as a Scheme module segment: underscores become hyphens."
+  (string-map (lambda (character)
+                (if (char=? character #\_) #\- character))
+              text))
+
+(define (last-atomic-element node)
+  "Return the last atom of a list @var{node}, or @code{#f}."
+  (let ((atoms (filter node-atom? (data-elements node))))
+    (and (pair? atoms) (last atoms))))
+
+(define (project-file-texts workspace documents old-uri new-uri dialect)
+  "Return @code{(uri text)} for the project's files in @var{dialect}.
+
+The file being renamed is left out: its edit is written against the name the
+editor is moving it to, and the old name is about to stop existing."
+  (let ((sites '()))
+    (hash-for-each
+     (lambda (uri document)
+       (when (and (not (string=? uri old-uri))
+               (not (string=? uri new-uri))
+               (eq? (document-dialect document) dialect))
+         (set! sites (cons (list uri (document-text document)) sites))))
+     documents)
+    (hash-for-each
+     (lambda (path entry)
+       (let ((uri (path->uri path)))
+         (when (and (not (string=? uri old-uri))
+                 (not (string=? uri new-uri))
+                 (eq? (indexed-file-dialect entry) dialect))
+           (set! sites (cons (list uri (indexed-file-text-of entry)) sites)))))
+     (workspace-index workspace))
+    (reverse sites)))
+
+(define (scheme-library-form ast)
+  "Return the first library form of @var{ast}, or @code{#f}."
+  (let ((forms (library-forms ast)))
+    (and (pair? forms) (car forms))))
+
+(define (scheme-rename-edits old-path new-path new-uri old-text new-text sites)
+  "Return the edits that rename the module in @var{old-text} with the file."
+  (let* ((ast (ast-of-text old-text 'scheme))
+         (form (scheme-library-form ast))
+         (old-name (and form (library-name form)))
+         (name-node (and form (cadr (data-elements form))))
+         (name-atom (and name-node (last-atomic-element name-node)))
+         (old-base (path-base old-path))
+         (new-base (module-part (path-base new-path))))
+    (if (and (pair? old-name) name-atom
+          (string=? (car (reverse old-name)) old-base)
+          (not (string=? old-base new-base)))
+      (cons (list new-uri new-text (form-start name-atom) (form-end name-atom)
+                  new-base)
+            (append-map
+             (lambda (site)
+               (let* ((uri (car site))
+                      (text (cadr site))
+                      (imports (import-sites (ast-of-text text 'scheme))))
+                 (append-map
+                  (lambda (spec)
+                    (if (equal? (spec-library spec) old-name)
+                      (let ((atom (last-atomic-element (spec-library-node spec))))
+                        (if atom
+                          (list (list uri text (form-start atom) (form-end atom)
+                                      new-base))
+                          '()))
+                      '()))
+                  (append-map import-site-specs imports))))
+             sites))
+      '())))
+
+(define (quoted-atom node)
+  "Return the atom a quote prefix or @code{(quote ...)} holds."
+  (cond
+    [(and node (node-atom? node)) node]
+    [(and node (node-prefix? node) (node-atom? (node-child node)))
+     (node-child node)]
+    [(and node (node-list? node) (eq? (node-head-name node) 'quote))
+     (let ((argument (cadr (data-elements node))))
+       (and argument (node-atom? argument) argument))]
+    [else #f]))
+
+(define (forms-headed-by ast head)
+  "Return every form in @var{ast} whose head names @var{head}, in source order."
+  (let ((found '()))
+    (define (walk node)
+      (cond
+        [(node-list? node)
+         (when (equal? (node-head-name node) head)
+           (set! found (cons node found)))
+         (for-each (lambda (child)
+                     (when (node-data? child) (walk child)))
+                   (node-elements node))]
+        [(node-prefix? node) #f]
+        [else #f]))
+    (for-each (lambda (node) (when (node-data? node) (walk node))) ast)
+    (reverse found)))
+
+(define (provided-feature ast)
+  "Return @code{(node . name)} for the first @code{provide} form of @var{ast}."
+  (let* ((form (car (forms-headed-by ast 'provide)))
+         (atom (and form (quoted-atom (cadr (data-elements form))))))
+    (and atom (cons atom (node-value atom)))))
+
+(define (elisp-rename-edits old-path new-path new-uri old-text new-text sites)
+  "Return the edits that rename the feature in @var{old-text} with the file."
+  (let* ((ast (ast-of-text old-text 'elisp))
+         (provided (provided-feature ast))
+         (old-feature (or (and provided (cdr provided)) (path-base old-path)))
+         (new-feature (path-base new-path)))
+    (if (string=? old-feature new-feature)
+      '()
+      (append
+       (if provided
+         (let ((atom (car provided)))
+           (list (list new-uri new-text
+                       (source-location-index (node-start atom))
+                       (source-location-index (node-end atom))
+                       new-feature)))
+         '())
+       (append-map
+        (lambda (site)
+          (let* ((uri (car site))
+                 (text (cadr site))
+                 (requires (forms-headed-by (ast-of-text text 'elisp) 'require)))
+            (append-map
+             (lambda (form)
+               (let ((atom (quoted-atom (cadr (data-elements form)))))
+                 (if (and atom (string=? (node-value atom) old-feature))
+                   (list (list uri text
+                               (source-location-index (node-start atom))
+                               (source-location-index (node-end atom))
+                               new-feature))
+                   '())))
+             requires)))
+        sites)))))
+
+(define (file-rename-edits workspace documents old-uri new-uri)
+  "Return the edits that keep the module a renamed file names in step."
+  (let* ((old-path (strip-uri old-uri))
+         (new-path (strip-uri new-uri))
+         (document (hash-ref documents old-uri #f))
+         (old-text (or (and document (document-text document))
+                     (read-file-text old-path index-byte-limit)))
+         (dialect (or (and document (document-dialect document))
+                    (detect-dialect #:file old-path)
+                    (detect-dialect #:file new-path))))
+    (if (not (and old-text dialect))
+      '()
+      (let ((sites (project-file-texts workspace documents old-uri new-uri
+                                       dialect)))
+        (case dialect
+          [(scheme) (scheme-rename-edits old-path new-path new-uri old-text old-text
+                                         sites)]
+          [(elisp) (elisp-rename-edits old-path new-path new-uri old-text old-text
+                                       sites)]
+          [else '()])))))
+
+(define (workspace-edit-of edits)
+  "Return a @code{WorkspaceEdit} from @code{(uri text start end replacement)}."
+  (let ((by-uri (make-hash-table)))
+    (for-each
+     (lambda (edit)
+       (hash-set! by-uri (car edit)
+                  (cons edit (hash-ref by-uri (car edit) '()))))
+     edits)
+    (json-object
+     (field "documentChanges"
+            (list->vector
+             (hash-map->list
+              (lambda (uri entries)
+                (json-object
+                 (field "textDocument" (text-document-of uri #f))
+                 (field "edits"
+                        (list->vector
+                         (map (lambda (edit)
+                                (let ((text (cadr edit))
+                                      (start (caddr edit))
+                                      (end (cadddr edit))
+                                      (replacement (car (cddddr edit))))
+                                  (json-object
+                                   (field "range" (json-range text start end))
+                                   (field "newText" replacement))))
+                              (reverse entries))))))
+              by-uri))))))
+
 ;;; ===== Code actions =====
 ;;;
 ;;; A fix is a replacement of a character span, which is exactly a text edit,
@@ -579,10 +797,12 @@ asking about the line the cursor is on, which is what a person means by
 (define code-action-kinds
   ;; What `initialize' advertises, and the complete list of what this server
   ;; offers an editor: two kinds of finding fix, the two rewrites that need no
-  ;; name but the one already in the source, the one rewrite that does, and the
-  ;; two source actions.
+  ;; name but the one already in the source, the one rewrite that does, and
+  ;; the source actions -- fix everything, the two import operations, and the
+  ;; standard "organize imports" that does both.
   '("quickfix" "refactor.extract" "refactor.inline" "refactor.rewrite"
-    "source.fixAll" "source.fixAll.sift" "source.organizeImports"))
+    "source.fixAll" "source.fixAll.sift" "source.organizeImports"
+    "source.optimizeImports.sift" "source.sortImports.sift"))
 (define (kind-matches? requested kind)
   "Return @code{#t} when offering @var{kind} satisfies a request for
 @var{requested}.
@@ -734,33 +954,75 @@ to reflow a file."
                 (display (car texts) out)
                 (loop (form-end (car remaining)) (cdr remaining) (cdr texts))))))))))
 
-(define (organize-imports-text text dialect)
-  "Return @var{text} with the specs of every import form sorted.
+(define (replace-spans text edits)
+  "Return @var{text} with each @code{(start end replacement)} applied."
+  (if (null? edits)
+    text
+    (call-with-output-string
+      (lambda (out)
+        (let loop ((position 0)
+                   (remaining (sort edits (lambda (a b) (< (car a) (car b))))))
+          (if (null? remaining)
+            (display (substring text position) out)
+            (let ((edit (car remaining)))
+              (display (substring text position (car edit)) out)
+              (display (caddr edit) out)
+              (loop (cadr edit) (cdr remaining)))))))))
 
-Only a top-level import is organized: one written inside a `library' body
-belongs to that body, and rewriting it would mean rewriting the library."
+(define (module-import-clauses form)
+  "Return the @code{#:use-module} clauses of a @code{define-module} form."
+  (filter (lambda (clause)
+            (let ((keyword (car clause)))
+              (and (node-atom? keyword)
+                (equal? (node-value keyword) "#:use-module"))))
+          (declaration-clauses form)))
+
+(define (module-import-edits text form)
+  "Return the edits that sort the @code{#:use-module} clauses of @var{form}."
+  (let* ((clauses (module-import-clauses form))
+         (sorted (stable-sort
+                  (list-copy clauses)
+                  (lambda (a b)
+                    (string<? (import-spec-key (cdr a))
+                              (import-spec-key (cdr b)))))))
+    (map (lambda (clause replacement)
+           (list (form-start (car clause)) (form-end (cdr clause)) replacement))
+         clauses
+         (map (lambda (clause)
+                (substring text (form-start (car clause)) (form-end (cdr clause))))
+              sorted))))
+
+(define (organize-imports-text text dialect)
+  "Return @var{text} with every import form's specs sorted.
+
+Both shapes a Scheme file uses are read: a top-level @code{(import ...)} form
+-- wherever it is written, including inside a `library' body -- and the
+@code{#:use-module} clauses of a @code{define-module}.  The specifications are
+permuted in place, so a form written on one line stays on one line and a form
+written one spec per line keeps its indentation."
   (let* ((ast (ast-of-text text dialect))
          (top (filter node-data? ast))
-         (forms (filter (lambda (form) (memq form top)) (import-forms ast))))
-    (if (null? forms)
-      text
-      (call-with-output-string
-        (lambda (out)
-          (let loop ((position 0) (remaining forms))
-            (if (null? remaining)
-              (display (substring text position) out)
-              (let* ((form (car remaining))
-                     (start (form-start form))
-                     (end (form-end form))
-                     (specs (form-arguments form)))
-                (display (substring text position start) out)
-                (cond
+         (forms (filter (lambda (form) (memq form top)) (import-forms ast)))
+         (modules (filter (lambda (form)
+                            (eq? (node-head-name form) 'define-module))
+                          top))
+         (edits
+          (append
+           (append-map
+            (lambda (form)
+              (let ((specs (form-arguments form)))
+                (if (null? specs)
                   ;; an import left with nothing in it is removed rather than
                   ;; written as `(import)', which no Scheme reads
-                  [(null? specs) (loop (import-line-end text end) (cdr remaining))]
-                  [else
-                    (display (organize-import-form text form specs) out)
-                    (loop end (cdr remaining))])))))))))
+                  (list (list (form-start form)
+                              (import-line-end text (form-end form))
+                              ""))
+                  (list (list (form-start form) (form-end form)
+                              (organize-import-form text form specs))))))
+            forms)
+           (append-map (lambda (form) (module-import-edits text form))
+                       modules))))
+    (replace-spans text edits)))
 
 (define (unused-import-warnings-of config text dialect uri)
   "Return the unused-import findings of @var{text}, at every severity.
@@ -776,17 +1038,61 @@ gone when it says so."
                        #:severity 'info
                        #:options (lint-options-of config))))
 
+(define* (optimize-imports-action config text #:key (dialect 'scheme) (uri #f)
+                                  (version #f))
+  "Return the action that removes unused imports, or #f.
+
+The fix `unused-import' already computes is the whole of it: nothing is
+renamed, nothing is added, and the result is an import list a reader can still
+read as the list of what the file uses."
+  (let ((optimized (if (config-ref config 'optimize-imports)
+                     (apply-fixes text
+                                  (unused-import-warnings-of config text
+                                                             dialect uri))
+                     text)))
+    (and (not (string=? optimized text))
+      (json-object
+       (field "title" "sift: optimize imports")
+       (field "kind" "source.optimizeImports.sift")
+       (field "edit"
+              (workspace-edit (or uri "") version text 0 (string-length text)
+                              optimized))))))
+
+(define* (sort-imports-action config text #:key (dialect 'scheme) (uri #f)
+                              (version #f))
+  "Return the action that sorts every import form's specs, or #f.
+
+The specs of an @code{(import ...)} and the @code{#:use-module} clauses of a
+@code{define-module} are both read; the latter is the shape most Guile and
+Guix code uses."
+  (let ((sorted (if (config-ref config 'sort-imports)
+                  (organize-imports-text text dialect)
+                  text)))
+    (and (not (string=? sorted text))
+      (json-object
+       (field "title" "sift: sort imports")
+       (field "kind" "source.sortImports.sift")
+       (field "edit"
+              (workspace-edit (or uri "") version text 0 (string-length text)
+                              sorted))))))
+
 (define* (organize-imports-action config text #:key (dialect 'scheme) (uri #f)
                                   (version #f))
   "Return the action that removes unused imports and sorts the rest, or #f.
 
 Two steps, both of them deletions and reorderings of what the author wrote:
 the fixes `unused-import' already computes are applied first, then the specs
-of every import form are put in order.  Nothing is renamed and nothing is
-added, which is what makes this an action and not a guess."
-  (let* ((warnings (unused-import-warnings-of config text dialect uri))
-         (pruned (apply-fixes text warnings))
-         (organized (organize-imports-text pruned dialect)))
+of every import form are put in order.  Each step is on by default and each
+can be turned off in the configuration, which is what lets an editor's own
+\"organize imports\" command mean what the project wants it to mean."
+  (let* ((pruned (if (config-ref config 'optimize-imports)
+                   (apply-fixes text
+                                (unused-import-warnings-of config text
+                                                           dialect uri))
+                   text))
+         (organized (if (config-ref config 'sort-imports)
+                      (organize-imports-text pruned dialect)
+                      pruned)))
     (and (not (string=? organized text))
       (json-object
        (field "title" "sift: organize imports")
@@ -799,13 +1105,12 @@ added, which is what makes this an action and not a guess."
                            (uri #f) (version #f) (only '()))
   "Return the code actions that apply to @var{start}..@var{end} of @var{text}.
 
-Four answers, in the order an editor should show them: the fixes for the
+The answers, in the order an editor should show them: the fixes for the
 findings under the cursor, the extractions sift can make without being told
 what to call anything, the one rewrite it can make, and the source actions --
-fix everything, format the definition the cursor is in, and organize the
-imports.  @var{only} is the
-request's `context.only', so a client that asked for `source' gets the source
-actions and nothing else."
+fix everything, the two import operations, and organize imports.  @var{only}
+is the request's `context.only', so a client that asked for `source' gets the
+source actions and nothing else."
   (let* ((warnings (warnings-for config text #:dialect dialect #:uri uri))
          (quickfixes
           (filter-map
@@ -830,8 +1135,21 @@ actions and nothing else."
           (and (only-accepts? only "source.fixAll")
             (fix-all-action config text #:dialect dialect #:uri uri
                             #:version version)))
+         (optimize
+          (and (only-accepts? only "source.optimizeImports.sift")
+            (optimize-imports-action config text #:dialect dialect #:uri uri
+                                     #:version version)))
+         (sort
+          (and (only-accepts? only "source.sortImports.sift")
+            (sort-imports-action config text #:dialect dialect #:uri uri
+                                 #:version version)))
          (organize
-          (and (only-accepts? only "source.organizeImports")
+          ;; The standard "organize imports" is the answer to a request that
+          ;; named it, or to a client that asked for the `source' family.  A
+          ;; request with no preference gets the two actions a reader can tell
+          ;; apart, not that pair again under a third name.
+          (and (pair? only)
+            (only-accepts? only "source.organizeImports")
             (organize-imports-action config text #:dialect dialect #:uri uri
                                      #:version version))))
     (list->vector
@@ -840,6 +1158,8 @@ actions and nothing else."
       (or extractions '())
       (or inlines '())
       (if rewrite (list rewrite) '())
+      (if optimize (list optimize) '())
+      (if sort (list sort) '())
       (if organize (list organize) '())
       (if fix-all (list fix-all) '())))))
 
@@ -958,6 +1278,21 @@ form, and is described by what its implementation says about it."
 ;;; that reads a stray line of prose as the length of the next message stops
 ;;; talking, and looks like a server that hung.
 
+(define file-operation-globs
+  (append (map (lambda (extension) (string-append "**/*" extension))
+               lisp-extensions)
+          (map (lambda (extension) (string-append "**/*" extension ".gz"))
+               lisp-extensions)))
+
+(define (file-operation-filters)
+  "Return the files a rename operation may ask this server about."
+  (list->vector
+   (map (lambda (glob)
+          (json-object (field "scheme" "file")
+                       (field "pattern"
+                              (json-object (field "glob" glob)))))
+        file-operation-globs)))
+
 (define (initialize-result)
   "Return the capabilities sift's server offers."
   (json-object
@@ -1006,7 +1341,20 @@ form, and is described by what its implementation says about it."
                                       (list->vector (list " " "(")))
                                (field "retriggerCharacters"
                                       (list->vector (list " ")))))
-           (field "positionEncoding" "utf-16")))
+           (field "positionEncoding" "utf-16")
+           ;; A file rename is a module rename in two of the three dialects,
+           ;; and the editor asks before it moves the file.  The filters say
+           ;; which files sift has an opinion about.
+           (field "workspace"
+                  (json-object
+                   (field "fileOperations"
+                          (json-object
+                           (field "willRename"
+                                  (json-object
+                                   (field "filters" (file-operation-filters))))
+                           (field "didRename"
+                                  (json-object
+                                   (field "filters" (file-operation-filters))))))))))
    (field "serverInfo"
           (json-object
            (field "name" "sift")
@@ -1026,6 +1374,7 @@ form, and is described by what its implementation says about it."
   (shutdown? session-shutdown? set-session-shutdown!)
   (watchers? session-watchers? set-session-watchers!)
   (registered? session-registered? set-session-registered!)
+  (progress? session-progress? set-session-progress!)
   ;; the configuration every finding is computed from, and the thunk that
   ;; reads it again: a project that edits its own `sift.yaml' in the editor it
   ;; is linting from should not have to restart the server to be heard
@@ -1044,10 +1393,19 @@ form, and is described by what its implementation says about it."
     ;; answers with an error sift would then have to ignore twice.
     (set-session-watchers! session #f)
     (set-session-registered! session #f)
+    (set-session-progress! session #f)
     (set-session-config! session config)
     (set-session-reload! session reload)
     (set-session-settings! session #f)
     session))
+
+(define (client-supports-progress? params)
+  "Return @code{#t} when the client advertises work-done progress."
+  (equal? 'true
+          (json-ref (json-ref (json-ref (json-ref params "capabilities")
+                                        "window")
+                              "workDoneProgress")
+                    #f)))
 
 (define (client-supports-watchers? params)
   "Return @code{#t} when the client advertises dynamic watcher registration."
@@ -1156,6 +1514,47 @@ line; everything sift has to say about a step it took is information."
   "Log an information-level @var{message} in the editor."
   (log-message! out 3 message))
 
+;;; --- progress ------------------------------------------------------------
+;;;
+;;; Indexing a standard library is the one thing sift does that can take a
+;;; minute, and a log line is a poor way to say "still working".  A client that
+;;; advertises `window.workDoneProgress' gets a progress token: a create
+;;; request, a begin, a report per source and per library, and an end.  A
+;;; client that does not gets the same lines as log messages, which is the
+;;; answer it can show.
+
+(define progress-token "sift-standard-library")
+
+(define (progress-create! out)
+  (send! out
+         (json-object
+          (field "jsonrpc" "2.0")
+          (field "id" "sift-progress-create")
+          (field "method" "window/workDoneProgress/create")
+          (field "params" (json-object (field "token" progress-token))))))
+
+(define (progress-send! out value)
+  (send! out
+         (json-object
+          (field "jsonrpc" "2.0")
+          (field "method" "$/progress")
+          (field "params"
+                 (json-object (field "token" progress-token)
+                              (field "value" value))))))
+
+(define (progress-begin! out title)
+  (progress-send! out (json-object (field "kind" "begin")
+                                   (field "title" title)
+                                   (field "cancellable" #f))))
+
+(define (progress-report! out message)
+  (progress-send! out (json-object (field "kind" "report")
+                                   (field "message" message))))
+
+(define (progress-end! out message)
+  (progress-send! out (json-object (field "kind" "end")
+                                   (field "message" message))))
+
 (define (document-name document)
   "Return the short name of @var{document}, for a log line."
   (let ((path (strip-uri (document-uri document))))
@@ -1191,7 +1590,7 @@ for a document whose version sift was never told."
                            '())
                          (list (field "diagnostics" diagnostics))))))))
 
-(define* (publish! config out document #:key (force #f))
+(define* (publish! config out document #:key (force #f) (compile? #f) (root #f))
   "Send the diagnostics of @var{document} to the editor, unless nothing changed.
 
 A buffer that does not parse is a buffer with findings -- the reader's own,
@@ -1214,10 +1613,13 @@ again.
 project it was read against changed -- which is what a save or a configuration
 reload asks for."
   (let* ((text (document-text document))
-         (warnings (warnings-for config text
-                                 #:dialect (document-dialect document)
-                                 #:uri (document-uri document)))
-         (diagnostics (diagnostics-of warnings text)))
+         (dialect (document-dialect document))
+         (uri (document-uri document))
+         (warnings (warnings-for config text #:dialect dialect #:uri uri))
+         (diagnostics (list->vector
+                       (append (map (lambda (warning) (diagnostic-of warning text))
+                                    warnings)
+                               (compiler-json-diagnostics uri text dialect)))))
     (unless (and (not force)
               (document-published document)
               (string=? (cdr (document-published document)) text))
@@ -1232,7 +1634,9 @@ reload asks for."
       ;; The editor has the findings that could be answered at once; the ones
       ;; that had to read the whole file are computed now and published by the
       ;; message loop when they are ready.
-      (queue-deep-pass! out config document warnings))))
+      (queue-deep-pass! out config document warnings)
+      (when compile?
+        (queue-compiler-pass! out config document root)))))
 
 ;;; --- the second pass -----------------------------------------------------
 ;;;
@@ -1265,30 +1669,193 @@ alternative is a wrong line in a finding."
   "Return @var{warnings} as the diagnostics an editor expects about @var{text}."
   (list->vector (map (lambda (warning) (diagnostic-of warning text)) warnings)))
 
+;;; ===== The compiler's second opinion =====
+;;;
+;;; The compiler is asked about the text an editor opened or saved, in a thread
+;;; of its own, on a temporary copy of that text.  What it said is kept beside
+;;; the text it said it about: a publish for the same text includes the answer
+;;; without asking again, and a publish for a different text is the findings
+;;; sift can state alone.  The editor gets the fast report first and the
+;;; compiler's report when the process exits.
+
+(define compiler-source-limit 200000)
+(define *compiler-lock* (make-mutex))
+;; One compiler process at a time: a save is a person typing, not a build
+;; farm, and two implementations expanding macros at once is a laptop that
+;; gets warm while the first answer is still on its way.
+(define *compiler-run-lock* (make-mutex))
+(define *compiler-diagnostics* (make-hash-table))
+(define *compiler-in-flight* (make-hash-table))
+
+(define (compiler-cache-key text dialect)
+  (list text dialect))
+
+(define (cached-compiler-diagnostics uri text dialect)
+  "Return the compiler findings cached for @var{uri} at @var{text}, or #f.
+
+The empty list is a cache hit: a compiler that had nothing to say is worth
+remembering, or every publish would start the same process again."
+  (with-mutex *compiler-lock*
+              (let ((entry (hash-ref *compiler-diagnostics* uri)))
+                (and entry (equal? (car entry) (compiler-cache-key text dialect))
+                  (cdr entry)))))
+
+(define (remember-compiler-diagnostics! uri text dialect diagnostics)
+  (with-mutex *compiler-lock*
+              (hash-set! *compiler-diagnostics* uri
+                         (cons (compiler-cache-key text dialect) diagnostics))))
+
+(define (forget-compiler-diagnostics! uri)
+  (with-mutex *compiler-lock*
+              (hash-remove! *compiler-diagnostics* uri)
+              (hash-remove! *compiler-in-flight* uri)))
+
+(define (compiler-in-flight? uri text dialect)
+  (with-mutex *compiler-lock*
+              (equal? (hash-ref *compiler-in-flight* uri #f)
+                      (compiler-cache-key text dialect))))
+
+(define (begin-compiler-run! uri text dialect)
+  (with-mutex *compiler-lock*
+              (hash-set! *compiler-in-flight* uri (compiler-cache-key text dialect))))
+
+(define (end-compiler-run! uri)
+  (with-mutex *compiler-lock* (hash-remove! *compiler-in-flight* uri)))
+
+(define (compiler-severity severity)
+  "Return the protocol's number for a compiler @var{severity}."
+  (case severity
+    [(error) 1]
+    [(warning) 2]
+    [else 3]))
+
+(define (compiler-diagnostic-json diagnostic)
+  "Return a compiler finding as the diagnostic an editor expects."
+  (json-object
+   (field "range"
+          (json-object
+           (field "start"
+                  (json-object
+                   (field "line" (compiler-diagnostic-line diagnostic))
+                   (field "character" (compiler-diagnostic-column diagnostic))))
+           (field "end"
+                  (json-object
+                   (field "line" (compiler-diagnostic-end-line diagnostic))
+                   (field "character" (compiler-diagnostic-end-column diagnostic))))))
+   (field "severity" (compiler-severity (compiler-diagnostic-severity diagnostic)))
+   (field "code" (symbol->string (compiler-diagnostic-tool diagnostic)))
+   (field "source" (symbol->string (compiler-diagnostic-tool diagnostic)))
+   (field "message" (compiler-diagnostic-message diagnostic))))
+
+(define (compiler-json-diagnostics uri text dialect)
+  "Return the compiler findings cached for @var{uri} at @var{text}, as JSON."
+  (map compiler-diagnostic-json
+       (or (cached-compiler-diagnostics uri text dialect) '())))
+
+(define (queue-compiler-pass! out config document root)
+  "Ask @var{dialect}'s compiler about @var{document} in a thread of its own.
+
+Only an open or a save asks: a compile is a process, and a process per
+keystroke is a server that spends its time starting compilers.  A text that
+was compiled before is not compiled again, and a text with a compile already
+in flight is not compiled twice -- a save during a slow compile would
+otherwise queue a second one behind it."
+  (when (config-ref config 'compiler-diagnostics)
+    (let* ((text (document-text document))
+           (version (document-version document))
+           (uri (document-uri document))
+           (dialect (document-dialect document))
+           (path (and (string-prefix? "file://" uri) (strip-uri uri))))
+      (unless (or (> (string-length text) compiler-source-limit)
+                (not (compiler-available? dialect))
+                (cached-compiler-diagnostics uri text dialect)
+                (compiler-in-flight? uri text dialect))
+        (begin-compiler-run! uri text dialect)
+        (set! *deep-threads*
+              (cons
+               (call-with-new-thread
+                (lambda ()
+                  (catch #t
+                         (lambda ()
+                           (let ((found (with-mutex *compiler-run-lock*
+                                                    (compile-text text
+                                                                  #:dialect dialect
+                                                                  #:file path
+                                                                  #:root root))))
+                             (remember-compiler-diagnostics! uri text dialect found)
+                             (end-compiler-run! uri)
+                             (when (and (string=? text (document-text document))
+                                     (equal? version (document-version document)))
+                               (let ((all (all-warnings config text
+                                                        #:dialect dialect
+                                                        #:uri uri)))
+                                 (with-mutex
+                                  *send-lock*
+                                  (set! *deep-results*
+                                        (cons
+                                         (list
+                                          uri version
+                                          (list->vector
+                                           (append
+                                            (map (lambda (warning)
+                                                   (diagnostic-of warning text))
+                                                 all)
+                                            (map compiler-diagnostic-json found)))
+                                          text)
+                                         *deep-results*)))))))
+                         (lambda (key . arguments)
+                           (end-compiler-run! uri)
+                           #f))))
+               *deep-threads*))))))
+
 (define *deep-results* '())
 
-(define (warm-standard-libraries! out)
+(define (warm-standard-libraries! out session)
   "Read the standard library in a thread of its own, and say what it found.
 
 Reading a library is a second of work for a small one and a great deal more for
 a machine with a thousand installed packages, and the editor is waiting for the
 first jump rather than for this.  Nothing is written from the thread but one
 frame through the same lock every other writer takes, so a report about the
-library cannot land in the middle of a report about a buffer."
-  (let ((thread
-         (call-with-new-thread
-          (lambda ()
-            (catch #t
-                   (lambda ()
-                     (let ((found (stdlib-warm!)))
-                       (when (pair? found)
+library cannot land in the middle of a report about a buffer.
+
+A client that advertised progress gets a progress token and one report per
+source and per library; a client that did not gets the same lines in its log."
+  (let ((progress? (session-progress? session)))
+    (when progress?
+      (with-mutex *send-lock* (progress-create! out)))
+    (let ((thread
+           (call-with-new-thread
+            (lambda ()
+              (catch #t
+                     (lambda ()
+                       (when progress?
                          (with-mutex *send-lock*
-                                     (notice! out
-                                              (format #f "sift: standard library -- ~a"
-                                                      (string-join found "; ")))))))
-                   (lambda (key . arguments) #f))))))
-    (set! *deep-threads* (cons thread *deep-threads*))
-    #t))
+                                     (progress-begin! out "Indexing the standard library")))
+                       (let ((found
+                              (stdlib-warm!
+                               #:report
+                               (lambda (message)
+                                 (with-mutex
+                                  *send-lock*
+                                  (if progress?
+                                    (progress-report! out message)
+                                    (notice! out message)))))))
+                         (when progress?
+                           (with-mutex
+                            *send-lock*
+                            (progress-end!
+                             out
+                             (format #f "indexed ~a librar~a"
+                                     (length found)
+                                     (if (= (length found) 1) "y" "ies")))))))
+                     (lambda (key . arguments)
+                       (when progress?
+                         (with-mutex *send-lock*
+                                     (progress-end! out "indexing failed")))
+                       #f))))))
+      (set! *deep-threads* (cons thread *deep-threads*))
+      #t)))
 
 (define (queue-deep-pass! out config document fast)
   "Compute the whole-file rules of @var{document} in a thread of their own.
@@ -1318,17 +1885,23 @@ an older text is one an editor would either drop or, worse, show."
                           (lambda ()
                             (let ((all (all-warnings config text
                                                      #:dialect dialect
-                                                     #:uri uri)))
-                              (when (and (> (length all) (length fast))
+                                                     #:uri uri))
+                                  (compiled (compiler-json-diagnostics
+                                             uri text dialect)))
+                              (when (and (> (+ (length all) (length compiled))
+                                            (length fast))
                                       (string=? text (document-text document))
                                       (equal? version (document-version document)))
                                 (with-mutex *send-lock*
                                             (set! *deep-results*
                                                   (cons (list uri version
-                                                              (diagnostics-of
-                                                               (sort all
-                                                                     lint-warning<?)
-                                                               text)
+                                                              (list->vector
+                                                               (append
+                                                                (map (lambda (warning)
+                                                                       (diagnostic-of warning text))
+                                                                     (sort all
+                                                                           lint-warning<?))
+                                                                compiled))
                                                               text)
                                                         *deep-results*))))))
                           (lambda (key . arguments) #f))))
@@ -1611,6 +2184,7 @@ dead server."
       [(string=? method "initialize")
        (set-session-started! session #t)
        (set-session-watchers! session (client-supports-watchers? (params)))
+       (set-session-progress! session (client-supports-progress? (params)))
        ;; The root is where a question about \"the project\" is answered from;
        ;; an editor that names none still gets its open buffers searched.
        (set-workspace-root! workspace (workspace-root-of (params)))
@@ -1623,7 +2197,9 @@ dead server."
        ;; The standard library is where a name the project does not define
        ;; usually lives, and whether to read one at all is a setting: `stdlib'
        ;; is a switch, a list of directories, or nothing at all.
-       (stdlib-install! (config-ref (session-config session) 'stdlib #t))
+       (stdlib-install! (config-ref (session-config session) 'stdlib #t)
+                        #:download? (config-ref (session-config session)
+                                                'download-sources #f))
        (reply! out id (initialize-result))
        (notice! out
                 (format #f "sift ~a: serving ~a"
@@ -1653,7 +2229,8 @@ dead server."
          (notice! out (string-append
                        "sift: this client does not watch files; "
                        "a save is the only news I get about the project")))
-       (warm-standard-libraries! out)
+       (when (config-ref (session-config session) 'stdlib #t)
+         (warm-standard-libraries! out session))
        'continue]
 
       [(and (request?) (not (json-ref message "method" #f)))
@@ -1680,7 +2257,8 @@ dead server."
          (notice! out
                   (format #f "sift: opened ~a as ~a"
                           (document-name document) (document-dialect document)))
-         (publish! config out document)
+         (publish! config out document #:compile? #t
+                   #:root (workspace-root workspace))
          'continue)]
 
       [(string=? method "textDocument/didChange")
@@ -1698,6 +2276,7 @@ dead server."
       [(string=? method "textDocument/didClose")
        (let ((uri (json-ref (json-ref (params) "textDocument") "uri" "")))
          (hash-remove! documents uri)
+         (forget-compiler-diagnostics! uri)
          ;; An editor keeps the diagnostics it was last given until it is told
          ;; they are gone, so closing a buffer without saying so leaves red
          ;; underlines in the problem list of a file nobody has open.
@@ -1718,7 +2297,8 @@ dead server."
                (workspace-refresh! workspace (strip-uri uri))
                (notice! out (format #f "sift: re-read ~a after a save"
                                     (document-name document)))))
-           (publish-all! config out documents #:force #t)))
+           (publish-all! config out documents #:force #t)
+           (queue-compiler-pass! out config document (workspace-root workspace))))
        'continue]
 
       [(string=? method "workspace/didChangeWatchedFiles")
@@ -1751,6 +2331,39 @@ dead server."
        (set-session-settings! session
                               (settings-object-of (params) "settings"))
        (reload-config! session workspace out documents)
+       'continue]
+
+      [(string=? method "workspace/willRenameFiles")
+       ;; The editor asks before it moves the file; the answer keeps the
+       ;; module name, the imports that name it and the feature the file
+       ;; provides in step.  A dialect whose module is not a file answers
+       ;; nothing, which is the truth about it rather than a guess.
+       (let* ((files (json-ref (params) "files" (vector)))
+              (edits (append-map
+                      (lambda (file)
+                        (file-rename-edits workspace documents
+                                           (json-ref file "oldUri" "")
+                                           (json-ref file "newUri" "")))
+                      (vector->list files))))
+         (reply! out id (if (pair? edits) (workspace-edit-of edits) json-null)))
+       'continue]
+
+      [(string=? method "workspace/didRenameFiles")
+       ;; The move happened.  The index still thinks the old path is a file
+       ;; and the new one is not, so the old entry goes and the new one is
+       ;; read; every open buffer is checked again because a finding can name
+       ;; either path.
+       (let ((files (json-ref (params) "files" (vector))))
+         (for-each
+          (lambda (file)
+            (let ((old-path (strip-uri (json-ref file "oldUri" "")))
+                  (new-path (strip-uri (json-ref file "newUri" ""))))
+              (when (workspace-scanned? workspace)
+                (hash-remove! (workspace-files workspace) old-path)
+                (when (file-exists? new-path)
+                  (workspace-refresh! workspace new-path)))))
+          (vector->list files))
+         (publish-all! config out documents #:force #t))
        'continue]
 
       [(string=? method "textDocument/codeAction")

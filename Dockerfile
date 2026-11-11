@@ -34,6 +34,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
+        curl \
+        gzip \
+        tar \
         guile-3.0 \
     && rm -rf /var/lib/apt/lists/*
 

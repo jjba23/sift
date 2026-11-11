@@ -731,13 +731,22 @@ not entered either, for the reason the reader was told not to read it."
     (and node (symbol-name node))))
 
 (define (self-binding ancestors node)
-  "Return the binding @var{node} names, when it is the name of one.
+  "Return the binding @var{node} names, and the form that introduces it.
 
 A request on the `x' of `(lambda (x) ...)' is a request about that binding,
 and an editor that answered \"nothing here\" would be wrong about the one
-place the name is most obviously defined."
-  (find (lambda (binding) (eq? (binding-node binding) node))
-        (append-map bindings-in ancestors)))
+place the name is most obviously defined.
+
+The form matters as much as the binding: a parameter is written in the
+argument list, but its scope is the definition around it, and a caller that
+took the nearest list for the scope would search the argument list and stop."
+  (let loop ((forms ancestors))
+    (if (null? forms)
+      #f
+      (let ((binding (find (lambda (candidate) (eq? (binding-node candidate) node))
+                           (bindings-in (car forms)))))
+        (or (and binding (cons binding (car forms)))
+          (loop (cdr forms)))))))
 
 (define (resolve-definition ast index)
   "Return the definition the symbol at @var{index} names, or @code{#f}.
@@ -753,7 +762,7 @@ to it."
           (lambda (cursor ancestors)
             (let ((self (self-binding ancestors node)))
               (cond
-                [self (binding-definition self (car ancestors))]
+                [self (binding-definition (car self) (cdr self))]
                 [else (or (resolve-in-scope ancestors name index)
                         (top-level-definition ast name))]))))))))
 

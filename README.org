@@ -123,9 +123,12 @@ can be silenced without editing the code it objects to.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
   input and output: diagnostics, quickfixes and formatting, go to definition
   and references for all three dialects -- including the names the standard
-  library defines, and the documentation an implementation carries for the
-  ones it compiled in -- an outline, completion, inlay hints that name a
-  call's arguments, and a hover that describes a symbol or the rule under it.
+  library and its installed packages define, the documentation an
+  implementation carries for the ones it compiled in, and the compressed
+  sources most Emacs installations ship -- an outline, completion, inlay hints
+  that name a call's arguments, a hover that describes a symbol or the rule
+  under it, import organization, a file rename that keeps its module in step,
+  and a second opinion from the dialect's own compiler when a buffer is saved.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and
@@ -253,6 +256,16 @@ sift 1.25.0
   rules       92
   dialects    scheme, elisp, cl
 
+Compilers
+  scheme available
+  elisp available
+  cl not found
+
+Sources
+  cache       /home/joe/.cache/sift/sources
+  downloaded  0
+  tools       curl, tar
+
 Configuration
   project  /home/joe/project/sift.yaml
 
@@ -283,8 +296,10 @@ $ cat messy.scm
 
 It does not reformat, because formatting belongs to ~format~, and a fix that
 moved whitespace would touch every line of the patch it was meant to make
-readable.  ~ci~ is the same pair of questions asked by a pipeline, in one command
-and one status:
+readable.  It does tidy imports: the unused ones are removed and the
+specifications are sorted, both on by default, and ~optimize-imports~ or
+~sort-imports~ in ~sift.yaml~ turns either off.  ~ci~ is the same pair of
+questions asked by a pipeline, in one command and one status:
 
 #+begin_src shell
 $ sift ci .
@@ -318,10 +333,22 @@ and only for the editor half.
 | What                                             | Needed for                                | Version |
 |--------------------------------------------------+-------------------------------------------+---------|
 | Guile                                            | the whole tool, at run time               | 3.0+    |
+| `gzip`                                           | reading a compressed source in navigation | any     |
+| `curl`, `tar`                                    | fetching a source archive named in `stdlib` | any   |
 | Emacs                                            | the Emacs package in ~emacs/sift.el~      | 28.1+   |
 | Guix or Nix                                      | installing as the distribution does      | any     |
 | Vim and Node                                     | running the Vim and VS Code tests only    | any     |
 | [[https://codeberg.org/jjba23/veritas][Veritas]] | running the test suite only               | dev     |
+
+The language server asks whichever of ~guild~, ~emacs~ and ~sbcl~ is installed
+for its second opinion on a buffer; a compiler that is not present is simply
+not asked, and ~compiler-diagnostics: false~ turns the second opinion off.
+
+sift runs on Linux and macOS.  Caches follow the platform: ~$XDG_CACHE_HOME/sift~
+when it is set, ~/Library/Caches/sift~ on macOS, and ~$XDG_CACHE_HOME/sift~ or
+~/.cache/sift~ elsewhere.  The optional tools above are found on ~PATH~; a
+missing one is reported and the feature that needed it is skipped, rather than
+the tool refusing to run.
 
 No C dependency and no build step are involved, and no package manager sits in
 the path: the program is Scheme source, loaded by whichever Guile is present.
@@ -923,12 +950,17 @@ pretty-printing, and a YAML reader small enough to audit.
 :CUSTOM_ID: limits
 :END:
 
-sift does not expand macros, does not type-check, and does not know a project's
-conventions.  It reports; the author decides.  That is not modesty -- a linter
-that decided would be useless on the first project it had never seen.  Where the
-answer can be wrong, the rule says so: ~wrap-in-let~ is a suggestion,
-~keyword-arguments~ counts, and the thresholds are settings.  The language server
-answers the requests listed on [[file:doc/language-server.org][the language server page]], and answers the others
+sift itself does not expand macros, does not type-check, and does not know a
+project's conventions.  It reports; the author decides.  That is not modesty --
+a linter that decided would be useless on the first project it had never seen.
+Where the answer can be wrong, the rule says so: ~wrap-in-let~ is a
+suggestion, ~keyword-arguments~ counts, and the thresholds are settings.  The
+language server can ask the project's own compiler for the checking sift does
+not do -- on open and on save, in a thread, on a temporary copy of the buffer
+-- and publishes what that compiler says about the names, the arity and the
+types it can see; ~compiler-diagnostics: false~ turns the second opinion off.
+The language server answers the requests listed on
+[[file:doc/language-server.org][the language server page]], and answers the others
 with "method not found" rather than a guess.
 
 * Contributing
@@ -1023,6 +1055,9 @@ there is.
 - [[file:doc/cli.org][doc/cli.org]] — every command, every option, and what each exit status means.
 - [[file:doc/language-server.org][doc/language-server.org]] — every request ~sift lsp~ answers, the ones it
   refuses, and the code actions it offers.
+- [[file:doc/diagrams.md][doc/diagrams.md]] — the moving parts as Mermaid diagrams: navigation, the
+  two diagnostic passes, standard-library discovery and downloads, import
+  organization, and file renames.
 - [[file:doc/configuration.org][doc/configuration.org]] — the two configuration files, the four layers they
   are read in, the settings a project is likely to change, and the one knob
   that is not a setting.

@@ -12,10 +12,13 @@
 ;;
 ;; The first is *source*: Guile's `ice-9', `srfi' and `scheme' modules, the
 ;; Emacs Lisp files an installation keeps beside its binary, the systems in a
-;; Common Lisp source registry.  Those are files, and they are indexed the way
-;; a project's files are -- read, parsed, and asked the same question -- so
-;; `(ice-9 format)'s `format' lands on the `define' that defines it, and the
-;; hover is the hover of any other definition.
+;; Common Lisp source registry, and the package trees those implementations
+;; install third-party code into.  Those are files, and they are indexed the
+;; way a project's files are -- read, parsed, and asked the same question -- so
+;; `(ice-9 format)'s `format' lands on the `define' that defines it, an Emacs
+;; package lands on the source it installed, and the hover is the hover of any
+;; other definition.  A source that is compressed -- the `.el.gz' most Emacs
+;; installations ship -- is decompressed as it is read.
 ;;
 ;; The second is what an implementation *knows about itself*: `car' is compiled
 ;; into libguile and no file in the installation says where.  Each
@@ -48,6 +51,8 @@
   #:use-module (sift records)
   #:use-module (sift reader)
   #:use-module (sift definitions)
+  #:use-module (sift files)
+  #:use-module (sift sources)
   #:use-module (sift json)
   #:use-module (sift analysis)
   #:export (cache-home
@@ -71,17 +76,32 @@
             stdlib-for
             stdlib-warm!
             stdlib-install!
+            resolve-configured-roots!
+            source-cache-directory
             stdlib-forget!))
 
 ;;; ===== Caches =====
 
+(define (darwin?)
+  "Return @code{#t} when this is macOS, where a cache lives in ~/Library."
+  (let ((uname (false-if-exception (uname))))
+    (and uname (string=? (vector-ref uname 0) "Darwin"))))
+
 (define (cache-home)
-  "Return the directory sift keeps its caches in, or @code{#f} when it has none."
+  "Return the directory sift keeps its caches in, or @code{#f} when it has none.
+
+`XDG_CACHE_HOME' wins because it is the user saying where; macOS gets its own
+`Library/Caches' because that is where a Mac application's cache belongs, and
+`LOCALAPPDATA' is the same answer for a Windows shell."
   (let ((xdg (getenv "XDG_CACHE_HOME"))
-        (home (getenv "HOME")))
+        (home (getenv "HOME"))
+        (local (getenv "LOCALAPPDATA")))
     (cond
       [(and xdg (not (string-null? xdg))) (string-append xdg "/sift")]
+      [(and home (not (string-null? home)) (darwin?))
+       (string-append home "/Library/Caches/sift")]
       [(and home (not (string-null? home))) (string-append home "/.cache/sift")]
+      [(and local (not (string-null? local))) (string-append local "/sift")]
       [else #f])))
 
 (define (cache-directory)
@@ -89,7 +109,15 @@
   (let ((home (cache-home)))
     (and home (string-append home "/stdlib"))))
 
-(define cache-version 1)
+(define (source-cache-directory)
+  "Return the directory downloaded source archives and trees live in."
+  (let ((home (cache-home)))
+    (and home (string-append home "/sources"))))
+
+;; 2: a compressed source is read and the package trees a dialect installs
+;; third-party code into are roots.  An index written before that names too
+;; few files to answer the question it is asked.
+(define cache-version 2)
 
 (define* (make-directories path)
   "Create @var{path} and every missing parent, like @code{mkdir -p}."
@@ -268,14 +296,19 @@ two places for one definition, so the parent is kept and the child is dropped."
 ;;; ===== Reading a standard library's files =====
 
 ;; A standard library is larger than a project and is read once per
-;; installation, so the limits are generous and bounded: a source registry with
-;; ten thousand systems costs a jump, not a minute.
-(define file-limit 6000)
+;; installation, so the limits are generous and bounded: a source registry plus
+;; every installed package costs one background read, not a request.
+(define file-limit 10000)
 (define byte-limit 500000)
 (define generated-byte-limit 16000000)
 
 (define (lisp-file? extensions path)
-  (any (lambda (extension) (string-suffix? extension path)) extensions))
+  "Return @code{#t} when @var{path} ends in one of @var{extensions}.
+
+A compressed source is read through its suffix: the Emacs library is installed
+as `.el.gz', and the dialect list names `.el'."
+  (let ((path (without-compression path)))
+    (any (lambda (extension) (string-suffix? extension path)) extensions)))
 
 (define (files-under-roots roots extensions)
   "Return the files under @var{roots} whose name ends in one of @var{extensions}.
@@ -303,14 +336,6 @@ name begins with a dot: the answer is a name index, and a `.git' or a
                 (+ count (length files))))]))
   (walk roots '() 0))
 
-(define* (read-text path #:optional (limit byte-limit))
-  "Return the text of @var{path}, or @code{#f} when it is not a file to read.
-
-A file larger than @var{limit}, or one that cannot be read, is not a file this
-can answer about; the caller answers for the rest."
-  (let ((text (false-if-exception (call-with-input-file path get-string-all))))
-    (and (string? text) (< (string-length text) limit) text)))
-
 (define (definitions-of-text text dialect)
   "Return the definitions of @var{text}, read as @var{dialect}."
   (call-with-values
@@ -328,7 +353,7 @@ all of them."
   (let ((names (make-hash-table)))
     (for-each
      (lambda (path)
-       (let ((text (read-text path)))
+       (let ((text (read-file-text path byte-limit)))
          (when text
            (false-if-exception
             (for-each
@@ -371,7 +396,7 @@ reading of a library be tested without one."
   "Return the text of @var{path}, read once per library."
   (let ((texts (standard-library-texts library)))
     (or (hash-ref texts path)
-      (let ((text (read-text path)))
+      (let ((text (read-file-text path byte-limit)))
         (when text (hash-set! texts path text))
         text))))
 
@@ -572,6 +597,20 @@ the kind that file's definition has."
     (call-with-output-file target
       (lambda (port)
         (format port \"sift\\tversion\\t~a\\n\" (version))
+        ;; A user's own Scheme libraries are the third-party half of what a
+        ;; project imports; the profile directories are on `%load-path' only
+        ;; when the shell put them there.
+        (for-each
+         (lambda (path)
+           (when (and (string? path) (file-exists? path)
+                      (not (member path %load-path)))
+             (set! %load-path (append %load-path (list path)))))
+         (list (string-append (or (getenv \"HOME\") \"\")
+                              \"/.local/share/guile/site/3.0\")
+               (string-append (or (getenv \"HOME\") \"\")
+                              \"/.guix-profile/share/guile/site/3.0\")
+               (string-append (or (getenv \"HOME\") \"\")
+                              \"/.config/guix/current/share/guile/site/3.0\")))
         (for-each (lambda (path) (format port \"sift\\troot\\t~a\\n\" path))
                   %load-path)
         (module-map
@@ -598,6 +637,21 @@ the kind that file's definition has."
   (when target
     (with-temp-file target
       (insert (format \"sift\\tversion\\t%s\\n\" emacs-version))
+      ;; Third-party packages live below `package-user-dir', and `-Q' ran no
+      ;; init file to put them or the system's site-lisp on `load-path'.  The
+      ;; directories are added whole: the index walk is recursive, and its
+      ;; roots are de-duplicated so a child of another root is not read twice.
+      (dolist (directory (list (and (boundp 'package-user-dir)
+                                    (expand-file-name package-user-dir))
+                               (expand-file-name \"~/.config/emacs/elpa\")
+                               (expand-file-name \"~/.emacs.d/elpa\")
+                               (expand-file-name \"../../site-lisp\"
+                                                 data-directory)
+                               \"/usr/local/share/emacs/site-lisp\"
+                               \"/usr/share/emacs/site-lisp\"))
+        (when (and (stringp directory) (file-directory-p directory)
+                   (not (member directory load-path)))
+          (setq load-path (append load-path (list directory)))))
       (dolist (directory load-path)
         (insert (format \"sift\\troot\\t%s\\n\" directory)))
       (mapatoms
@@ -764,6 +818,8 @@ implementation to answer a question about a path."
                                 (string-split (or (getenv "XDG_DATA_DIRS") "") #\:))
                         (list "/usr/local/share" "/usr/share")))
            (list (home-path ".quicklisp/dists/quicklisp/software")
+                 (home-path "quicklisp/dists/quicklisp/software")
+                 (home-path "quicklisp/local-projects")
                  (home-path ".roswell/lisp/quicklisp/dists/quicklisp/software")
                  (home-path ".local/share/common-lisp/source")
                  "/usr/local/lib/sbcl/contrib"
@@ -903,7 +959,7 @@ the index it was making."
   (let ((document (written-index dialect program))
         (generated (builtins-file dialect)))
     (and document generated
-      (let ((text (read-text generated generated-byte-limit)))
+      (let ((text (read-file-text generated generated-byte-limit)))
         (and text (library-of-index dialect document text))))))
 
 ;;; ===== Asking for one =====
@@ -923,7 +979,7 @@ is handed over."
       ;; that a run that fails leaves the one it had
       (let ((partial (temporary-path generated)))
         (and (run-to-file program (append arguments (list script)) partial)
-          (let ((text (read-text partial generated-byte-limit)))
+          (let ((text (read-file-text partial generated-byte-limit)))
             (and text
               (begin
                 (false-if-exception (rename-file partial generated))
@@ -954,6 +1010,41 @@ is handed over."
 (define *reading* (make-hash-table))
 (define *library-lock* (make-mutex))
 (define configured-roots #f)
+;; What the setting named, before URLs were resolved: directories as they were
+;; written and URLs as they will be fetched.
+(define configured-sources #f)
+(define download-sources? #f)
+(define stdlib-enabled? #f)
+
+(define* (resolve-configured-roots! #:key (report #f))
+  "Resolve the URL entries of the `stdlib' setting, and answer the directories.
+
+A URL is downloaded and unpacked only when `download-sources' is true; a
+directory is itself.  The resolved list becomes the roots `read-library'
+indexes, so a failure is one source missing rather than a library that cannot
+be read."
+  (if (not (and stdlib-enabled? configured-sources))
+    '()
+    (let* ((local (filter (lambda (entry) (not (source-url? entry)))
+                          configured-sources))
+           (urls (filter source-url? configured-sources))
+           (cache (source-cache-directory))
+           (downloaded
+            (cond
+              [(null? urls) '()]
+              [(not download-sources?)
+               (when report
+                 (report "sources: URLs in stdlib need download-sources: true"))
+               '()]
+              [(not cache)
+               (when report (report "sources: no cache directory"))
+               '()]
+              [else
+                (filter-map (lambda (url)
+                              (resolve-source url cache #:report report))
+                            urls)])))
+      (set! configured-roots (append local downloaded))
+      downloaded)))
 
 (define (read-library dialect)
   "Read @var{dialect}'s library, or answer @code{#f} when it cannot be read."
@@ -1009,16 +1100,26 @@ made to wait for a library it may not even be asking about."
          library)]
       [else #f])))
 
-(define (stdlib-warm!)
+(define* (stdlib-warm! #:key (report #f))
   "Read every dialect's library, and return a line about each that was read.
 
 Called in a thread of its own by the server, so that the first jump a reader
-makes into a standard library is a jump and not a wait."
-  (filter-map (lambda (dialect)
-                (let ((library (stdlib-for dialect)))
-                  (and library (> (length (standard-library-builtins library)) 0)
-                    (stdlib-summary library))))
-              (map car dialects)))
+makes into a standard library is a jump and not a wait.  @var{report} is called
+with a line as each source is resolved and each library is read, which is what
+lets an editor show that the work is happening rather than that sift is idle."
+  (if (not stdlib-enabled?)
+    '()
+    (begin
+      (resolve-configured-roots! #:report report)
+      (filter-map (lambda (dialect)
+                    (when report
+                      (report (format #f "indexing the ~a library" dialect)))
+                    (let ((library (stdlib-for dialect)))
+                      (and library (> (length (standard-library-builtins library)) 0)
+                        (let ((summary (stdlib-summary library)))
+                          (when report (report summary))
+                          summary))))
+                  (map car dialects)))))
 
 (define (stdlib-definitions-for dialect name)
   "Return the places @var{dialect}'s standard library defines @var{name}.
@@ -1059,13 +1160,20 @@ over a buffer."
 ;;; filesystem -- or a reader who turned the setting off -- hands it nothing,
 ;;; and every answer about the project stays the answer it was.
 
-(define (stdlib-install! setting)
+(define* (stdlib-install! setting #:key (download? #f))
   "Answer the analysis's questions about the standard library from here on.
 
 @var{setting} is the configuration's `stdlib': @code{#t} to discover what this
-machine has installed, a list of directories to read instead, or @code{#f} to
-answer nothing about a library at all."
-  (set! configured-roots (and (list? setting) setting))
+machine has installed, a list of directories or source URLs to read instead,
+or @code{#f} to answer nothing about a library at all.  @var{download?} is the
+`download-sources' setting: a URL is fetched only when it is true, so a project
+file cannot make sift reach the network on its own."
+  (set! configured-sources (and (list? setting) setting))
+  (set! download-sources? download?)
+  (set! stdlib-enabled? (and setting #t))
+  (set! configured-roots
+        (and (list? setting)
+          (filter (lambda (entry) (not (source-url? entry))) setting)))
   (hash-clear! *libraries*)
   (if setting
     (begin

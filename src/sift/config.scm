@@ -196,7 +196,27 @@ one entry per key and `config-ref' always answers with the winning layer."
      (type . stdlib)
      (default . #t)
      (flag . #f)
-     (description . "The standard library the language server reads for the names the project does not define: true for the one this machine has installed, false for none, or a list of directories to read instead. Config-only."))
+     (description . "The standard library the language server reads for the names the project does not define: true for the one this machine has installed, including the third-party packages beside it, false for none, or a list of directories and source URLs to read instead. Config-only."))
+    (download-sources
+     (type . boolean)
+     (default . #f)
+     (flag . #f)
+     (description . "Fetch the source URLs named by `stdlib' into the cache and index them. False by default, because reaching the network is a decision a project file should not make on its own. Config-only."))
+    (compiler-diagnostics
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Ask the dialect's own compiler for warnings and errors when a buffer is opened or saved. The compiler runs in a thread on a temporary copy of the text; false turns the second opinion off. Config-only."))
+    (optimize-imports
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Remove unused imports when the language server or `sift fix' organizes them. Config-only."))
+    (sort-imports
+     (type . boolean)
+     (default . #t)
+     (flag . #f)
+     (description . "Sort the specifications of every import form alphabetically when the language server or `sift fix' organizes them. Config-only."))
     (comment-align
      (type . boolean)
      (default . #f)
@@ -472,9 +492,10 @@ one-element setting always is."
   "Return @var{value} as the standard library the language server is told about.
 
 `true' is the library this machine has installed, `false' is none at all -- the
-project is then the whole answer -- and a list is the directories to read
-instead, which is how a source tree unpacked anywhere is handed over.  A single
-directory is written without brackets, because a one-element setting always is."
+project is then the whole answer -- and a list is the directories and source
+URLs to read instead, which is how a source tree unpacked anywhere, or an
+archive to fetch, is handed over.  A single entry is written without brackets,
+because a one-element setting always is."
   (define (as-directory item)
     (cond
       [(string? item)
@@ -491,13 +512,14 @@ directory is written without brackets, because a one-element setting always is."
     [(and (string? value)
        (member (string-downcase (string-trim-both value)) '("false" "no" "off")))
      #f]
-    [(string? value) (or (as-directory value) (bad "true, false or a directory"))]
+    [(string? value) (or (as-directory value)
+                       (bad "true, false, a directory or a source URL"))]
     [(list? value)
      (let ((directories (map as-directory value)))
        (if (every identity directories)
          directories
-         (bad "true, false or a list of directories")))]
-    [else (bad "true, false or a list of directories")]))
+         (bad "true, false, or a list of directories or source URLs")))]
+    [else (bad "true, false, or a list of directories or source URLs")]))
 
 ;;; The procedure that reads each kind of setting, keyed by the key's type.
 ;;;

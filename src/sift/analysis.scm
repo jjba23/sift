@@ -774,36 +774,54 @@ symbol and renaming whatever is in that spot now."
                       #:key (version #f))
   "Return a @code{WorkspaceEdit} renaming the symbol at @var{index} everywhere.
 
+A name bound by a form is renamed inside the form that binds it: the `x' of
+one `let' is not the `x' of the next, and a project-wide rename of a
+parameter would rewrite code the reader never pointed at.  A file-level
+definition has no such scope and is renamed across the project.
+
 The buffer the rename started in carries the version it was computed from, so
 an editor will not apply the edit over typing that arrived in the meantime."
-  (let ((name (resolve-name (ast-of-text text dialect) index))
-        (changes '()))
-    (for-each
-     (lambda (site)
-       (let* ((site-uri (car site))
-              (site-text (cadr site))
-              (nodes (occurrences-of (ast-of-text site-text dialect) name)))
-         (when (pair? nodes)
-           (set! changes
-                 (cons (json-object
-                        (field "textDocument"
-                               (text-document-of site-uri
-                                                 (and version
-                                                   (string=? site-uri uri)
-                                                   version)))
-                        (field "edits"
-                               (list->vector
-                                (map (lambda (node)
-                                       (json-object
-                                        (field "range"
-                                               (json-range site-text
-                                                           (form-start node)
-                                                           (form-end node)))
-                                        (field "newText" new-name)))
-                                     nodes))))
-                       changes)))))
-     (project-texts workspace documents uri text dialect))
-    (json-object (field "documentChanges" (list->vector (reverse changes))))))
+  (let* ((ast (ast-of-text text dialect))
+         (name (resolve-name ast index))
+         (scope (and name (definition-scope (resolve-definition ast index)))))
+    (if (not name)
+      (json-object (field "documentChanges" (vector)))
+      (let ((changes '()))
+        (define (add-change site-uri site-text nodes site-version)
+          (when (pair? nodes)
+            (set! changes
+                  (cons (json-object
+                         (field "textDocument"
+                                (text-document-of site-uri site-version))
+                         (field "edits"
+                                (list->vector
+                                 (map (lambda (node)
+                                        (json-object
+                                         (field "range"
+                                                (json-range site-text
+                                                            (form-start node)
+                                                            (form-end node)))
+                                         (field "newText" new-name)))
+                                      nodes))))
+                        changes))))
+        (if scope
+          (let ((start (form-start scope))
+                (end (form-end scope)))
+            (add-change uri text
+                        (filter (lambda (node)
+                                  (and (<= start (form-start node))
+                                    (< (form-start node) end)))
+                                (occurrences-of ast name))
+                        version))
+          (for-each
+           (lambda (site)
+             (let ((site-uri (car site))
+                   (site-text (cadr site)))
+               (add-change site-uri site-text
+                           (occurrences-of (ast-of-text site-text dialect) name)
+                           (and version (string=? site-uri uri) version))))
+           (project-texts workspace documents uri text dialect)))
+        (json-object (field "documentChanges" (list->vector (reverse changes))))))))
 
 (define (symbol-hover text dialect definition)
   "Return the hover that describes a definition rather than a rule.

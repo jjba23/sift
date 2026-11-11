@@ -49,6 +49,15 @@
     (test "a file sift has no extension for is not one of its files"
       (assert-equal #:expect #f #:got (lisp-path? "notes.txt")))
 
+    (test "a compressed source is read as the text it holds"
+      ;; Emacs ships its own library as `.el.gz', and a file the reader cannot
+      ;; name is a file navigation never opens.  The command line keeps the
+      ;; uncompressed extension, so a write never lands on a `.gz'.
+      (assert-equal #:expect "foo.el" #:got (without-compression "foo.el.gz"))
+      (assert-equal #:expect "foo.el" #:got (without-compression "foo.el"))
+      (assert-equal #:expect "(defun widget-size (size)\n  (* size 2))\n"
+        #:got (read-file-text (fixture "compressed" "widget.el.gz"))))
+
     ;; ===== globs =====
 
     (test "* stops at a separator"
@@ -72,6 +81,10 @@
     (test "no filter falls back to the extensions"
       (assert-equal #:expect #t #:got (file-included? #f "src/a.scm"))
       (assert-equal #:expect #f #:got (file-included? '() "src/a.txt")))
+
+    (test "a compressed file is navigation's, not the command line's"
+      ;; `sift format --write' must never write decompressed text over a `.gz'
+      (assert-equal #:expect #f #:got (file-included? #f "src/foo.el.gz")))
 
     (test "a filter replaces the extensions"
       (assert-equal #:expect #t #:got (file-included? '("*.txt") "src/a.txt"))

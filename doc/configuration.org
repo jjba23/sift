@@ -75,11 +75,26 @@ The language server is configured from these same files, so a project's
 ~inlay-hints~ (which kinds of hint, or none), ~hover~ and ~completion~
 determine what the server answers, and ~stdlib~ decides what it reads for the
 names the project does not define -- ~true~ for the library this machine has
-installed, ~false~ for none, and a list of directories to read instead:
+installed, including the third-party packages installed beside it, ~false~ for
+none, and a list of directories and source URLs to read instead.
+~download-sources~ allows the URLs in that list to be fetched; it is false by
+default, because reaching the network is a decision a project file should not
+make on its own.  ~compiler-diagnostics~ asks the dialect's own compiler for a
+second opinion when a buffer is opened or saved; ~optimize-imports~ and
+~sort-imports~ decide what "organize imports" means and are both on by default:
 
 #+begin_src yaml
 stdlib: false                      # the project is the whole answer
 stdlib: [/opt/guile-src/module]    # a source tree unpacked somewhere
+#+end_src
+
+An archive is named by URL, and fetched only when the network is allowed:
+
+#+begin_src yaml
+download-sources: true
+stdlib:
+  - https://example.org/guile-3.0.11.tar.gz
+  - /opt/local/sources
 #+end_src
 
 An editor may send its own settings as
@@ -159,6 +174,10 @@ an issue thread:
 | ~loop-keywords~       | ~literal~, ~symbolic~         | silent                 |
 | ~indent-rules~        | a list of ~[name, columns]~   | the built-in table     |
 | ~stdlib~              | ~true~, ~false~, directories  | ~true~                 |
+| ~compiler-diagnostics~ | ~true~, ~false~              | ~true~                 |
+| ~download-sources~    | ~true~, ~false~               | ~false~                |
+| ~optimize-imports~    | ~true~, ~false~               | ~true~                 |
+| ~sort-imports~        | ~true~, ~false~               | ~true~                 |
 
 A project that has settled a convention should not have to fight its
 formatter, and a formatter that has settled one should not have to argue;

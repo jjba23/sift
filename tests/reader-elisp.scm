@@ -126,6 +126,12 @@
       (assert-equal #:expect 'elisp
         #:got (detect-dialect #:file "foo.el")))
 
+    (test "a compressed extension is read through its compression"
+      ;; the Emacs library is installed as `.el.gz', and a file whose dialect
+      ;; cannot be named is a file a jump never reaches
+      (assert-equal #:expect 'elisp
+        #:got (detect-dialect #:file "foo.el.gz")))
+
     (test "the dialect is detected from a lexical-binding marker"
       (assert-equal #:expect 'elisp
         #:got (detect-dialect #:source ";;; -*- lexical-binding: t; -*-\n")))

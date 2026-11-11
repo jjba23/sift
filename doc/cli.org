@@ -58,7 +58,7 @@ counterpart, over which the command line takes precedence.
 | ~--write~, ~-w~            | format                          | Rewrite the files in place                                            |
 | ~--check~, ~-c~            | format                          | Ask the check question instead: write nothing, exit 1 on a difference |
 | ~--diff~                   | format                          | Print the change as a unified diff, exit 1 when there is one          |
-| ~--fix~                    | lint                            | Apply the fixes the rules have                                        |
+| ~--fix~                    | lint                            | Apply the fixes the rules have, then organize imports (unused removed, specs sorted) |
 | ~--checker NAME[,NAME...]~ | lint                            | Run only these rules                                                  |
 | ~--exclude-checker NAME~   | lint                            | Skip these rules (repeatable)                                         |
 | ~--severity~               | lint, lsp                       | error, warning or info; the smallest one to report (default ~info~)   |

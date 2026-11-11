@@ -177,6 +177,56 @@ has exactly one of, which is a question `assert-contains' cannot ask."
          (assert-status #:expect 0 #:got result)
          (assert-same-text #:expect "(when (ready?) (go))\n" #:got (cadr result))))
 
+     (test "fix sorts imports by default"
+       (with-temp-directory
+        (lambda (directory)
+          (let ((path (string-append directory "/imports.scm")))
+            (spit path "(import (srfi 1) (scheme base))\n(display 1)\n")
+            (let ((result (run-sift (list "fix" path))))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text #:expect "(import (scheme base) (srfi 1))\n(display 1)\n"
+                                #:got (slurp path)))))))
+
+     (test "fix sorts the use-module clauses of a define-module"
+       (with-temp-directory
+        (lambda (directory)
+          (let ((path (string-append directory "/module.scm")))
+            (spit path (string-append
+                        "(define-module (app util)\n"
+                        "  #:use-module (srfi srfi-1)\n"
+                        "  #:use-module (ice-9 format)\n"
+                        "  #:export (f))\n"))
+            (let ((result (run-sift (list "fix" path))))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text
+               #:expect (string-append
+                         "(define-module (app util)\n"
+                         "  #:use-module (ice-9 format)\n"
+                         "  #:use-module (srfi srfi-1)\n"
+                         "  #:export (f))\n")
+               #:got (slurp path)))))))
+
+     (test "fix removes an unused import by default"
+       (with-temp-directory
+        (lambda (directory)
+          (let ((path (string-append directory "/imports.scm")))
+            (spit path "(import (scheme base) (only (srfi 1) car))\n(display 1)\n")
+            (let ((result (run-sift (list "fix" path))))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text #:expect "(import (scheme base))\n(display 1)\n"
+                                #:got (slurp path)))))))
+
+     (test "a project can turn import sorting off"
+       (with-temp-directory
+        (lambda (directory)
+          (spit (string-append directory "/sift.yaml") "sort-imports: false\n")
+          (let ((path (string-append directory "/imports.scm")))
+            (spit path "(import (srfi 1) (scheme base))\n(display 1)\n")
+            (let ((result (run-sift (list "fix" path) #:directory directory)))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text #:expect "(import (srfi 1) (scheme base))\n(display 1)\n"
+                                #:got (slurp path)))))))
+
      (test "--label names the source in diagnostics"
        (let ((result (run-sift '("lint" "--stdin" "--dialect=scheme"
                                  "--label=my-buffer.scm" "--format=human")
@@ -441,7 +491,9 @@ has exactly one of, which is a question `assert-contains' cannot ask."
          (assert-contains #:expect (cadr result) #:got "sift "
            #:name "doctor starts with the version")
          (assert-contains #:expect (cadr result) #:got "rules")
-         (assert-contains #:expect (cadr result) #:got "sift.yaml")))
+         (assert-contains #:expect (cadr result) #:got "sift.yaml")
+         (assert-contains #:expect (cadr result) #:got "Compilers")
+         (assert-contains #:expect (cadr result) #:got "Sources")))
 
      ;; The launcher puts `bin/../src' on the load path, and doctor is
      ;; the command you run so that you do not have to work out where

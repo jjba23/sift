@@ -110,6 +110,12 @@ src/sift/
   yaml.scm          the data-only YAML subset the configuration needs
   json.scm          the JSON the language server speaks
   definitions.scm   what defines a name, what binds one, and where it is used
+  files.scm         which files are Lisp files, and reading a compressed one
+  imports.scm       import forms and the libraries a project declares
+  analysis.scm      the LSP questions that are a function of a buffer
+  stdlib.scm        the library an implementation ships, indexed for navigation
+  sources.scm       downloading, checking and caching a source archive
+  compiler.scm      the dialect's own compiler, asked for a second opinion
   lsp.scm           diagnostics, actions, formatting, hover, and navigation
   catalogue.scm     the rule catalogue, generated from the records
   cli.scm           args-fold, dispatch, exit codes

@@ -37,6 +37,9 @@
   #:use-module (sift format)
   #:use-module (sift lint)
   #:use-module (sift lsp)
+  #:use-module (sift stdlib)
+  #:use-module (sift sources)
+  #:use-module (sift compiler)
   #:use-module (sift render)
   #:use-module (sift config)
   #:use-module (sift files)
@@ -951,7 +954,16 @@ not worth tidying up when someone asks for a tidy-up."
               ;; so that an editor can take the buffer and a human can still
               ;; read the reason.
               [fix?
-                (let* ((fixed (apply-fixes source warnings))
+                (let* ((applicable (if (config-ref config 'optimize-imports)
+                                     warnings
+                                     (remove (lambda (warning)
+                                               (eq? (lint-warning-checker warning)
+                                                    'unused-import))
+                                             warnings)))
+                       (fixed (apply-fixes source applicable))
+                       (fixed (if (config-ref config 'sort-imports)
+                                (organize-imports-text fixed dialect)
+                                fixed))
                        (remaining (call-with-values
                                     (lambda ()
                                       (lint-text config fixed #:path label))
@@ -980,7 +992,7 @@ not worth tidying up when someone asks for a tidy-up."
                  (lambda (warnings dialect file-status)
                    (cond
                      [fix?
-                       (lint-with-fixes config path source warnings)]
+                       (lint-with-fixes config path source warnings dialect)]
                      [else
                        (report-warnings config warnings #:files 1)
                        (max file-status
@@ -1007,12 +1019,19 @@ knows better says so."
       #t)
     #f))
 
-(define* (lint-with-fixes config path source warnings)
+(define* (lint-with-fixes config path source warnings dialect)
   "Apply the fixes in @var{warnings} to @var{source}, then lint once more.
 
 A second pass is the whole of the fix loop: after applying the fixes, what
 is left is reported, and sift does not try again.  A fixer that keeps
 finding work is a bug, not a queue.
+
+The imports are the one thing a fix does beyond a rule's own replacement:
+`optimize-imports' drops the unused ones and `sort-imports' puts the rest in
+order, both on unless the project says otherwise.  A fix that reordered a
+file's imports without its author asking is exactly the kind of change a
+formatter must not make; a fix command that leaves the imports a reader has
+to tidy by hand is the one kind of work it is for.
 
 A file the reader could not finish is a file whose spans are not to be
 trusted: the fix refuses with the status 2 that `format' refuses with, unless
@@ -1021,7 +1040,16 @@ an editor, and a fixer that rewrites around a missing parenthesis is guessing
 at where it goes -- which is the one thing sift does not do."
   (if (fix-refused config path warnings)
     2
-    (let* ((fixed (apply-fixes source warnings))
+    (let* ((applicable (if (config-ref config 'optimize-imports)
+                         warnings
+                         (remove (lambda (warning)
+                                   (eq? (lint-warning-checker warning)
+                                        'unused-import))
+                                 warnings)))
+           (fixed (apply-fixes source applicable))
+           (fixed (if (config-ref config 'sort-imports)
+                    (organize-imports-text fixed dialect)
+                    fixed))
            (changed? (not (string=? fixed source))))
       (when changed?
         (write-string-to path fixed)
@@ -1206,6 +1234,27 @@ untrusted.  That is what this prints."
                      (format #t "  library     ~a~%" (library-directory))
                      (format #t "  rules       ~a~%" (length rules))
                      (format #t "  dialects    scheme, elisp, cl~%")
+                     (newline)
+                     (format #t "Compilers~%")
+                     (for-each
+                      (lambda (dialect)
+                        (format #t "  ~a ~a~%" dialect
+                                (if (compiler-available? dialect)
+                                  "available" "not found")))
+                      '(scheme elisp cl))
+                     (newline)
+                     (format #t "Sources~%")
+                     (let ((cache (source-cache-directory)))
+                       (format #t "  cache       ~a~%" (or cache "none"))
+                       (format #t "  downloaded  ~a~%"
+                               (if cache (length (cached-sources cache)) 0))
+                       (format #t "  tools       ~a~%"
+                               (string-join
+                                (filter-map
+                                 (lambda (tool)
+                                   (and (program-exists? tool) tool))
+                                 '("curl" "tar"))
+                                ", ")))
                      (newline)
                      (format #t "Configuration~%")
                      (if (null? layers)

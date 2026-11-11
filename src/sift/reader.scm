@@ -1126,7 +1126,12 @@ see?\": `(string->ast-list \"(a b)\")' gives one node, the list."
 ;;; ===== Dialect detection =====
 
 (define (extension-of path)
-  (let ((dot (string-rindex path #\.)))
+  "Return the extension @var{path} ends in, a compression suffix aside.
+
+A compressed source is the source it holds, so `foo.el.gz' has the extension
+of `foo.el'."
+  (let* ((path (if (string-suffix? ".gz" path) (string-drop-right path 3) path))
+         (dot (string-rindex path #\.)))
     (and dot
       (let ((slash (string-rindex path #\/)))
         (and (or (not slash) (> dot slash))
