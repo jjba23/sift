@@ -27,6 +27,8 @@
   #:use-module (sift format)
   #:use-module (sift lint)
   #:use-module (sift check base)
+  #:use-module (sift analysis)
+  #:use-module (sift definitions)
   #:use-module (benchmarks measure)
   #:export (spec
             corpus-files
@@ -34,6 +36,7 @@
             corpus-lines
             bench-lines
             checker-benchmarks
+            navigation-benchmarks
             corpus-benchmarks))
 
 ;;; ===== The corpus =====
@@ -193,6 +196,51 @@ to either one measurable."
                (for-each-form (lambda (node) (set! count (+ count 1))) ast)
                count))))))
 
+;;; ===== Navigation =====
+
+(define (synthetic-entry n)
+  "Return an `indexed-file' for a file defining `proc-n', without touching disk."
+  (let* ((path (format #f "/project/file-~a.scm" n))
+         (text (format #f "(define (proc-~a x)\n  x)\n" n))
+         (ast (call-with-values
+                (lambda () (read-source #:source text #:dialect 'scheme
+                                        #:file path))
+                (lambda (ast errors) ast)))
+         (definitions (parse-definitions ast)))
+    (make-indexed-file path text 'scheme definitions
+                       (list (format #f "proc-~a" n)))))
+
+(define (navigation-workspace read total)
+  "Return a workspace whose index holds the first @var{read} of @var{total} files."
+  (let ((workspace (new-workspace)))
+    (publish-workspace-index!
+     workspace
+     (index-of-files (map synthetic-entry (iota read)) 1)
+     (if (= read total) 'ready 'partial) read total)
+    workspace))
+
+(define (jump workspace name)
+  "Return how many locations a jump to @var{name} finds, within its deadline."
+  (vector-length
+   (lsp-definition workspace (make-hash-table) "/project/file-0.scm"
+                   (format #f "(~a 1)\n" name) 'scheme 3
+                   #:deadline (make-deadline 100))))
+
+(define (navigation-benchmarks)
+  "Return the benchmarks of a jump.
+
+A jump is answered from the index the session has, so it is timed against an
+index that is complete and one that is still being read: the second is what an
+editor asks while `sift/indexStatus' still says `indexing', and it must cost
+the same as the first rather than wait for the rest of the project."
+  (let ((complete (navigation-workspace 2000 2000))
+        (partial (navigation-workspace 200 2000)))
+    (list
+     (list "jump in a read project (2000 files)"
+           (lambda () (jump complete "proc-7")))
+     (list "jump while the project is being read (200 of 2000 files)"
+           (lambda () (jump partial "proc-7"))))))
+
 ;;; ===== The suite =====
 
 (define (spec)
@@ -203,7 +251,8 @@ already several runs' worth of work, and a benchmark that takes a minute to
 say `about a second' is not worth running.  Everything else is run three
 times after one warm-up, because a single sample of anything under a
 millisecond is noise."
-  (append (benchmark-tasks (file-benchmarks))
+  (append (benchmark-tasks (navigation-benchmarks))
+          (benchmark-tasks (file-benchmarks))
           (benchmark-tasks (node-benchmarks))
           (benchmark-tasks (checker-benchmarks))
           (benchmark-tasks (corpus-benchmarks))))
