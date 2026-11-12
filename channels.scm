@@ -9,7 +9,7 @@
        (name 'guix)
        (url "https://codeberg.org/guix/guix.git")
        (branch "master")
-       (commit "b7c99ce1297f19da01ba26828464b5e6d9d74572")
+       (commit "3b4e87350015c5e5223bcfd5043837e63fd6d635")
        (introduction
         (make-channel-introduction "9edb3f66fd807b096b48283debdcddccfea34bad"
                                    (openpgp-fingerprint
@@ -18,12 +18,11 @@
        (name 'jointhefreeworld)
        (url "https://github.com/jjba23/guix-jointhefreeworld")
        (branch "trunk")
-       ;; The release this configuration is built against: lambdock 0.21.1,
-       ;; heks-toon 0.3.2, maak 0.14.0, veritas 0.9.0, scriba 0.4.5, sift
-       ;; 1.14.1, and the rest of the collection, at the same revision.  This
-       ;; is the bump to sift 1.14.1 itself: a pass over its README, and the
-       ;; three stale facts it turned up.
-       (commit "3df1c8cf59a620f714c643a3879e272aef5111ac")
+       ;; The release this configuration is built against: the jointhefreeworld
+       ;; channel at v1.0.4 -- heks-toon 0.3.6, maak 0.14.0, scriba 0.5.1,
+       ;; veritas 1.4.3, sift 1.27.2 -- and the rest of the collection at the
+       ;; same revision.
+       (commit "872c1e2ee0cee99e49472bfbfaf3a7e5975b1c2d")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
