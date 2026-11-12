@@ -785,8 +785,13 @@ The extent of what ~sift lsp~ answers -- request by request, including the
 requests it refuses, its code actions and the two limits that accompany them --
 is in [[file:doc/language-server.org][doc/language-server.org]].  The limits bear repeating: a reference is
 matched by name within one dialect, because sift expands no macro and follows no
-import; and the project is read once per session, unless the editor reports that
-a file changed.
+import; and the project is read in the background, so a jump answers from the
+files read so far instead of waiting for the rest.  A client that advertises
+~experimental~ is told how far the reading has got by the ~sift/indexStatus~
+notification (~uninitialized~, ~scanning~, ~indexing~, ~ready~); the states, the
+bounds (~100 ms~ for a jump, ~200 ms~ for a reference search) and the batch
+size are in
+[[file:doc/language-server.org::#lsp-index][While the project is being read]].
 
 * In a pipeline
 :PROPERTIES:

@@ -151,6 +151,39 @@ The same argument, later, produced
 needs JSON, and sift should not need a package installed before its own server
 starts.
 
+** An index that is published, not waited for
+:PROPERTIES:
+:CUSTOM_ID: index-snapshot
+:END:
+
+The language server answers a jump from a snapshot of the project, and the
+snapshot is built in a thread of its own from the moment ~initialize~ names a
+root.  The alternative -- reading the project when the first request needs it --
+makes the first jump of a session cost the whole project, which is the one
+answer a person is watching for.  So the index is a value: a hash of files and
+a hash of names, both immutable once built, replaced whole by the indexer in one
+atomic write.  A reader takes the current value and is answered from it for as
+long as it likes; a writer never touches the value a reader has.
+
+The decision has three consequences.  A request answers with what the snapshot
+knows rather than waiting for what it does not: a name in a file not read yet
+is an empty result, not a paused editor, and ~sift/indexStatus~ tells the
+client when that will change.  The index carries names for every file but
+text and definitions only for the files read in this session, so the cache
+under ~$XDG_CACHE_HOME/sift/~ can make a restart fast without making an answer
+wrong -- a file remembered without its text answers completion and says
+nothing about a jump until it is read.  And the three questions that made a
+lint expensive (see [[#one-walk][One traversal, and the answers kept]]) are answered
+again in the server only from data the snapshot carries, so a jump costs the
+names it searches rather than the size of the project: about 0.02 ms against
+two thousand indexed names, complete or still being read.
+
+The equivalent of an interruptible task is not a thread to kill, since Guile
+cannot stop a thread safely in the middle of a loop: it is a deadline the long
+loops check between steps.  That is why ~lsp-definition~ and ~lsp-references~
+take a deadline, and why ~$/cancelRequest~ is a flag those loops ask about
+rather than a signal.
+
 ** Codes that never move
 :PROPERTIES:
 :CUSTOM_ID: codes

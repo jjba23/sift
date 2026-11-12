@@ -112,6 +112,48 @@ new name, so it is the protocol's own ~textDocument/rename~ rather than an
 action that would have to invent one -- the same line ~sift fix~ draws
 everywhere else.
 
+* While the project is being read
+:PROPERTIES:
+:CUSTOM_ID: lsp-index
+:END:
+
+The project is read in a thread of its own, from the moment ~initialize~ names
+a root, and no request waits for it.  What a jump or a reference search sees
+is the snapshot the indexer last published: a project of two thousand files is
+published in batches of sixty-four, so the first answer arrives after the
+first batch rather than after the last file, and every later batch replaces the
+snapshot whole rather than editing it under a reader.
+
+A client that advertises ~experimental~ in its capabilities is told where the
+index is, as a notification:
+
+#+begin_src json
+{"jsonrpc": "2.0", "method": "sift/indexStatus",
+ "params": {"state": "indexing", "done": 64, "total": 2000}}
+#+end_src
+
+The states are ~uninitialized~ (no root yet), ~scanning~ (the tree is being
+listed), ~indexing~ (~done~ of ~total~ files are read) and ~ready~.  The
+notification is sent on every state change and on every published batch, and
+it is also what a test waits for instead of guessing at a sleep.  A client that
+does not advertise ~experimental~ is not sent it, and loses nothing else.
+
+Until the snapshot has a file, a jump to a name defined there is answered with
+an empty result rather than a wait, and the server says in the editor's log
+that the index is still being read.  Both navigations are bounded: a
+definition is answered within one hundred milliseconds, a reference search
+within two hundred, and $/cancelRequest is checked between the steps of either
+one.  The measurement behind that bound is in ~benchmarks/sift.scm~: a jump
+against two thousand indexed names costs about 0.02 ms, whether the index is
+complete or still being read.
+
+A lint is a job on a queue drained by its own worker, so a keystroke does not
+compute a finding in the loop that reads messages: the request that follows it
+is answered while the buffer is being checked.  A report is about the text it
+was computed from, so a job that finishes after the buffer changed is dropped
+instead of drawing old findings over new text, and a closed buffer is not
+reported about at all.
+
 * Where the standard library comes from
 :PROPERTIES:
 :CUSTOM_ID: lsp-stdlib
