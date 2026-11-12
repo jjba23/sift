@@ -201,6 +201,16 @@ A change takes effect at once: the server reads its files again under the new
 settings and re-checks every open buffer, which is also the path a saved
 `sift.yaml` takes.
 
+What a change carries is the editor's *whole* configuration, not the keys that
+changed: the object it sends replaces the one the session held, exactly as
+`eglot-workspace-configuration` and a client's `settings` are the whole object
+the user wrote.  A notification carrying one key therefore drops every other
+editor setting back to what the files and the defaults say -- including
+`stdlib` and `compiler-diagnostics`, which are the two that read something
+outside the buffer.  A client that wants to change one setting sends the
+others with it; a client that sends nothing has said nothing, and the project's
+own files decide.
+
 Without Eglot the package's Flymake backend provides the integration and
 requires nothing else installed:
 

@@ -101,7 +101,11 @@ An editor may send its own settings as
 well -- Eglot's ~eglot-workspace-configuration~, a ~settings.json~ section,
 ~initializationOptions~ -- and these are layered over the files and validated
 in the same way, with a key that sift does not define reported in the
-editor's log rather than silently ignored.  [[file:editors.org][editors.org]] gives the object
+editor's log rather than silently ignored.  That layer is replaced whole by
+each message rather than merged key by key, because the client sends the object
+its user wrote: what the editor last said is the layer in effect, and a message
+carrying one key is a layer with one key in it, the rest falling back to the
+files and the defaults.  [[file:editors.org][editors.org]] gives the object
 each editor sends.
 
 A typo that is silently ignored is indistinguishable from a setting in

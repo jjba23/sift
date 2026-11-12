@@ -7,9 +7,9 @@
 #+options: toc:2 num:nil
 #+language: en
 
-The commands behind the ~maak~ tasks, the quantities the benchmarks measure,
-and the dependency order of the modules.  Every gate listed here is a gate the
-release runs.
+The commands behind the ~maak~ tasks, the pipeline those tasks run in, the
+quantities the benchmarks measure, and the dependency order of the modules.
+Every gate listed here is a gate the release runs.
 
 * Testing
 :PROPERTIES:
@@ -89,6 +89,65 @@ dialect, and — where the rule has a fix — the fixed text and a re-lint that
 must find nothing; the command line is tested as a subprocess, by exit status;
 and the language server is tested by being talked to, a frame at a time,
 including the frames that are not JSON.
+
+A language-server session in the suite is the whole conversation: the messages
+are written to the process before it starts, and what comes back is unframed the
+way an editor reads it, so the wire is under test and not one handler behind it.
+Two defaults keep such a test about what it names.  The standard library is off
+-- what a machine happens to have installed is not something a test can assert,
+and reading a thousand library files is a test that takes a minute.  The
+compiler is off as well, and a test that sends settings of its own restates both
+rather than sending only the key it is about: an editor's settings arrive as one
+object, so a notification carrying one key drops the other two back to their
+defaults, and a compile started that way reports from a thread of its own.  A
+test counting publications would then be counting a compile.
+
+* Continuous integration, and how a release is cut
+:PROPERTIES:
+:CUSTOM_ID: continuous-integration
+:END:
+
+The pipeline is [[file:../.github/workflows/ci.yml][.github/workflows/ci.yml]], and it has no steps of its own:
+each job hands a list of ~maak~ tasks to the
+[[https://github.com/jjba23/byggsteg-github][Byggsteg]] deployment, which clones
+the repository and runs them there -- and a task that needs Guile runs itself
+inside ~guix time-machine --channels=channels.scm -- shell -m manifest.scm~, so
+the Guile that builds a branch is the Guile the branch is developed against.
+
+Two jobs, because a gate and a deployment are two different questions:
+
+- *gates* asks whether the tree is worth merging: ~maak test~, ~maak check~,
+  ~maak self-check~, ~maak fixture-check~, ~maak emacs-check~ and
+  ~maak emacs-test~.  That is what ~maak release~ runs, minus ~docs~ -- the
+  suite already fails when ~doc/rules.org~ is not what the rules produce.  It
+  runs on a push to ~trunk~, on a pull request against it, and on a dispatch,
+  so a branch is judged before it lands rather than after it fails.  A pull
+  request from a fork is skipped, because the daemon clones the repository the
+  run belongs to and a branch that exists only in the fork is not there; the
+  push that follows the merge is the run that judges that tree.
+- *deploy* publishes the browser build, and it needs ~gates~ to have passed:
+  ~maak web-deploy~ copies what ~maak web~ built into the directory the server
+  serves.  That is a deployment and not a check, so it runs for a push to
+  ~trunk~ or a dispatch and never for a pull request.  A build published from a
+  tree that failed its own checks is a build the site has to take back.
+
+A release is cut from a green tree, by the one task that also runs the gates:
+
+#+begin_src shell
+maak release 1.28.0   # version everywhere, every gate, the commit and the tag
+git push origin trunk --follow-tags
+gh release create v1.28.0 --title "sift 1.28.0 — ..."   # the release notes
+#+end_src
+
+The number is stated once, as ~sift-version~ in ~src/sift/records.scm~, and
+quoted in the Emacs package, the README badge, the pre-commit hooks, the
+action's sample, the reusable workflow and the VS Code extension; ~maak
+version~ lists every one of them, and ~maak release~ rewrites the number inside
+the shapes it knows and touches nothing else.  The gates run before the commit
+rather than after it, so a release that would have been broken is a tree with a
+new number in it and a message saying which check said no -- never a tag that
+has to be taken back.  A tag is published when it is pushed with the commit it
+names, and the notes are the GitHub release for that tag.
 
 * How it is built
 :PROPERTIES:

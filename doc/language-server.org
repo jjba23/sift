@@ -30,7 +30,7 @@ server.
 | ~textDocument/didOpen~, ~didChange~, ~didClose~       | yes     | full synchronisation: the buffer is linted on every change                        |
 | ~textDocument/didSave~                               | yes     | the file is read again for the index, every open buffer is checked again, and the dialect's compiler is asked for its second opinion |
 | ~workspace/didChangeWatchedFiles~                    | yes     | a file changed outside the editor is re-read, or forgotten if it went away; the open buffers are checked again |
-| ~workspace/didChangeConfiguration~                   | yes     | the settings are read again -- sift.yaml, the user's, the command line -- and every open buffer is checked against them |
+| ~workspace/didChangeConfiguration~                   | yes     | the settings are read again -- the editor's whole object, sift.yaml, the user's, the command line -- and every open buffer is checked against them |
 | ~workspace/willRenameFiles~                          | yes     | the module a Scheme file names, or the feature an Emacs Lisp file provides, follows the new file name; the project's imports of it are updated; a Common Lisp file has no name to change |
 | ~workspace/didRenameFiles~                           | yes     | the renamed file is re-read for the index, or forgotten if it left the project, and the open buffers are checked again |
 | ~textDocument/publishDiagnostics~                    | yes     | every finding, with its code, its severity and the rule's page; the compiler's findings follow as a second report for the same version |

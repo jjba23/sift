@@ -921,7 +921,10 @@ Every part of the project is tested with the framework its own users already
 have -- Veritas for the library, ERT for the Emacs package, Vim and Node for the
 editor integrations -- and none of the suite is a smoke test.
 [[file:doc/development.org::#testing][doc/development.org]] is the page: the ~maak~ tasks, what the benchmarks
-measure, and what the suite actually asserts.
+measure, and what the suite actually asserts.  Those tasks are also the
+pipeline: a pull request against ~trunk~ runs every gate before the branch
+lands, and only the push that lands it publishes the browser build
+([[file:doc/development.org::#continuous-integration][the pipeline]]).
 
 * Architecture
 :PROPERTIES:
@@ -1072,8 +1075,8 @@ there is.
   silenced.
 - [[file:doc/emacs.org][doc/emacs.org]] — the Emacs package, both ways in, and every setting.
 - [[file:doc/design.org][doc/design.org]] — the convictions, and the decisions they produced.
-- [[file:doc/development.org][doc/development.org]] — the ~maak~ gates, what the benchmarks measure, and
-  the module map.
+- [[file:doc/development.org][doc/development.org]] — the ~maak~ gates, the pipeline that runs them and the
+  ritual that cuts a release, what the benchmarks measure, and the module map.
 - [[file:web/README.org][web/README.org]] — the browser build: the seam, the protocol, the
   compatibility layer, and the numbers.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the
