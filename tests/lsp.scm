@@ -10,19 +10,27 @@
 ;; editor would read.  A unit test of one handler could pass while the wire was
 ;; broken, and the wire is the half an editor can see.
 ;;
-;; Nothing here waits for the process to be ready: the messages are written to
-;; its input before it starts, and it answers them in order, because the
-;; transport is a stream and the order is the protocol.
+;; Most tests write the whole conversation to the process before it starts and
+;; read it back in one go, because the transport is a stream and the order is
+;; the protocol.  The ones that name a project root cannot do that: the project
+;; is indexed beside the requests, so those tests run as a client and wait for
+;; the server to say the index is ready -- see `session-when-ready'.
 
 (define-module (tests lsp)
   #:declarative? #t
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 popen)
+  #:use-module (ice-9 rdelim)
+  #:use-module (ice-9 textual-ports)
+  #:use-module (ice-9 binary-ports)
   #:use-module (rnrs bytevectors)
   #:use-module (veritas veritas)
   #:use-module (sift json)
   #:use-module (sift compiler)
+  #:use-module (sift analysis)
+  #:use-module (sift index)
   #:use-module (tests helpers)
   #:export (spec))
 
@@ -387,6 +395,18 @@ the test can see it, and that nothing is left in the user's cache afterwards."
             (field "textDocument" (json-object (field "uri" uri)))
             (field "position" (point line character)))))
 
+(define* (change-at uri text #:key (version 2))
+  "Return a `didChange' for @var{uri} whose whole text is @var{text}."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "textDocument/didChange")
+   (field "params"
+          (json-object
+           (field "textDocument"
+                  (json-object (field "uri" uri) (field "version" version)))
+           (field "contentChanges"
+                  (vector (json-object (field "text" text))))))))
+
 (define (definition-request id uri line character)
   (position-request id "textDocument/definition" uri line character))
 
@@ -429,6 +449,85 @@ the test can see it, and that nothing is left in the user's cache afterwards."
 
 (define (workspace-symbol-request id query)
   (request id "workspace/symbol" (json-object (field "query" query))))
+
+;;; ===== A session that waits for the index =====
+;;;
+;;; A project is read in a thread of its own, so a test that jumps into one
+;;; has to be a client rather than a batch: it sends `initialize', reads what
+;;; comes back, and carries on when the server says the index is ready.  The
+;;; messages that arrive while it waits are returned with the rest, because
+;;; the progress it reported is part of what a test can assert about.
+
+(define (header-length line)
+  "Return the number a @code{Content-Length} header names, or @code{#f}."
+  (let ((colon (string-index line #\:)))
+    (and colon
+      (string-prefix? "Content-Length" line)
+      (string->number (string-trim (string-trim-right
+                                    (substring line (+ colon 1)) #\return))))))
+
+(define (read-frame port)
+  "Return the next message on @var{port}, or @code{#f} at its end."
+  (let loop ((length #f))
+    (let ((line (read-line port)))
+      (cond
+        [(eof-object? line) #f]
+        [(string-null? (string-trim-right line #\return))
+         ;; A `Content-Length' counts bytes, so the body is read as bytes and
+         ;; decoded once: a character wider than one byte would otherwise make
+         ;; the frame shorter than the length it announced.
+         (and length (json-read (utf8->string (get-bytevector-n port length))))]
+        [else (loop (or (header-length line) length))]))))
+
+(define (read-until port done?)
+  "Read messages from @var{port} until @var{done?} or the end of the stream."
+  (let loop ((messages '()))
+    (let ((message (read-frame port)))
+      (cond
+        [(not message) (reverse messages)]
+        [(done? message) (reverse (cons message messages))]
+        [else (loop (cons message messages))]))))
+
+(define (index-ready? message)
+  (and (equal? (json-ref message "method") "sift/indexStatus")
+    (equal? (json-ref (json-ref message "params") "state") "ready")))
+
+(define* (session-when-ready messages #:key (arguments '()))
+  "Run `sift lsp' on @var{messages}, waiting for the project to be indexed.
+
+Used by every test that names a workspace root: the index is built beside the
+requests rather than before them, so the test asks when it is done exactly the
+way an editor learns it -- from @code{sift/indexStatus}.  The notification can
+arrive before or after the answer to `initialize', so both are waited for
+together and the test gets whatever had already come in."
+  (let* ((command (string-append (test-root) "/bin/sift"))
+         (port (apply open-pipe* OPEN_BOTH command "lsp" arguments)))
+    (dynamic-wind
+      (lambda () #f)
+      (lambda ()
+        (display (frame-of (car messages)) port)
+        (force-output port)
+        (let wait ((seen '()))
+          (if (and (answer-to seen 1) (any index-ready? seen))
+            (begin
+              (for-each (lambda (message) (display (frame-of message) port))
+                        (cdr messages))
+              (display (frame-of (shutdown-request 99)) port)
+              (display (frame-of (exit-message)) port)
+              (force-output port)
+              (cons 0 (append (reverse seen)
+                              (read-until port (lambda (message) #f)))))
+            (let ((message (read-frame port)))
+              (if message
+                (wait (cons message seen))
+                (cons 0 (reverse seen)))))))
+      (lambda ()
+        (catch #t (lambda () (close-pipe port)) (lambda (key . args) #f))))))
+
+(define (milliseconds-since start)
+  "Return the whole milliseconds between @var{start} and now."
+  (quotient (* (- (get-internal-real-time) start) 1000)
+            internal-time-units-per-second))
 
 ;;; ===== Reading answers =====
 
@@ -1511,9 +1610,9 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                   "(define (neighbour x)\n  (* x x))\n")
             (let* ((root (string-append "file://" directory))
                    (here (string-append root "/here.scm"))
-                   (result (session (list (initialize-with-root 1 root)
-                                          (open-at here "(neighbour 2)\n")
-                                          (definition-request 2 here 0 2))))
+                   (result (session-when-ready (list (initialize-with-root 1 root)
+                                                     (open-at here "(neighbour 2)\n")
+                                                     (definition-request 2 here 0 2))))
                    (locations (json-ref (answer-to (cdr result) 2) "result"))
                    (answer (and (vector? locations)
                              (> (vector-length locations) 0)
@@ -1582,10 +1681,10 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                        (string-append directory "/lib.el.gz"))
             (let* ((root (string-append "file://" directory))
                    (here (string-append root "/here.el"))
-                   (result (session (list (initialize-with-root 1 root)
-                                          (open-at here "(widget-size 2)\n"
-                                                   #:language "emacs-lisp")
-                                          (definition-request 2 here 0 2))))
+                   (result (session-when-ready (list (initialize-with-root 1 root)
+                                                     (open-at here "(widget-size 2)\n"
+                                                              #:language "emacs-lisp")
+                                                     (definition-request 2 here 0 2))))
                    (locations (json-ref (answer-to (cdr result) 2) "result"))
                    (answer (and (vector? locations)
                              (> (vector-length locations) 0)
@@ -1613,7 +1712,7 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                     "(make-widget 2)\n")
               (let* ((root (string-append "file://" project))
                      (here (string-append root "/here.scm"))
-                     (result (session
+                     (result (session-when-ready
                               (list (initialize-with-root
                                      1 root #:stdlib (list->vector (list library)))
                                     (open-at here "(make-widget 2)\n")
@@ -1740,8 +1839,8 @@ the test can see it, and that nothing is left in the user's cache afterwards."
             (let* ((root (string-append "file://" directory))
                    (old (string-append root "/util.scm"))
                    (new (string-append root "/helpers.scm"))
-                   (result (session (list (initialize-with-root 1 root)
-                                          (rename-file-request 2 old new))))
+                   (result (session-when-ready (list (initialize-with-root 1 root)
+                                                     (rename-file-request 2 old new))))
                    (edit (json-ref (answer-to (cdr result) 2) "result"))
                    (changes (json-ref edit "documentChanges")))
               (define (replacement-for uri)
@@ -1771,8 +1870,8 @@ the test can see it, and that nothing is left in the user's cache afterwards."
             (let* ((root (string-append "file://" directory))
                    (old (string-append root "/old.el"))
                    (new (string-append root "/helpers.el"))
-                   (result (session (list (initialize-with-root 1 root)
-                                          (rename-file-request 2 old new))))
+                   (result (session-when-ready (list (initialize-with-root 1 root)
+                                                     (rename-file-request 2 old new))))
                    (edit (json-ref (answer-to (cdr result) 2) "result"))
                    (changes (json-ref edit "documentChanges")))
               (define (replacement-for uri)
@@ -1802,17 +1901,109 @@ the test can see it, and that nothing is left in the user's cache afterwards."
             (let* ((root (string-append "file://" directory))
                    (old (string-append root "/old.lisp"))
                    (new (string-append root "/helpers.lisp"))
-                   (result (session (list (initialize-with-root 1 root)
-                                          (rename-file-request 2 old new)))))
+                   (result (session-when-ready (list (initialize-with-root 1 root)
+                                                     (rename-file-request 2 old new)))))
               (assert-equal #:expect json-null
                 #:got (json-ref (answer-to (cdr result) 2) "result")
                 #:name "a package is not a file, so there is nothing to rename")))))))
 
-    (test "workspace/symbol searches the buffers the editor has open"
-      (let* ((result (session (list (initialize-request 1)
-                                    (open-at lib-uri lib-source)
-                                    (workspace-symbol-request 2 "squ"))))
-             (symbols (json-ref (answer-to (cdr result) 2) "result")))
-        (assert-equal #:expect 1 #:got (vector-length symbols))
-        (assert-equal #:expect "square"
-          #:got (json-ref (vector-ref symbols 0) "name"))))))
+    (test "a jump in a read project answers in milliseconds"
+      (with-temp-directory
+       (lambda (directory)
+         (let loop ((n 0))
+           (when (< n 400)
+             (spit (string-append directory (format #f "/file-~a.scm" n))
+                   (format #f "(define (proc-~a x)\n  x)\n" n))
+             (loop (+ n 1))))
+         (let* ((paths (files-under directory))
+                (entries (filter identity (map index-file paths)))
+                (workspace (new-workspace))
+                (here (path->uri (string-append directory "/file-0.scm")))
+                (text "(proc-7 1)\n"))
+           (publish-workspace-index! workspace (index-of-files entries 1)
+                                     'ready (length entries) (length entries))
+           (let* ((start (get-internal-real-time))
+                  (locations (lsp-definition workspace (make-hash-table) here text
+                                             'scheme 3
+                                             #:deadline (make-deadline 100)))
+                  (elapsed (milliseconds-since start)))
+             (assert-true (< elapsed 100)
+               #:name (format #f "answered in ~a ms, under the deadline" elapsed))
+             (assert-equal #:expect 1 #:got (vector-length locations))
+             (assert-contains
+               #:expect (json-ref (vector-ref locations 0) "uri")
+               #:got "file-7.scm"
+               #:name "and it names the file that defines the name"))))))
+
+    (test "a jump answers from the part of the project that is read"
+      (with-temp-directory
+       (lambda (directory)
+         (let loop ((n 0))
+           (when (< n 400)
+             (spit (string-append directory (format #f "/file-~a.scm" n))
+                   (format #f "(define (proc-~a x)\n  x)\n" n))
+             (loop (+ n 1))))
+         (let* ((paths (take (files-under directory) 20))
+                (entries (filter identity (map index-file paths)))
+                (workspace (new-workspace))
+                (here (path->uri (string-append directory "/file-0.scm")))
+                (text "(proc-100 1)\n"))
+           (publish-workspace-index! workspace (index-of-files entries 1)
+                                     'partial (length entries) 400)
+           (let* ((start (get-internal-real-time))
+                  (read (lsp-definition workspace (make-hash-table) here text
+                                        'scheme 3
+                                        #:deadline (make-deadline 100)))
+                  (elapsed (milliseconds-since start))
+                  (missing (lsp-definition workspace (make-hash-table) here
+                                           "(proc-1 1)\n" 'scheme 3
+                                           #:deadline (make-deadline 100))))
+             ;; The scan of 400 files has read 20 of them: the jump must answer
+             ;; about those twenty and say nothing about the rest, not wait.
+             (assert-true (< elapsed 100)
+               #:name (format #f "answered in ~a ms from the files read so far"
+                              elapsed))
+             (assert-equal #:expect 1 #:got (vector-length read))
+             (assert-contains #:expect (json-ref (vector-ref read 0) "uri")
+               #:got "file-100.scm"
+               #:name "in the file that was read")
+             (assert-equal #:expect 0 #:got (vector-length missing)
+               #:name "a file not read yet is not guessed at"))))))
+
+    (test "a jump is answered while a changed buffer is being checked"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/lib.scm")
+                  "(define (target x)\n  x)\n")
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.scm"))
+                   (big (string-append "(target 1)\n"
+                                       (apply string-append
+                                              (map (lambda (n)
+                                                     (format #f "(define (v-~a) ~a)\n"
+                                                             n n))
+                                                   (iota 2000)))))
+                   (result (session-when-ready
+                            (list (initialize-with-root 1 root)
+                                  (open-at here "(target 1)\n")
+                                  (change-at here big)
+                                  (definition-request 2 here 0 3))))
+                   (locations (json-ref (answer-to (cdr result) 2) "result")))
+              (assert-true (and (vector? locations) (> (vector-length locations) 0))
+                #:name "the jump still found the project's definition")
+              (assert-contains
+                #:expect (json-ref (vector-ref locations 0) "uri")
+                #:got "lib.scm"
+                #:name "in the file that defines it"))))))
+
+      (test "workspace/symbol searches the buffers the editor has open"
+        (let* ((result (session (list (initialize-request 1)
+                                      (open-at lib-uri lib-source)
+                                      (workspace-symbol-request 2 "squ"))))
+               (symbols (json-ref (answer-to (cdr result) 2) "result")))
+          (assert-equal #:expect 1 #:got (vector-length symbols))
+          (assert-equal #:expect "square"
+            #:got (json-ref (vector-ref symbols 0) "name")))))))
