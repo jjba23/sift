@@ -2,11 +2,31 @@
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
+#
+# A gate and a deployment are two different questions, so they are two jobs:
+# `gates' asks whether the tree is worth merging -- the suite, the Emacs
+# package, every module compiled, the corpus already formatted -- and answers
+# for a pull request as well as for a push, so a branch is judged before it
+# lands rather than after.  `deploy' publishes the browser build, which is a
+# copy into the directory the server reads: it runs where the tree has landed,
+# which is a push to trunk or a dispatch, and it waits for the gates because a
+# build published from a tree that failed its own checks is a build the site
+# has to take back.
+#
+# The tasks are the ones `maak release' calls this project's gates, so a
+# release cannot be the first thing to notice that a module does not compile
+# or that a source is not formatted.
+#
+# A pull request from a fork is skipped: the daemon clones the repository the
+# run belongs to, and a branch that exists only in the fork is not there.  The
+# push to trunk that follows the merge is the run that judges that tree.
 
 name: CI
 
 on:
   push:
+    branches: [trunk]
+  pull_request:
     branches: [trunk]
   workflow_dispatch:
 
@@ -18,10 +38,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  byggsteg:
-    name: 🧱 Byggsteg
+  gates:
+    name: 🧱 Gates
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
     with:
-      tasks: maak-test maak-emacs-test maak-web-deploy
+      tasks: maak-test maak-check maak-self-check maak-fixture-check maak-emacs-check maak-emacs-test
+      poll-limit: "1024"
+    secrets: inherit
+
+  deploy:
+    name: 🚀 Deploy
+    needs: gates
+    if: github.event_name != 'pull_request'
+    uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
+    with:
+      tasks: maak-web-deploy
       poll-limit: "1024"
     secrets: inherit
