@@ -13,7 +13,7 @@
 ;; that reached for it would compile a re-export of names the target does not
 ;; define, and fail by name.
 ;;
-;; So this file is the library for the browser build: the eleven procedures
+;; So this file is the library for the browser build: the thirteen procedures
 ;; sift actually calls, written against `(scheme base)' and nothing else, in
 ;; SRFI-13's argument order, with SRFI-13's answers.  It sits in web/compat, so
 ;; it is found by a build that puts this directory first on the load path and
@@ -29,10 +29,18 @@
 ;;   - the optional string ranges are not accepted, for the same reason the
 ;;     set is not: nothing in sift passes them, and a parameter that is never
 ;;     exercised is a parameter that is wrong quietly.
+;;
+;; `string-upcase' is here because `(guile)' exports it and does not define it:
+;; Hoot's shim has no case mapping above characters, and `(scheme char)' maps
+;; characters only.  The copy below is ASCII, which is what the one caller
+;; wants -- the JSON writer's escape for a control character, hex digits and
+;; nothing else -- and it is spelled out so that a wider caller has to come
+;; back here and say so.
 
 (define-module (srfi srfi-13)
   #:declarative? #t
   #:export (string-contains
+            string-drop-right
             string-every
             string-index
             string-join
@@ -42,7 +50,8 @@
             string-suffix?
             string-trim
             string-trim-right
-            string-trim-both))
+            string-trim-both
+            string-upcase))
 
 ;;; ===== Asking about one character =====
 ;;;
@@ -206,3 +215,23 @@ caller that checks the answer with `and' expects it."
         answer
         (let ((answer (predicate (string-ref string index))))
           (and answer (loop (+ index 1) answer)))))))
+
+(define (string-upcase string)
+  "Return @var{string} in upper case.
+
+ASCII only: the one caller upper-cases the hex digits of a JSON escape, and a
+wider mapping would need the case tables `(scheme char)' does not carry."
+  (list->string (map char-upcase (string->list string))))
+
+;;; ===== Shortening a string =====
+
+(define (string-drop-right string count)
+  "Return @var{string} without its last @var{count} characters.
+
+A @var{count} past the end of @var{string} is an error rather than an empty
+string, which is what SRFI-13 does and what a caller that computed the count
+from the string wants to hear about."
+  (let ((end (- (string-length string) count)))
+    (if (< end 0)
+      (error "sift: string-drop-right drops more than the string holds" string count)
+      (substring string 0 end))))

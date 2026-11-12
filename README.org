@@ -685,11 +685,11 @@ The demanding case was SRFI-13.  Twenty-six files in the core import it, Hoot
 ships srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own
 ~srfi/srfi-13.scm~ is written with a ~re-export~ Hoot does not implement — so a
 browser build that reached for it would compile a re-export of names the target
-does not define and stop there.  The answer is a stand-in of eleven procedures,
-written against ~(scheme base)~, and a test that runs the browser's copy in a
-second process and fails unless its format, lint and fix answers are byte for
-byte the answers Guile's library gives.  A stand-in that is never compared is a
-second implementation with no reason to agree with the first.
+does not define and stop there.  The answer is a stand-in of thirteen
+procedures, written against ~(scheme base)~, and a test that runs the browser's
+copy in a second process and fails unless its format, lint and fix answers are
+byte for byte the answers Guile's library gives.  A stand-in that is never
+compared is a second implementation with no reason to agree with the first.
 
 Four things could not be shimmed, and the source changed instead, in ways that
 leave a native build no worse off: ~(sift strings)~ carries the four string
@@ -1086,7 +1086,7 @@ there is.
 - [[https://small.r7rs.org/][R7RS-small]] — the report against which Scheme is read, and the reason the
   compatibility layer is written in the subset it is.
 - [[https://srfi.schemers.org/srfi-13/][SRFI 13]] — the string library the command line takes from Guile and a browser
-  build provides through eleven procedures of its own.
+  build provides through thirteen procedures of its own.
 - [[https://www.gnu.org/software/emacs/manual/html_node/elisp/Documentation-Tips.html][The Emacs Lisp manual's docstring tips]] — the conventions behind the Emacs
   Lisp rules, which record what a byte-compiler reports rather than a matter of
   taste.

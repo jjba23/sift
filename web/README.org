@@ -312,7 +312,7 @@ when building for the browser (see ~build.sh~), so an `(ice-9 ...)' or
 | ~compat/ice-9/textual-ports.scm~      | ~get-string-all~, ~put-string~ and the rest of what sift names     |
 | ~compat/ice-9/threads.scm~            | a tab is one thread: ~current-processor-count~ answers 1, so ~(sift pool)~ takes its sequential path; every other procedure raises with a sentence |
 | ~compat/ice-9/ftw.scm~                | ~scandir~ answers the empty list: there are no directories to walk  |
-| ~compat/srfi/srfi-13.scm~             | Hoot has srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own is written with a ~re-export~ Hoot does not implement; this is the eleven procedures sift calls, written against ~(scheme base)~ |
+| ~compat/srfi/srfi-13.scm~             | Hoot has srfi-9, srfi-11 and srfi-14 and no SRFI-13, and Guile's own is written with a ~re-export~ Hoot does not implement; this is the thirteen procedures sift calls, written against ~(scheme base)~ |
 
 The last one is the one worth a paragraph, because the failure it answers is not
 obvious.  The core imports SRFI-13 in twenty-six files -- `string-join',
@@ -323,6 +323,16 @@ Guile's own file and stop at `(re-export ...)'.  So the stand-in is a file, and
 format, lint and fix answers it gives are byte-for-byte the answers Guile's
 library gives.  A stand-in nobody compares is a second implementation, and a
 second implementation is a dialect of its own.
+
+Two names were found the hard way rather than by reading, and are worth a line
+each.  ~string-upcase~ and ~string-drop-right~ are Guile procedures that Hoot's
+~(guile)~ exports in its export list without defining anywhere: a core module
+that reaches for one compiles under Guile, and stops the browser build by name
+half way through.  So they are written here, and the test above compares their
+answers too.  What no test in this repository can catch is the missing binding
+itself -- Guile's own ~(guile)~ answers every name the stand-in does, so a
+suite that loads the stand-in under Guile passes whether a name is in it or not.
+The gate for that class of failure is ~maak web~, and CI runs it.
 
 Four things were not shimmable, and the source changed instead.  Each change is
 one a native build is no worse for, and none of them leaves the browser's name

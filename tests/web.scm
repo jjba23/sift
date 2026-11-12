@@ -215,11 +215,49 @@ target lacks needs a stand-in.  A test can put one file there: the other stand-i
 are written as R7RS libraries, which is what Hoot reads and Guile's default
 language does not, so a Guile process can load the SRFI-13 stand-in and nothing
 else of the directory.  That is enough to ask the question, which is whether the
-eleven procedures sift calls answer what Guile's answer."
+thirteen procedures sift calls answer what Guile's answer."
   (append-map (lambda (where) (list "-L" where))
               (list (string-append directory "/compat")
                     (string-append (test-root) "/src")
                     (string-append (test-root) "/web"))))
+
+(define (stand-in-answers expressions)
+  "Return what the stand-in answers for @var{expressions}, one string each.
+
+A process of its own and the same temporary `(srfi srfi-13)', for the reason
+`answer-over-compat' needs them: in this one, `(srfi srfi-13)' is already
+Guile's.  Each answer is printed with `write', so what comes back is compared
+as the text of a value rather than as a value the reader has to know again."
+  (with-temp-directory
+   (lambda (directory)
+     (let* ((compat (string-append directory "/compat/srfi"))
+            (script (string-append directory "/ask.scm"))
+            (out-file (string-append directory "/answers"))
+            (err-file (string-append directory "/answers.err")))
+       (make-directories compat)
+       (spit (string-append compat "/srfi-13.scm")
+             (slurp (web-file "compat/srfi/srfi-13.scm")))
+       (spit script
+             (format #f "(use-modules (ice-9 format) (srfi srfi-13))~%~a"
+                     (string-join
+                      (map (lambda (expression)
+                             (format #f "(write ~a) (newline)" expression))
+                           expressions)
+                      "\n")))
+       (let* ((line (string-join (append (list "guile")
+                                         (compat-load-path directory)
+                                         (list "-s" script))
+                                 " "))
+              (command (format #f "~a > ~a 2> ~a; echo $?" line out-file err-file))
+              (status (call-with-input-string
+                        (let ((port (open-input-pipe command)))
+                          (let ((answer (read-line port)))
+                            (close-pipe port)
+                            (or answer "1")))
+                        read)))
+         (when (not (zero? status))
+           (error "the stand-in did not load" (string-trim-both (slurp err-file))))
+         (string-split (string-trim-both (slurp out-file)) #\newline))))))
 
 (define (answer-over-compat request)
   "Return what @code{(sift web)} answers to @var{request}, over the stand-in.
@@ -672,4 +710,23 @@ exactly the bug that would reach a tab and no test."
                (cons "source" "(define (f)\n  (if a b))\n"))
         ;; and a fix run, which reads the buffers it writes
         (asked (cons "op" "fix")
-               (cons "source" "(define (f) (let ((x 1)) x))\n")))))))
+               (cons "source" "(define (f) (let ((x 1)) x))\n")))))
+
+    (test "the stand-in's two late additions answer what Guile's do"
+      ;; `string-upcase' and `string-drop-right' are the two names the core uses
+      ;; that neither R7RS nor Hoot's `(guile)' defines -- the first writes the
+      ;; hex of a JSON escape, the second strips `.gz' before a dialect is
+      ;; decided.  Neither is reachable through a request, so they are compared
+      ;; where they are: in the stand-in's own process.
+      (let ((questions
+             `(("(string-upcase \"1b\")" . ,(string-upcase "1b"))
+               ("(string-upcase \"a-z_0\")" . ,(string-upcase "a-z_0"))
+               ("(string-drop-right \"notes.el.gz\" 3)"
+                . ,(string-drop-right "notes.el.gz" 3))
+               ("(string-drop-right \"no-extension\" 0)"
+                . ,(string-drop-right "no-extension" 0)))))
+        (assert-equal #:expect (map (lambda (question)
+                                      (format #f "~s" (cdr question)))
+                                    questions)
+          #:got (stand-in-answers (map car questions))
+          #:name "the stand-in and the library agree, answer for answer")))))
