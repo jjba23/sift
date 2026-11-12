@@ -181,13 +181,6 @@ characters would hand the rest of a body -- or the next frame's header -- to
    (field "method" "textDocument/didSave")
    (field "params" (json-object (field "textDocument" (text-document))))))
 
-(define (configuration-changed)
-  "Return a `workspace/didChangeConfiguration' notification."
-  (json-object
-   (field "jsonrpc" "2.0")
-   (field "method" "workspace/didChangeConfiguration")
-   (field "params" (json-object (field "settings" (json-object))))))
-
 (define (configuration-with settings)
   "Return a `didChangeConfiguration' notification carrying @var{settings}.
 
@@ -281,6 +274,20 @@ a test that read a thousand library files would be a test that takes a minute."
                                (settings-object
                                 (list (cons "stdlib" json-false)
                                       (cons "compiler-diagnostics" json-false)))))))
+
+(define (configuration-changed)
+  "Return a `workspace/didChangeConfiguration' notification.
+
+The settings restate the ones `initialize-request' sent, because a client sends
+its whole configuration on this notification: an empty object is a client with
+no settings, which puts the standard library and the compiler back to their
+defaults.  The change re-checks every open buffer, and a compile started for one
+of them reports in a thread of its own -- a test counting publications would be
+counting a compile as well."
+  (configuration-with
+   (settings-object
+    (list (cons "stdlib" json-false)
+          (cons "compiler-diagnostics" json-false)))))
 
 (define* (initialize-with-root id root-uri #:key (stdlib json-false)
                                (compiler json-false))
