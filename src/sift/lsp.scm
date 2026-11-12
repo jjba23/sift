@@ -97,6 +97,7 @@
   #:use-module (sift config)
   #:use-module (sift files)
   #:use-module (sift definitions)
+  #:use-module (sift index)
   #:use-module (sift imports)
   #:use-module (sift check base)
   #:use-module (sift json)
@@ -216,251 +217,6 @@ dead server rather than as a finding." ;; one bytevector, one write: a header an
                 (bytevector-copy! body 0 frame header-length body-length)
                 (put-bytevector out frame)
                 (force-output out))))
-;;; ===== The project on disk =====
-;;;
-;;; A project is at most a couple of thousand files and a few hundred kilobytes
-;;; a file; past that an index costs more than the jumps it answers.
-
-(define index-file-limit 2000)
-(define index-byte-limit 500000)
-;;;
-;;; `(sift analysis)' answers about a workspace; this is the part that knows
-;;; where one comes from.  The tree under the root is read once and cached
-;;; beside the user's other caches, a file the editor saved is read again, and a
-;;; file a watcher reports is read again -- and the two parameters at the end
-;;; hand that knowledge to the analysis, which asks for it by name.
-
-(define (directory? path)
-  (eq? 'directory (false-if-exception (stat:type (stat path)))))
-
-(define (indexable-file? filter path root)
-  "Return @code{#t} when @var{path} is a file the server indexes.
-
-Navigation reads a compressed source as the file it holds, so a `.el.gz' is
-indexed when the project names no filter.  A project that names one keeps the
-last word, and can name `*.el.gz' itself; the command line never takes this
-path, because `sift format --write' must not write decompressed text over a
-compressed file."
-  (if (or (not filter) (null? filter))
-    (lisp-path? (without-compression path))
-    (file-included? filter path root)))
-
-(define* (files-under root #:optional (filter #f))
-  "Return the Lisp files under @var{root}, at most `index-file-limit' of them.
-
-Directories a build leaves behind are skipped rather than walked: `.git'
-alone holds more files than most source trees, and reading it would make the
-first definition request slower than finding the file by hand."
-  (let loop ((pending (list root)) (found '()) (count 0))
-    (cond
-      [(or (null? pending) (>= count index-file-limit)) (reverse found)]
-      [else
-        (let* ((dir (car pending))
-               (entries (or (false-if-exception (scandir dir)) '()))
-               (subdirectories '())
-               (files '()))
-          (for-each
-           (lambda (name)
-             (unless (or (member name skipped-directories)
-                       (string-prefix? "." name))
-               (let ((path (string-append dir "/" name)))
-                 (cond
-                   [(directory? path) (set! subdirectories (cons path subdirectories))]
-                   [(indexable-file? filter path root)
-                    (set! files (cons path files))]))))
-           entries)
-          (loop (append subdirectories (cdr pending))
-                (append files found)
-                (+ count (length files))))])))
-
-(define (parse-file-text text dialect path)
-  "Return the definitions of @var{text}, read as @var{dialect}."
-  (parse-definitions
-   (call-with-values
-     (lambda () (read-source #:source text #:dialect dialect #:file path))
-     (lambda (ast errors) ast))))
-
-(define (top-level-names definitions)
-  "Return the names @var{definitions} define at the top level, without repeats."
-  (delete-duplicates
-   (map definition-name
-        (filter (lambda (definition) (not (definition-scope definition)))
-                definitions))))
-
-(define (index-file path)
-  "Return @var{path} as a fully read `indexed-file', or @code{#f}.
-
-Used for a file the editor just saved or a watcher just reported: the answer
-has to be right now, and a lazy entry would only defer the work by a moment."
-  (let ((dialect (detect-dialect #:file path))
-        (text (read-file-text path index-byte-limit)))
-    (and dialect text
-      (let ((definitions (parse-file-text text dialect path)))
-        (make-indexed-file path text dialect definitions
-                           (top-level-names definitions))))))
-(define cache-version 1)
-
-;; `cache-home' -- where a cache belongs -- is the standard library's, because
-;; a cache directory is one directory: two definitions of it would be two
-;; opinions about where a cache is, and they would drift.
-
-(define (path-hash text)
-  "Return a short, deterministic name for @var{text}, for a cache file.
-
-FNV-1a, because a cache file's name has to be the same on the next run and a
-hash table's order is not a promise about anything; the path is also stored
-inside the file, so a collision costs a reread and never a wrong answer.
-
-The exclusive or is `logxor', which is what Guile calls it: `bitwise-xor' is
-not a binding in this Guile at all, and a name that only looks like the right
-one raises the moment a project has a root to cache.  That would be the whole
-of navigation -- definition, references, completion, rename -- failing on the
-first request of a real editor session, which is why this function is tested
-against a workspace rather than only against itself."
-  (let loop ((characters (string->list text)) (hash 14695981039346656037))
-    (if (null? characters)
-      (number->string hash 16)
-      (loop (cdr characters)
-            (modulo (* (logxor hash (char->integer (car characters)))
-                       1099511628211)
-                    18446744073709551616)))))
-
-(define (cache-file root)
-  (let ((directory (cache-home)))
-    (and directory (format #f "~a/index-~a.json" directory (path-hash root)))))
-
-(define (read-cache root)
-  "Return the cached entries for @var{root}, as a hash of path to metadata.
-
-Each entry is @code{(mtime size dialect names)}.  A cache that cannot be read
--- an older layout, a truncated file, a value that is not an object -- is no
-cache at all: the workspace is read again, which is slower and never wrong."
-  (let ((path (cache-file root))
-        (entries (make-hash-table)))
-    (when (and path (file-exists? path))
-      (let ((document (false-if-exception
-                       (call-with-input-file path
-                                             (lambda (port) (json-read (get-string-all port)))))))
-        (when (and (json-object? document)
-                (equal? (json-ref document "version") cache-version)
-                (equal? (json-ref document "root") root))
-          (for-each
-           (lambda (entry)
-             (let ((file (json-ref entry "path" #f)))
-               (when file
-                 (hash-set! entries file
-                            (list (json-ref entry "mtime" 0)
-                                  (json-ref entry "size" 0)
-                                  (json-ref entry "dialect" "scheme")
-                                  (map (lambda (name) name)
-                                       (vector->list
-                                        (json-ref entry "names" (vector)))))))))
-           (vector->list (json-ref document "files" (vector)))))))
-    entries))
-
-(define (make-cache-directory directory)
-  "Create @var{directory} and every missing parent, like @code{mkdir -p}."
-  (unless (or (file-exists? directory) (string=? directory "/")
-            (string-null? directory))
-    (make-cache-directory (dirname directory))
-    (false-if-exception (mkdir directory))))
-
-(define (write-cache! root workspace)
-  "Write the metadata of @var{workspace} under @var{root}, when it can be.
-
-What is written is what the next session can trust without reading: the path,
-the size and the modification time that decide whether the file changed, the
-dialect, and the names it defines.  A cache is an optimisation, so a failure
-to write one is not a failure of the session."
-  (let ((target (cache-file root)))
-    (when target
-      (make-cache-directory (dirname target))
-      (false-if-exception
-       (call-with-output-file target
-                              (lambda (port)
-                                (display
-                                 (json-write
-                                  (json-object
-                                   (field "version" cache-version)
-                                   (field "root" root)
-                                   (field "files"
-                                          (list->vector
-                                           (map (lambda (entry)
-                                                  (let* ((file (indexed-file-path entry))
-                                                         (attributes (false-if-exception (stat file))))
-                                                    (json-object
-                                                     (field "path" file)
-                                                     (field "mtime" (if attributes (stat:mtime attributes) 0))
-                                                     (field "size" (if attributes (stat:size attributes) 0))
-                                                     (field "dialect"
-                                                            (symbol->string (indexed-file-dialect entry)))
-                                                     (field "names"
-                                                            (list->vector (indexed-file-names entry))))))
-                                                (hash-map->list (lambda (path entry) entry)
-                                                                (workspace-files workspace)))))))
-                                 port)))))))
-
-(define (scan-workspace! workspace)
-  "Fill @var{workspace}'s index from the tree its root names.
-
-The scan reads the names of the files and nothing else: the text and the
-definitions of a file arrive when a request needs them.  A file whose size and
-modification time are the same as the last session's starts from the names the
-cache remembers, and is parsed the moment something asks for more."
-  (let* ((root (workspace-root workspace))
-         (cached (if root (read-cache root) (make-hash-table))))
-    (when root
-      (for-each
-       (lambda (path)
-         (let ((remembered (hash-ref cached path))
-               (dialect (detect-dialect #:file path)))
-           (when dialect
-             (let ((attributes (false-if-exception (stat path))))
-               (if (and remembered attributes
-                     (= (car remembered) (stat:mtime attributes))
-                     (= (cadr remembered) (stat:size attributes))
-                     (string=? (caddr remembered) (symbol->string dialect)))
-                 (hash-set! (workspace-files workspace) path
-                            (make-indexed-file path #f dialect #f
-                                               (cadddr remembered)))
-                 (let ((entry (index-file path)))
-                   (when entry
-                     (hash-set! (workspace-files workspace) path entry))))))))
-       (files-under root (workspace-filter workspace)))
-      (write-cache! root workspace))))
-
-(define (workspace-refresh! workspace path)
-  "Read @var{path} again, or forget it when it is gone or no longer wanted.
-
-A file the editor saved, and a file a watcher reported, are the two ways a
-project changes under a running server.  A file that is no longer one of the
-project's -- deleted, or excluded by a filter the project has since changed --
-is forgotten rather than kept as a stale answer."
-  (let* ((root (workspace-root workspace))
-         (wanted? (and root (file-exists? path)
-                    (indexable-file? (workspace-filter workspace) path root))))
-    (if wanted?
-      (let ((entry (index-file path)))
-        (if entry
-          (hash-set! (workspace-files workspace) path entry)
-          (hash-remove! (workspace-files workspace) path)))
-      (hash-remove! (workspace-files workspace) path))))
-
-(define (load-indexed-file! entry)
-  "Read @var{entry}'s file, filling in the text and the definitions it lacks."
-  (let ((path (indexed-file-path entry)))
-    (let ((text (read-file-text path index-byte-limit)))
-      (when text
-        (set-indexed-file-text! entry text)
-        (set-indexed-file-definitions! entry
-                                       (parse-file-text text
-                                                        (indexed-file-dialect entry)
-                                                        path))))))
-
-;; The two holes `(sift analysis)' leaves for a build that has a filesystem,
-;; filled here, in the module that has one.
-(current-workspace-scan scan-workspace!)
-(current-index-loader load-indexed-file!)
 ;;; ===== Findings =====
 ;;;
 ;;; Everything the editor sees is computed from the buffer the editor has, at
@@ -480,13 +236,6 @@ is forgotten rather than kept as a stale answer."
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
         (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
-
-;; The rules that need the whole file before they can say anything.  They are
-;; the ones that would make a keystroke wait, so the language server computes
-;; them in a thread of its own and publishes what they find as a second report.
-(define deep-checkers
-  '(call-arity string-literal-argument number-literal-argument
-               eq-non-symbol unused-import-from))
 
 (define* (all-warnings config text #:key (dialect 'scheme) (uri #f) (exclude '()))
   "Return every warning @var{text} earns, leaving out @var{exclude}."
@@ -604,11 +353,12 @@ editor is moving it to, and the old name is about to stop existing."
     (hash-for-each
      (lambda (path entry)
        (let ((uri (path->uri path)))
-         (when (and (not (string=? uri old-uri))
+         (when (and (indexed-file-text entry)
+                 (not (string=? uri old-uri))
                  (not (string=? uri new-uri))
                  (eq? (indexed-file-dialect entry) dialect))
-           (set! sites (cons (list uri (indexed-file-text-of entry)) sites)))))
-     (workspace-index workspace))
+           (set! sites (cons (list uri (indexed-file-text entry)) sites)))))
+     (index-files (workspace-index workspace)))
     (reverse sites)))
 
 (define (scheme-library-form ast)
@@ -1342,6 +1092,16 @@ form, and is described by what its implementation says about it."
                                (field "retriggerCharacters"
                                       (list->vector (list " ")))))
            (field "positionEncoding" "utf-16")
+           ;; What an editor needs to show "still indexing" without a custom
+           ;; client: the notification it will be sent, and that the server's
+           ;; own status is part of the experiment rather than of the protocol.
+           (field "experimental"
+                  (json-object
+                   (field "sift"
+                          (json-object
+                           (field "indexStatus" #t)
+                           (field "indexStatusNotification" "sift/indexStatus")))))
+
            ;; A file rename is a module rename in two of the three dialects,
            ;; and the editor asks before it moves the file.  The filters say
            ;; which files sift has an opinion about.
@@ -1367,14 +1127,50 @@ form, and is described by what its implementation says about it."
 ;;; while one without a `shutdown' ends with 1.  An editor uses that second
 ;;; number to tell a clean goodbye from a server that went away.
 
+;;; --- the lint queue -------------------------------------------------------
+;;;
+;;; Diagnostics are computed off the message loop, one job at a time, in the
+;;; order the editor sent them.  A job carries the text it is about, so a
+;;; report is about the text it was computed from even when the buffer has
+;;; moved on -- and the deep pass and the client's version check decide whether
+;;; it is still worth sending.
+
+;;; A job queue with a front and a back, so that the worker takes jobs in the
+;;; order they arrived and the stop that ends a session cannot overtake the
+;;; report an editor is still waiting for.  `reverse' happens when the front
+;;; runs out, which is what keeps both ends constant-time in the common case.
+
+(define-record-type <lint-queue>
+  (make-lint-queue lock condition front back thread)
+  lint-queue?
+  (lock lint-queue-lock)
+  (condition lint-queue-condition)
+  (front lint-queue-front set-lint-queue-front!)
+  (back lint-queue-back set-lint-queue-back!)
+  (thread lint-queue-thread set-lint-queue-thread!))
+
+(define-record-type <lint-job>
+  (make-lint-job uri text version dialect ast force compile? root)
+  lint-job?
+  (uri lint-job-uri)
+  (text lint-job-text)
+  (version lint-job-version)
+  (dialect lint-job-dialect)
+  (ast lint-job-ast)
+  (force lint-job-force)
+  (compile? lint-job-compile?)
+  (root lint-job-root))
+
 (define-record-type <session>
   (make-session)
   session?
   (started? session-started? set-session-started!)
+  (initialized? session-initialized? set-session-initialized!)
   (shutdown? session-shutdown? set-session-shutdown!)
   (watchers? session-watchers? set-session-watchers!)
   (registered? session-registered? set-session-registered!)
   (progress? session-progress? set-session-progress!)
+  (queue session-queue set-session-queue!)
   ;; the configuration every finding is computed from, and the thunk that
   ;; reads it again: a project that edits its own `sift.yaml' in the editor it
   ;; is linting from should not have to restart the server to be heard
@@ -1387,6 +1183,7 @@ form, and is described by what its implementation says about it."
 (define* (new-session #:key config reload)
   (let ((session (make-session)))
     (set-session-started! session #f)
+    (set-session-initialized! session #f)
     (set-session-shutdown! session #f)
     ;; Whether the client said it would register a watcher, and whether sift
     ;; has asked for one: asking a client that never promised is a request it
@@ -1394,10 +1191,43 @@ form, and is described by what its implementation says about it."
     (set-session-watchers! session #f)
     (set-session-registered! session #f)
     (set-session-progress! session #f)
+    (set-session-queue! session
+                        (make-lint-queue (make-mutex) (make-condition-variable)
+                                         '() '() #f))
     (set-session-config! session config)
     (set-session-reload! session reload)
     (set-session-settings! session #f)
     session))
+
+;; The queue's two operations live below the session record because this
+;; module is declarative: an accessor referred to before it is defined is not
+;; a procedure at run time, and a lint job queued by name would be one that
+;; never ran.
+
+(define (enqueue-lint! session job)
+  "Add @var{job} to the session's lint queue and wake its worker."
+  (let ((queue (session-queue session)))
+    (lock-mutex (lint-queue-lock queue))
+    (set-lint-queue-back! queue (cons job (lint-queue-back queue)))
+    (signal-condition-variable (lint-queue-condition queue))
+    (unlock-mutex (lint-queue-lock queue))))
+
+(define (take-lint-job! queue)
+  "Return the next lint job, waiting until there is one."
+  (lock-mutex (lint-queue-lock queue))
+  (let loop ()
+    (when (and (null? (lint-queue-front queue))
+            (pair? (lint-queue-back queue)))
+      (set-lint-queue-front! queue (reverse (lint-queue-back queue)))
+      (set-lint-queue-back! queue '()))
+    (if (null? (lint-queue-front queue))
+      (begin (wait-condition-variable (lint-queue-condition queue)
+                                      (lint-queue-lock queue))
+        (loop))
+      (let ((job (car (lint-queue-front queue))))
+        (set-lint-queue-front! queue (cdr (lint-queue-front queue)))
+        (unlock-mutex (lint-queue-lock queue))
+        job))))
 
 (define (client-supports-progress? params)
   "Return @code{#t} when the client advertises work-done progress."
@@ -1525,35 +1355,87 @@ line; everything sift has to say about a step it took is information."
 
 (define progress-token "sift-standard-library")
 
-(define (progress-create! out)
+(define* (progress-create! out #:optional (token progress-token))
   (send! out
          (json-object
           (field "jsonrpc" "2.0")
-          (field "id" "sift-progress-create")
+          (field "id" (string-append "sift-progress-create-" token))
           (field "method" "window/workDoneProgress/create")
-          (field "params" (json-object (field "token" progress-token))))))
+          (field "params" (json-object (field "token" token))))))
 
-(define (progress-send! out value)
+(define* (progress-send! out value #:optional (token progress-token))
   (send! out
          (json-object
           (field "jsonrpc" "2.0")
           (field "method" "$/progress")
           (field "params"
-                 (json-object (field "token" progress-token)
+                 (json-object (field "token" token)
                               (field "value" value))))))
 
-(define (progress-begin! out title)
+(define* (progress-begin! out title #:optional (token progress-token))
   (progress-send! out (json-object (field "kind" "begin")
                                    (field "title" title)
-                                   (field "cancellable" #f))))
+                                   (field "cancellable" #f))
+                  token))
 
-(define (progress-report! out message)
+(define* (progress-report! out message #:optional (token progress-token))
   (progress-send! out (json-object (field "kind" "report")
-                                   (field "message" message))))
+                                   (field "message" message))
+                  token))
 
-(define (progress-end! out message)
+(define* (progress-end! out message #:optional (token progress-token))
   (progress-send! out (json-object (field "kind" "end")
-                                   (field "message" message))))
+                                   (field "message" message))
+                  token))
+
+(define index-progress-token "sift-index")
+
+(define* (send-index-status! out status done total
+                             #:key (uri #f) (message #f))
+  "Tell the client where the index is, in the server's own notification.
+
+This is not the protocol's progress: an editor that only knows LSP can put
+the state on screen, and a request that came back empty while the project was
+being read says so in the same shape, which is what makes \"nothing is defined
+here\" and \"ask again in a moment\" two different answers."
+  (send! out
+         (json-object
+          (field "jsonrpc" "2.0")
+          (field "method" "sift/indexStatus")
+          (field "params"
+                 (apply json-object
+                        (append
+                         (list (field "state" (symbol->string status))
+                               (field "done" done)
+                               (field "total" total))
+                         (if uri (list (field "uri" uri)) '())
+                         (if message (list (field "message" message)) '())))))))
+
+(define (index-progress-publisher out session)
+  "Return the procedure the indexer reports to.
+
+Until the client has said `initialized' nothing is written: a notification
+before the `initialize' answer is not the protocol.  After it, a client with
+work-done progress gets a token and one report per batch, and a client
+without gets the same state as @code{sift/indexStatus} alone."
+  (let ((begun? #f) (ended? #f))
+    (lambda (status done total)
+      (cond
+        [(eq? status 'ready)
+         (unless ended?
+           (set! ended? #t)
+           (when begun? (progress-end! out "project indexed" index-progress-token)))
+         (send-index-status! out status done total)]
+        [else
+          (when (session-progress? session)
+            (unless begun?
+              (set! begun? #t)
+              (progress-create! out index-progress-token)
+              (progress-begin! out "Indexing the project" index-progress-token))
+            (progress-report! out
+                              (format #f "indexed ~a of ~a files" done total)
+                              index-progress-token))
+          (send-index-status! out status done total)]))))
 
 (define (document-name document)
   "Return the short name of @var{document}, for a log line."
@@ -1590,8 +1472,14 @@ for a document whose version sift was never told."
                            '())
                          (list (field "diagnostics" diagnostics))))))))
 
-(define* (publish! config out document #:key (force #f) (compile? #f) (root #f))
+(define* (publish! config out document #:key (force #f) (compile? #f) (root #f)
+                   (text #f) (version #f) (ast #f) (documents #f))
   "Send the diagnostics of @var{document} to the editor, unless nothing changed.
+
+@var{text} is the buffer the report is about: a job from the lint queue
+carries it, so a report computed a moment after the editor moved on is still
+about the text it was computed from, and the version on the wire is that
+text's version.
 
 A buffer that does not parse is a buffer with findings -- the reader's own,
 with severity `error` and the code `reader` -- so this works the same way
@@ -1611,32 +1499,46 @@ again.
 
 @var{force} says the findings may differ even though the text did not -- the
 project it was read against changed -- which is what a save or a configuration
-reload asks for."
-  (let* ((text (document-text document))
+reload asks for.
+
+@var{documents}, when a caller has the open buffers, is what makes the report
+about a buffer that is still open: a job from the lint queue is handed the
+document before the editor closes it and can finish after, and an editor that
+closed a file has already been told its findings are gone.  The report is
+dropped when the document the job read is no longer the one the editor has."
+  (let* ((text (or text (document-text document)))
+         (version (or version (document-version document)))
          (dialect (document-dialect document))
          (uri (document-uri document))
+         (ast (or ast (ast-of-text text dialect)))
+         ;; The parse is read here and the linter reads the text again, because
+         ;; the lint keeps the reader's own findings and `ast-of-text' drops
+         ;; them.  Both reads happen in the lint worker, never in a handler.
          (warnings (warnings-for config text #:dialect dialect #:uri uri))
          (diagnostics (list->vector
                        (append (map (lambda (warning) (diagnostic-of warning text))
                                     warnings)
                                (compiler-json-diagnostics uri text dialect)))))
-    (unless (and (not force)
-              (document-published document)
-              (string=? (cdr (document-published document)) text))
-      (set-document-published! document (cons diagnostics text))
-      (notice! out
-               (format #f "sift: ~a in ~a"
-                       (findings-sentence diagnostics) (document-name document)))
-      (publish-diagnostics! out
-                            (document-uri document)
-                            (document-version document)
-                            diagnostics)
-      ;; The editor has the findings that could be answered at once; the ones
-      ;; that had to read the whole file are computed now and published by the
-      ;; message loop when they are ready.
-      (queue-deep-pass! out config document warnings)
-      (when compile?
-        (queue-compiler-pass! out config document root)))))
+    ;; The parse is cached beside the document whatever it is about: the next
+    ;; request for the text answers from it, and one for other text finds the
+    ;; mismatch and does not wait for this parse.
+    (cache-document-ast! document text ast)
+    (when (or (not documents)
+            (eq? document (hash-ref documents uri #f)))
+      (unless (and (not force)
+                (document-published document)
+                (string=? (cdr (document-published document)) text))
+        (set-document-published! document (cons diagnostics text))
+        (notice! out
+                 (format #f "sift: ~a in ~a"
+                         (findings-sentence diagnostics) (document-name document)))
+        (publish-diagnostics! out uri version diagnostics)
+        ;; The editor has the findings that could be answered at once; the ones
+        ;; that had to read the whole file are computed now and published by the
+        ;; message loop when they are ready.
+        (queue-deep-pass! out config uri text version dialect warnings)
+        (when compile?
+          (queue-compiler-pass! out config uri text version dialect root))))))
 
 ;;; --- the second pass -----------------------------------------------------
 ;;;
@@ -1664,6 +1566,49 @@ reports computed at once could read each other's line numbers.  One mutex
 around a computation that takes milliseconds is the whole of the fix; the
 alternative is a wrong line in a finding."
   (with-mutex *lint-lock* (thunk)))
+
+;;; --- the lint worker -----------------------------------------------------
+;;;
+;;; A change is answered by putting a job on a queue, and the queue is drained
+;;; by one thread in the order the editor sent it.  The message loop never
+;;; computes a finding, so the next request -- a jump, a hover, the next
+;;; keystroke -- is answered while the buffer is being checked rather than
+;;; after it.
+
+(define (run-lint-job session workspace out documents job)
+  "Check one queued job and publish what it found."
+  (let ((document (hash-ref documents (lint-job-uri job) #f)))
+    (when document
+      (publish! (session-config session) out document
+                #:force (lint-job-force job)
+                #:compile? (lint-job-compile? job)
+                #:root (lint-job-root job)
+                #:text (lint-job-text job)
+                #:version (lint-job-version job)
+                #:ast (lint-job-ast job)
+                #:documents documents))))
+
+(define (lint-loop session workspace out documents)
+  "Drain the lint queue until the session says stop."
+  (let loop ()
+    (let ((job (take-lint-job! (session-queue session))))
+      (if (eq? job 'stop)
+        #f
+        (begin
+          (catch #t
+                 (lambda () (run-lint-job session workspace out documents job))
+                 (lambda (key . arguments) #f))
+          (loop))))))
+
+(define (stop-lint-worker! session)
+  "Let the queued reports go out, then join the worker."
+  (let ((queue (session-queue session)))
+    (when (lint-queue-thread queue)
+      (enqueue-lint! session 'stop)
+      (catch #t
+             (lambda () (join-thread (lint-queue-thread queue)))
+             (lambda (key . arguments) #f))
+      (set-lint-queue-thread! queue #f))))
 
 (define (diagnostics-of warnings text)
   "Return @var{warnings} as the diagnostics an editor expects about @var{text}."
@@ -1752,8 +1697,8 @@ remembering, or every publish would start the same process again."
   (map compiler-diagnostic-json
        (or (cached-compiler-diagnostics uri text dialect) '())))
 
-(define (queue-compiler-pass! out config document root)
-  "Ask @var{dialect}'s compiler about @var{document} in a thread of its own.
+(define (queue-compiler-pass! out config uri text version dialect root)
+  "Ask @var{dialect}'s compiler about @var{text} in a thread of its own.
 
 Only an open or a save asks: a compile is a process, and a process per
 keystroke is a server that spends its time starting compilers.  A text that
@@ -1761,11 +1706,7 @@ was compiled before is not compiled again, and a text with a compile already
 in flight is not compiled twice -- a save during a slow compile would
 otherwise queue a second one behind it."
   (when (config-ref config 'compiler-diagnostics)
-    (let* ((text (document-text document))
-           (version (document-version document))
-           (uri (document-uri document))
-           (dialect (document-dialect document))
-           (path (and (string-prefix? "file://" uri) (strip-uri uri))))
+    (let ((path (and (string-prefix? "file://" uri) (strip-uri uri))))
       (unless (or (> (string-length text) compiler-source-limit)
                 (not (compiler-available? dialect))
                 (cached-compiler-diagnostics uri text dialect)
@@ -1784,25 +1725,23 @@ otherwise queue a second one behind it."
                                                                   #:root root))))
                              (remember-compiler-diagnostics! uri text dialect found)
                              (end-compiler-run! uri)
-                             (when (and (string=? text (document-text document))
-                                     (equal? version (document-version document)))
-                               (let ((all (all-warnings config text
-                                                        #:dialect dialect
-                                                        #:uri uri)))
-                                 (with-mutex
-                                  *send-lock*
-                                  (set! *deep-results*
-                                        (cons
-                                         (list
-                                          uri version
-                                          (list->vector
-                                           (append
-                                            (map (lambda (warning)
-                                                   (diagnostic-of warning text))
-                                                 all)
-                                            (map compiler-diagnostic-json found)))
-                                          text)
-                                         *deep-results*)))))))
+                             (let ((all (all-warnings config text
+                                                      #:dialect dialect
+                                                      #:uri uri)))
+                               (with-mutex
+                                *send-lock*
+                                (set! *deep-results*
+                                      (cons
+                                       (list
+                                        uri version
+                                        (list->vector
+                                         (append
+                                          (map (lambda (warning)
+                                                 (diagnostic-of warning text))
+                                               all)
+                                          (map compiler-diagnostic-json found)))
+                                        text)
+                                       *deep-results*))))))
                          (lambda (key . arguments)
                            (end-compiler-run! uri)
                            #f))))
@@ -1857,8 +1796,8 @@ source and per library; a client that did not gets the same lines in its log."
       (set! *deep-threads* (cons thread *deep-threads*))
       #t)))
 
-(define (queue-deep-pass! out config document fast)
-  "Compute the whole-file rules of @var{document} in a thread of their own.
+(define (queue-deep-pass! out config uri text version dialect fast)
+  "Compute the whole-file rules of @var{text} in a thread of their own.
 
 Nothing is written from that thread.  What it finds is handed back through
 `*deep-results*', and the message loop -- the one writer a port needs --
@@ -1874,10 +1813,7 @@ report worth sending is a whole-file rule having something to add.
 A report is published only for the text it was computed from: a buffer that
 changed while the pass ran has findings of its own by now, and a report about
 an older text is one an editor would either drop or, worse, show."
-  (let ((text (document-text document))
-        (version (document-version document))
-        (uri (document-uri document))
-        (dialect (document-dialect document)))
+  (begin
     (set! *deep-threads*
           (cons (call-with-new-thread
                  (lambda ()
@@ -1888,10 +1824,8 @@ an older text is one an editor would either drop or, worse, show."
                                                      #:uri uri))
                                   (compiled (compiler-json-diagnostics
                                              uri text dialect)))
-                              (when (and (> (+ (length all) (length compiled))
-                                            (length fast))
-                                      (string=? text (document-text document))
-                                      (equal? version (document-version document)))
+                              (when (> (+ (length all) (length compiled))
+                                       (length fast))
                                 (with-mutex *send-lock*
                                             (set! *deep-results*
                                                   (cons (list uri version
@@ -1944,23 +1878,36 @@ is published is one about the text the editor is showing."
             *deep-threads*)
   (set! *deep-threads* '()))
 
-(define (finish! out status documents)
-  "Return @var{status} once the second passes still running have finished."
+(define (finish! out status documents session workspace)
+  "Return @var{status} once every queued report has gone out.
+
+Closing the input is not a reason to drop a report the editor is waiting for,
+so the lint queue is drained first, the second passes it started are joined,
+and only then does the process answer with its status."
+  (stop-lint-worker! session)
   (join-deep-passes!)
   (flush-deep-results! out documents)
+  (index-stop! workspace)
   status)
 
-(define* (publish-all! config out documents #:key (force #f))
-  "Send the findings of every open document to the editor.
+(define* (publish-all! session documents #:key (force #f))
+  "Queue the findings of every open document against the current project.
 
 Used where what changed is the project rather than a buffer -- a save, a file
 changed on disk, a configuration reload.  A finding can be about a file the
 editor is not looking at (`unused-definition', a library that is not
 installed), so the buffer whose text is unchanged is exactly the buffer that
-has to be asked again."
-  (hash-for-each (lambda (uri document)
-                   (publish! config out document #:force force))
-                 documents))
+has to be asked again.
+
+Each document is queued with the text it has now, so the queue is the order
+the reports will be published in even when the editor keeps typing."
+  (hash-for-each
+   (lambda (uri document)
+     (enqueue-lint!
+      session
+      (make-lint-job uri (document-text document) (document-version document)
+                     (document-dialect document) #f force #f #f)))
+   documents))
 
 ;;; --- reading a change ---------------------------------------------------
 ;;;
@@ -2016,8 +1963,7 @@ A configuration decides which files are sift's to read -- `file-filter' -- so
 a session that kept its index through a settings change could be answering
 about a file the project has just excluded, or missing one it has just
 included."
-  (hash-clear! (workspace-files workspace))
-  (set-workspace-scanned! workspace #f))
+  (index-forget! workspace))
 
 ;;; --- the editor's own settings -------------------------------------------
 ;;;
@@ -2121,21 +2067,21 @@ one bad save would go quiet at the worst moment."
                            open (if (= 1 open) "" "s"))))
         ;; The text did not change but the yardstick did, so what sift last
         ;; said about that text is not what it would say now.
-        (publish-all! (session-config session) out documents #:force #t)]
+        (publish-all! session documents #:force #t)]
       [reload
         (notice! out (string-append
                       "sift: the configuration could not be read; "
                       "keeping the one the session started with"))
         ;; The files may still have changed in a way that matters even when
         ;; they could not be understood -- a save is a save.
-        (publish-all! (session-config session) out documents #:force #t)]
+        (publish-all! session documents #:force #t)]
       [else
         ;; No reloader: the caller of `lsp-serve' owns the configuration, so
         ;; checking the buffers again is all that can be said about a change.
         (notice! out
                  (string-append "sift: this session cannot re-read its"
                                 " configuration; checking the open buffers"))
-        (publish-all! (session-config session) out documents #:force #t)])))
+        (publish-all! session documents #:force #t)])))
 
 (define (refresh-changed-files! workspace changes)
   "Re-read the files @var{changes} names, from disk.
@@ -2153,12 +2099,35 @@ them."
            (loop (cdr rest) refreshed settings?)]
           [(config-path? (strip-uri uri))
            (loop (cdr rest) refreshed #t)]
-          ;; A project sift has not read yet needs no refreshing: whatever it
-          ;; is asked next reads the disk as it is at that moment.
-          [(not (workspace-scanned? workspace)) (loop (cdr rest) refreshed settings?)]
           [else
-            (workspace-refresh! workspace (strip-uri uri))
+            (index-refresh! workspace (strip-uri uri))
             (loop (cdr rest) (+ refreshed 1) settings?)])))))
+
+;;; --- cancellation --------------------------------------------------------
+;;;
+;;; `$/cancelRequest' is a promise the server can keep between two steps of a
+;;; lookup: a thread cannot be stopped safely in the middle of one, so every
+;;; loop that can take a while asks whether the request is still wanted and
+;;; answers with what it has when it is not.
+
+(define *cancelled* (make-hash-table))
+(define *cancel-lock* (make-mutex))
+
+(define (cancel-request! id)
+  (when id
+    (with-mutex *cancel-lock* (hash-set! *cancelled* id #t))))
+
+(define (request-cancelled? id)
+  (and id (with-mutex *cancel-lock* (hash-ref *cancelled* id #f))))
+
+(define (forget-cancelled! id)
+  (when id
+    (with-mutex *cancel-lock* (hash-remove! *cancelled* id))))
+
+(define (send-workspace-status! out workspace)
+  "Send the index's current state, whatever it is."
+  (let ((progress (workspace-progress workspace)))
+    (send-index-status! out (car progress) (cadr progress) (caddr progress))))
 
 ;;; --- the handlers -------------------------------------------------------
 
@@ -2194,6 +2163,12 @@ dead server."
                               (settings-object-of (params) "initializationOptions"))
        (set-session-config! session
                             (settings-config session out (session-config session)))
+       ;; The project is read in a thread of its own from the first moment a
+       ;; root is known: nothing here waits for it, and every request that
+       ;; needs it takes whatever it has.  Notifications are held until the
+       ;; client says `initialized'.
+       (index-start! workspace
+                     #:notify (index-progress-publisher out session))
        ;; The standard library is where a name the project does not define
        ;; usually lives, and whether to read one at all is a setting: `stdlib'
        ;; is a switch, a list of directories, or nothing at all.
@@ -2221,6 +2196,8 @@ dead server."
       [(string=? method "initialized")
        ;; The watcher is registered after the client says it is ready: a
        ;; request sent before that is a request the client may drop.
+       (set-session-initialized! session #t)
+       (send-workspace-status! out workspace)
        (if (session-watchers? session)
          (begin
            (register-watchers! out session)
@@ -2257,8 +2234,18 @@ dead server."
          (notice! out
                   (format #f "sift: opened ~a as ~a"
                           (document-name document) (document-dialect document)))
-         (publish! config out document #:compile? #t
-                   #:root (workspace-root workspace))
+         ;; The buffer is read once, here, so that the first jump after it has
+         ;; an in-scope answer for the text it lands in.  A change is not read
+         ;; here: the lint worker reads it and leaves the parse beside the
+         ;; document, and a jump in between answers from the index.
+         (let ((ast (ast-of-text (document-text document)
+                                 (document-dialect document))))
+           (cache-document-ast! document (document-text document) ast)
+           (enqueue-lint! session
+                          (make-lint-job uri (document-text document)
+                                         (document-version document)
+                                         (document-dialect document) ast #f #t
+                                         (workspace-root workspace))))
          'continue)]
 
       [(string=? method "textDocument/didChange")
@@ -2270,7 +2257,15 @@ dead server."
            (set-document-version!
             document
             (client-version (json-ref (json-ref (params) "textDocument") "version" #f)))
-           (publish! config out document))
+           ;; A keystroke queues a check and does nothing else.  The parse of
+           ;; the new text arrives with that check; a jump asked before it does
+           ;; answers from the index, immediately, and says the index is still
+           ;; working when it has nothing to say.
+           (enqueue-lint! session
+                          (make-lint-job (document-uri document)
+                                         (document-text document)
+                                         (document-version document)
+                                         (document-dialect document) #f #f #f #f)))
          'continue)]
 
       [(string=? method "textDocument/didClose")
@@ -2292,13 +2287,17 @@ dead server."
        (let ((document (document-of)))
          (when document
            (let ((uri (document-uri document)))
-             (when (and (workspace-scanned? workspace)
-                     (string-prefix? "file://" uri))
-               (workspace-refresh! workspace (strip-uri uri))
-               (notice! out (format #f "sift: re-read ~a after a save"
+             (when (string-prefix? "file://" uri)
+               ;; The file is read again in the indexer's thread; the request
+               ;; loop only says that it should be.
+               (index-refresh! workspace (strip-uri uri))
+               (notice! out (format #f "sift: queued ~a for a re-read"
                                     (document-name document)))))
-           (publish-all! config out documents #:force #t)
-           (queue-compiler-pass! out config document (workspace-root workspace))))
+           (publish-all! session documents #:force #t)
+           (queue-compiler-pass! out config (document-uri document)
+                                 (document-text document) (document-version document)
+                                 (document-dialect document)
+                                 (workspace-root workspace))))
        'continue]
 
       [(string=? method "workspace/didChangeWatchedFiles")
@@ -2319,7 +2318,7 @@ dead server."
                (cond
                  [settings? (reload-config! session workspace out documents)]
                  [(positive? refreshed)
-                  (publish-all! config out documents #:force #t)])))))
+                  (publish-all! session documents #:force #t)])))))
        'continue]
 
       [(string=? method "workspace/didChangeConfiguration")
@@ -2358,12 +2357,10 @@ dead server."
           (lambda (file)
             (let ((old-path (strip-uri (json-ref file "oldUri" "")))
                   (new-path (strip-uri (json-ref file "newUri" ""))))
-              (when (workspace-scanned? workspace)
-                (hash-remove! (workspace-files workspace) old-path)
-                (when (file-exists? new-path)
-                  (workspace-refresh! workspace new-path)))))
+              (index-refresh! workspace old-path)
+              (index-refresh! workspace new-path)))
           (vector->list files))
-         (publish-all! config out documents #:force #t))
+         (publish-all! session documents #:force #t))
        'continue]
 
       [(string=? method "textDocument/codeAction")
@@ -2424,23 +2421,41 @@ dead server."
          'continue)]
 
       [(string=? method "textDocument/definition")
+       ;; The answer is the current snapshot and the parse the buffer already
+       ;; has: no file is read, no lock is taken, and nothing waits for the
+       ;; indexer.  When the two have nothing to say and the index is still
+       ;; being built, the client is told which of the two silences it is.
        (let ((document (document-of)))
-         (reply! out id
-                 (if document
-                   (lsp-definition workspace documents
-                                   (document-uri document)
-                                   (document-text document)
-                                   (document-dialect document)
-                                   (index-of-text-position
-                                    (document-text document)
-                                    (json-ref (params) "position" (json-object))))
-                   (vector)))
+         (cond
+           [(not document) (reply! out id (vector))]
+           [(request-cancelled? id)
+            (forget-cancelled! id)
+            (reply! out id (vector))]
+           [else
+             (let* ((text (document-text document))
+                    (locations
+                     (lsp-definition workspace documents
+                                     (document-uri document) text
+                                     (document-dialect document)
+                                     (index-of-text-position
+                                      text (json-ref (params) "position"
+                                                     (json-object)))
+                                     #:deadline (make-deadline 100))))
+               (when (and (zero? (vector-length locations))
+                       (not (eq? (workspace-status workspace) 'ready)))
+                 (let ((progress (workspace-progress workspace)))
+                   (send-index-status!
+                    out (car progress) (cadr progress) (caddr progress)
+                    #:uri (document-uri document)
+                    #:message "indexing in progress — definition not yet available")))
+               (forget-cancelled! id)
+               (reply! out id locations))])
          'continue)]
 
       [(string=? method "textDocument/references")
        (let ((document (document-of)))
          (reply! out id
-                 (if document
+                 (if (and document (not (request-cancelled? id)))
                    (lsp-references workspace documents
                                    (document-uri document)
                                    (document-text document)
@@ -2450,8 +2465,10 @@ dead server."
                                     (json-ref (params) "position" (json-object)))
                                    #:include-declaration
                                    (json-ref (json-ref (params) "context" (json-object))
-                                             "includeDeclaration" #t))
+                                             "includeDeclaration" #t)
+                                   #:deadline (make-deadline 200))
                    (vector)))
+         (forget-cancelled! id)
          'continue)]
 
       [(string=? method "textDocument/documentHighlight")
@@ -2574,9 +2591,13 @@ dead server."
                                           #:version (document-version document)))])))
          'continue)]
 
+      [(string=? method "$/cancelRequest")
+       (cancel-request! (json-ref (params) "id" #f))
+       'continue]
+
       [(string-prefix? "$/" method)
-       ;; A notification about the protocol itself: `$/cancelRequest',
-       ;; `$/setTrace'.  There is nothing to answer.
+       ;; A notification about the protocol itself: `$/setTrace'.  There is
+       ;; nothing to answer.
        'continue]
 
       [(not (request?))
@@ -2638,16 +2659,22 @@ should show a finding."
   (let ((port-in (or in (current-input-port)))
         (port-out (or out (current-output-port)))
         (documents (make-hash-table))
-        ;; The workspace is given the globs the project configured, and the
-        ;; scanner installed at the bottom of the disk section fills it; a
-        ;; workspace with no root is never scanned at all.
+        ;; The workspace is given the globs the project configured; `(sift
+        ;; index)' fills it in a thread of its own once a root is known, and a
+        ;; workspace with no root answers about the open buffers alone.
         (workspace (new-workspace (and config (config-ref config 'file-filter))))
         (session (new-session #:config config #:reload reload)))
+    ;; The one thread that checks buffers, so the loop that reads messages is
+    ;; never the loop that computes a finding.
+    (set-lint-queue-thread!
+     (session-queue session)
+     (call-with-new-thread
+      (lambda () (lint-loop session workspace port-out documents))))
     (let loop ((status 0))
       (flush-deep-results! port-out documents)
       (let ((frame (read-message port-in)))
         (cond
-          [(not frame) (finish! port-out status documents)]
+          [(not frame) (finish! port-out status documents session workspace)]
           [(eq? (car frame) 'malformed)
            ;; The id of a message that could not be parsed is not known, and
            ;; the protocol says to answer with null.
@@ -2657,5 +2684,6 @@ should show a finding."
             (let ((outcome (serve-one session workspace documents
                                       (cdr frame) port-out)))
               (if (eq? outcome 'exit)
-                (finish! port-out (if (session-shutdown? session) 0 1) documents)
+                (finish! port-out (if (session-shutdown? session) 0 1)
+                         documents session workspace)
                 (loop status)))])))))
