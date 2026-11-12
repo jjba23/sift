@@ -15,7 +15,11 @@
 #
 # The tasks are the ones `maak release' calls this project's gates, so a
 # release cannot be the first thing to notice that a module does not compile
-# or that a source is not formatted.
+# or that a source is not formatted.  `maak-web' is the exception, and it is
+# here because nothing else before a merge compiles the browser build: a
+# `(guile)' name the Wasm target does not bind is invisible to every test that
+# runs under Guile, and the deploy job finding it is the deploy job being the
+# first to look.
 #
 # A pull request from a fork is skipped: the daemon clones the repository the
 # run belongs to, and a branch that exists only in the fork is not there.  The
@@ -43,7 +47,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
     with:
-      tasks: maak-test maak-check maak-self-check maak-fixture-check maak-emacs-check maak-emacs-test
+      tasks: maak-test maak-check maak-self-check maak-fixture-check maak-emacs-check maak-emacs-test maak-web
       poll-limit: "1024"
     secrets: inherit
 
