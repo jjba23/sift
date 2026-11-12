@@ -334,7 +334,7 @@ itself -- Guile's own ~(guile)~ answers every name the stand-in does, so a
 suite that loads the stand-in under Guile passes whether a name is in it or not.
 The gate for that class of failure is ~maak web~, and CI runs it.
 
-Four things were not shimmable, and the source changed instead.  Each change is
+Five things were not shimmable, and the source changed instead.  Each change is
 one a native build is no worse for, and none of them leaves the browser's name
 in the core -- which is the rule the seam above is about:
 
@@ -361,6 +361,15 @@ in the core -- which is the rule the seam above is about:
   answer for a tab is the same as the answer for any Scheme without them -- no
   directory, no names, no text, so ~library-not-found~ never fires, which is the
   truth and not a guess.
+- a deadline is measured with R7RS's ~(scheme time)~ -- ~current-jiffy~ and
+  ~jiffies-per-second~ -- rather than with ~get-internal-real-time~ and
+  ~internal-time-units-per-second~.  Hoot binds neither of the second pair, so
+  that spelling compiles under Guile and stops the browser build at
+  `make-deadline` by name, and there is no stand-in that could answer it:
+  ~(guile)~ is the one module the load path cannot put a file in front of.
+  ~(scheme time)~ is the portable spelling of the same question, both
+  implementations answer it, and it is monotonic, which is what a bound between
+  two steps of a lookup wants.
 
 * How fast it is, honestly
 

@@ -31,6 +31,10 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
+  ;; R7RS's clock rather than `(guile)'s internal one: this module is compiled
+  ;; by an implementation of `(guile)' that does not bind the second name, and
+  ;; `current-jiffy' is the portable spelling of the same question.
+  #:use-module (scheme time)
   #:use-module (ice-9 format)
   #:use-module (ice-9 atomic)
   #:use-module (sift records)
@@ -536,6 +540,16 @@ answer to a jump is allowed to be partial until it does."
     (lambda () (read-source #:source text #:dialect dialect))
     (lambda (ast errors) ast)))
 
+(define (now-in-jiffies)
+  "Return the clock the deadlines are measured with, in jiffies.
+
+R7RS's `(scheme time)' rather than `get-internal-real-time', because this module
+is also compiled by an implementation whose `(guile)' does not bind the second
+name: a deadline that exists on one implementation and not the other is a core
+that does not build for both.  `current-jiffy' is the portable spelling of the
+same question, and every implementation sift runs on answers it."
+  (current-jiffy))
+
 (define (make-deadline milliseconds)
   "Return a moment @var{milliseconds} from now, or @code{#f} for no limit.
 
@@ -544,12 +558,12 @@ that can take a while.  Threads cannot be interrupted safely here, so the
 bound is kept by not starting work that would pass it, which is why every loop
 that can be long takes a deadline."
   (and milliseconds
-    (+ (get-internal-real-time)
-       (quotient (* milliseconds internal-time-units-per-second) 1000))))
+    (+ (now-in-jiffies)
+       (quotient (* milliseconds (jiffies-per-second)) 1000))))
 
 (define (deadline-expired? deadline)
   "Return @code{#t} when @var{deadline} has passed."
-  (and deadline (>= (get-internal-real-time) deadline)))
+  (and deadline (>= (now-in-jiffies) deadline)))
 
 (define (symbol-at-index text index)
   "Return the Lisp name around @var{index} in @var{text}, or @code{#f}.
