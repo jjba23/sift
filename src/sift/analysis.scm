@@ -32,6 +32,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-13)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 atomic)
   #:use-module (sift records)
   #:use-module (sift reader)
   #:use-module (sift definitions)
@@ -44,6 +45,8 @@
 
             ;; --- positions ---
             json-range
+            make-deadline
+            deadline-expired?
             position-of
             document-range
             index-of-text-position
@@ -64,32 +67,43 @@
             document-dialect
             document-published
             set-document-published!
+            document-ast-of
+            cache-document-ast!
 
             ;; --- the workspace ---
             <workspace>
             new-workspace
             workspace-index
+            workspace-index-box
+            workspace-status
+            workspace-progress
+            publish-workspace-index!
             workspace-root
             set-workspace-root!
             workspace-filter
             set-workspace-filter!
             workspace-files
             workspace-scanned?
-            set-workspace-scanned!
-            current-workspace-scan
+            workspace-worker
+            set-workspace-worker!
             <indexed-file>
             make-indexed-file
             indexed-file?
             indexed-file-path
             indexed-file-text
-            set-indexed-file-text!
             indexed-file-dialect
             indexed-file-definitions
-            set-indexed-file-definitions!
             indexed-file-names
-            indexed-file-text-of
-            indexed-file-definitions-of
-            current-index-loader
+            <index>
+            index?
+            empty-index
+            index-of-files
+            index-files
+            index-names
+            index-generation
+            index-sites
+            index-names-of
+            index-texts
             workspace-definition-sites
             workspace-names
             path->uri
@@ -101,6 +115,7 @@
             form-start
             form-end
             definition-sites
+            symbol-at-index
             lsp-definition
             lsp-references
             lsp-document-highlights
@@ -199,21 +214,46 @@
 ;;; and one of them has three spellings.
 
 (define-record-type <document>
-  (make-document uri text language-id version dialect published)
+  (make-document uri text language-id version dialect published ast)
   document?
   (uri document-uri)
-  (text document-text set-document-text!)
+  (text document-text document-text-set!)
   (language-id document-language-id)
   (version document-version set-document-version!)
   (dialect document-dialect)
   ;; what the editor was last told, and about which text, as
   ;; `(diagnostics . text)' -- see `publish!' for why the text is kept beside
   ;; the findings rather than the findings alone
-  (published document-published set-document-published!))
+  (published document-published set-document-published!)
+  ;; `(text . ast)', or #f: the parse of the buffer as a value a request can
+  ;; take without reading the buffer again.  A request that finds a parse of
+  ;; other text here does not parse the buffer to replace it -- the slower
+  ;; answer to a jump is a stale one, and the editor is told so instead.
+  (ast document-ast-box))
 
 (define (new-document uri text language-id version dialect)
   "Return a document about which nothing has been published yet."
-  (make-document uri text language-id version dialect #f))
+  (make-document uri text language-id version dialect #f (make-atomic-box #f)))
+
+(define (set-document-text! document text)
+  "Replace the text of @var{document}, dropping the parse of the old text."
+  (document-text-set! document text)
+  (atomic-box-set! (document-ast-box document) #f))
+
+(define (cache-document-ast! document text ast)
+  "Remember @var{ast} as the parse of @var{text} for @var{document}."
+  (atomic-box-set! (document-ast-box document) (cons text ast)))
+
+(define (document-ast-of document)
+  "Return the parse of @var{document}'s current text, or @code{#f}.
+
+The answer is @code{#f} when the buffer has changed since it was parsed: the
+caller then answers from the index, or says it cannot answer yet, rather than
+reading a file-sized buffer on the path an editor waits on."
+  (let ((cached (atomic-box-ref (document-ast-box document))))
+    (and cached
+      (string=? (car cached) (document-text document))
+      (cdr cached))))
 
 (define (client-version value)
   "Return @var{value} as a document version, or @code{#f} when it is not one.
@@ -273,59 +313,143 @@ a URI is."
 ;;; jump from an unsaved buffer to an unsaved buffer work.
 
 (define-record-type <workspace>
-  (make-workspace root files scanned? filter)
+  (make-workspace root filter index status done total scanned? worker)
   workspace?
   (root workspace-root set-workspace-root!)
-  (files workspace-files)
-  (scanned? workspace-scanned? set-workspace-scanned!)
-  (filter workspace-filter set-workspace-filter!))
+  (filter workspace-filter set-workspace-filter!)
+  ;; the indexer thread and its queue, which `(sift index)' owns: the record
+  ;; here decides what a workspace *is*, and that module owns how it is built
+  (worker workspace-worker set-workspace-worker!)
+  ;; The index is one value, replaced whole: a reader takes the pointer in one
+  ;; step and never sees a half-built table, because the writer builds the
+  ;; next one outside every lock and publishes it with an atomic store.
+  (index workspace-index-box)
+  (status workspace-status-box)
+  (done workspace-done-box)
+  (total workspace-total-box)
+  (scanned? workspace-scanned? set-workspace-scanned!))
 
 (define* (new-workspace #:optional (filter #f))
   "Return an empty workspace, with @var{filter} for the globs a project names.
 
-A workspace starts with no root and nothing in it; what fills it is
-`current-workspace-scan', which a build with a directory to read installs."
-  (make-workspace #f (make-hash-table) #f filter))
+A workspace starts with no root and nothing in it.  `(sift index)' fills it
+from a directory in a thread of its own; a caller that has no directory reads
+the empty index and answers about the buffers it was given."
+  (make-workspace #f filter (make-atomic-box empty-index)
+                  (make-atomic-box 'uninitialized)
+                  (make-atomic-box 0) (make-atomic-box 0) #f #f))
+
+(define (workspace-index workspace)
+  "Return the workspace's index as it is now, without waiting for a scan."
+  (atomic-box-ref (workspace-index-box workspace)))
+
+(define (workspace-status workspace)
+  "Return the index's state: `uninitialized', `scanning', `indexing' or `ready'."
+  (atomic-box-ref (workspace-status-box workspace)))
+
+(define (workspace-progress workspace)
+  "Return @code{(status done total)} for the index of @var{workspace}."
+  (list (workspace-status workspace)
+        (atomic-box-ref (workspace-done-box workspace))
+        (atomic-box-ref (workspace-total-box workspace))))
+
+(define (publish-workspace-index! workspace index status done total)
+  "Publish @var{index} as the workspace's own, and say how far the scan is."
+  (atomic-box-set! (workspace-done-box workspace) done)
+  (atomic-box-set! (workspace-total-box workspace) total)
+  (atomic-box-set! (workspace-status-box workspace) status)
+  (when (eq? status 'ready)
+    (set-workspace-scanned! workspace #t))
+  (atomic-box-set! (workspace-index-box workspace) index))
 
 (define-record-type <indexed-file>
   (make-indexed-file path text dialect definitions names)
   indexed-file?
   (path indexed-file-path)
-  (text indexed-file-text set-indexed-file-text!)
+  ;; #f for an entry the cache remembered without reading: the names are
+  ;; known and the text is not, which answers completion and says nothing
+  ;; about a jump rather than making one wait for a read.
+  (text indexed-file-text)
   (dialect indexed-file-dialect)
-  (definitions indexed-file-definitions set-indexed-file-definitions!)
+  (definitions indexed-file-definitions)
   (names indexed-file-names))
 
-;; A file is indexed lazily: the scan reads nothing but its name and its
-;; metadata, and the text and the definitions arrive the first time a request
-;; needs them.  That is what makes the cache worth having -- a session that
-;; only asks for completion reads one small file per workspace, not the
-;; workspace -- and what keeps a jump honest, because the file it needs is
-;; parsed from the text on disk at the moment it is asked for.
+;;; ===== The index =====
+;;;
+;;; An index is a value: the files it holds by path, the same files by the name
+;;; they define, and a generation that changes when either does.  Writing one
+;;; never mutates the one a reader has, so a reader takes the current value in
+;;; one atomic read and the writer can take as long as the project needs.
 
-;;; An indexed file can be *lazy*: the index remembers a file's names and not
-;;; its text, and the text arrives when a request needs it.  How it arrives is
-;;; not this module's business -- the server reads the file from the project,
-;;; and a build with no files to read loads nothing -- so it is a parameter,
-;;; and the answer to "no" is an empty one rather than an error.
+(define-record-type <index>
+  (make-index files names generation)
+  index?
+  (files index-files)
+  (names index-names)
+  (generation index-generation))
 
-(define current-index-loader
-  (make-parameter
-   (lambda (entry)
-     "Load @var{entry} from wherever this build keeps its files, or do nothing."
-     #f)))
+(define empty-index (make-index (make-hash-table) (make-hash-table) 0))
 
-(define (indexed-file-text-of entry)
-  "Return the text of @var{entry}, asking the loader when it is not loaded."
-  (or (indexed-file-text entry)
-    (begin ((current-index-loader) entry)
-      (indexed-file-text entry))))
+(define (index-of-files entries generation)
+  "Return an index holding @var{entries}, with @var{generation} as its own."
+  (let ((files (make-hash-table)) (names (make-hash-table)))
+    (for-each
+     (lambda (entry)
+       (hash-set! files (indexed-file-path entry) entry)
+       (for-each (lambda (name)
+                   (hash-set! names name
+                              (cons entry (hash-ref names name '()))))
+                 (indexed-file-names entry)))
+     entries)
+    (make-index files names generation)))
 
-(define (indexed-file-definitions-of entry)
-  "Return the definitions of @var{entry}, asking the loader when they are not read."
-  (or (indexed-file-definitions entry)
-    (begin ((current-index-loader) entry)
-      (indexed-file-definitions entry))))
+(define (index-sites index name dialect)
+  "Return @code{(uri text definition)} for @var{name}'s file-level definitions.
+
+Only the files whose remembered names include @var{name} are looked at, and a
+file the cache did not read is not read here: a jump is answered from the
+snapshot, or not at all until the indexer has the file.  That is what keeps
+the answer to a request independent of the size of the project."
+  (let ((sites '()))
+    (for-each
+     (lambda (entry)
+       (when (and (eq? dialect (indexed-file-dialect entry))
+               (indexed-file-definitions entry))
+         (for-each
+          (lambda (definition)
+            (when (and (not (definition-scope definition))
+                    (string=? name (definition-name definition)))
+              (set! sites
+                    (cons (list (path->uri (indexed-file-path entry))
+                                (indexed-file-text entry) definition)
+                          sites))))
+          (indexed-file-definitions entry))))
+     (hash-ref (index-names index) name '()))
+    (reverse sites)))
+
+(define (index-names-of index dialect)
+  "Return the names the indexed files define in @var{dialect}, without repeats."
+  (let ((names '()))
+    (hash-for-each
+     (lambda (name entries)
+       (when (any (lambda (entry) (eq? dialect (indexed-file-dialect entry)))
+                  entries)
+         (set! names (cons name names))))
+     (index-names index))
+    (reverse names)))
+
+(define (index-texts index dialect except-uri)
+  "Return @code{(uri text)} for the indexed files read in @var{dialect}."
+  (let ((texts '()))
+    (hash-for-each
+     (lambda (path entry)
+       (let ((uri (path->uri path)))
+         (when (and (indexed-file-text entry)
+                 (eq? dialect (indexed-file-dialect entry))
+                 (not (string=? uri except-uri)))
+           (set! texts (cons (list uri (indexed-file-text entry)) texts)))))
+     (index-files index))
+    (reverse texts)))
 
 ;;; The *standard library* is the third place a name can be defined, after the
 ;;; buffer and the project, and it is the one thing here that no caller can
@@ -370,67 +494,39 @@ A workspace starts with no root and nothing in it; what fills it is
 ;;; server fills it from a directory; a caller with no directory to read hands
 ;;; over an empty one, and every answer is about the buffers it was given.
 
-(define current-workspace-scan
-  (make-parameter
-   (lambda (workspace)
-     "Fill @var{workspace} however this build fills one, or do nothing."
-     #f)))
-
-(define (workspace-index workspace)
-  "Return the workspace's index, asking the scanner to fill it the first time.
-
-The scan and its contents are the caller's: what is promised here is that it
-happens once, and that a workspace nobody can scan is an empty index rather
-than an error."
-  (unless (workspace-scanned? workspace)
-    ((current-workspace-scan) workspace)
-    (set-workspace-scanned! workspace #t))
-  (workspace-files workspace))
+(define (workspace-files workspace)
+  "Return the files of the current index, by path."
+  (index-files (workspace-index workspace)))
 
 (define (workspace-definition-sites workspace name dialect)
   "Return @code{(uri text definition)} for every file-level definition of @var{name}."
-  (let ((sites '()))
-    (hash-for-each
-     (lambda (path entry)
-       (when (and (eq? (indexed-file-dialect entry) dialect)
-               (member name (indexed-file-names entry)))
-         (for-each
-          (lambda (definition)
-            (when (and (not (definition-scope definition))
-                    (string=? (definition-name definition) name))
-              (set! sites
-                    (cons (list (path->uri path) (indexed-file-text-of entry)
-                                definition)
-                          sites))))
-          (indexed-file-definitions-of entry))))
-     (workspace-index workspace))
-    (reverse sites)))
+  (index-sites (workspace-index workspace) name dialect))
 
 (define (workspace-names workspace dialect)
   "Return the names the workspace defines in @var{dialect}, without repeats."
-  (let ((names '()))
-    (hash-for-each
-     (lambda (path entry)
-       (when (eq? (indexed-file-dialect entry) dialect)
-         (set! names (append (indexed-file-names entry) names))))
-     (workspace-index workspace))
-    (delete-duplicates (reverse names))))
+  (index-names-of (workspace-index workspace) dialect))
 
 (define (document-definition-sites documents name dialect except-uri)
-  "Return open buffers that define @var{name}, skipping @var{except-uri}."
+  "Return open buffers that define @var{name}, skipping @var{except-uri}.
+
+A buffer is read from the parse it already has.  One that has none -- it was
+opened and never parsed, or the text changed under the parse -- is skipped
+rather than parsed here: the lint worker fills that parse in a moment, and the
+answer to a jump is allowed to be partial until it does."
   (let ((sites '()))
     (hash-for-each
      (lambda (uri document)
        (when (and (not (string=? uri except-uri))
                (eq? (document-dialect document) dialect))
-         (for-each
-          (lambda (definition)
-            (set! sites
-                  (cons (list uri (document-text document) definition) sites)))
-          (filter (lambda (definition)
-                    (not (definition-scope definition)))
-                  (definitions-by-name
-                   (ast-of-text (document-text document) dialect) name)))))
+         (let ((ast (document-ast-of document)))
+           (when ast
+             (for-each
+              (lambda (definition)
+                (set! sites
+                      (cons (list uri (document-text document) definition) sites)))
+              (filter (lambda (definition)
+                        (not (definition-scope definition)))
+                      (definitions-by-name ast name)))))))
      documents)
     (reverse sites)))
 
@@ -439,6 +535,39 @@ than an error."
   (call-with-values
     (lambda () (read-source #:source text #:dialect dialect))
     (lambda (ast errors) ast)))
+
+(define (make-deadline milliseconds)
+  "Return a moment @var{milliseconds} from now, or @code{#f} for no limit.
+
+A request that must answer within a bound checks the clock between the steps
+that can take a while.  Threads cannot be interrupted safely here, so the
+bound is kept by not starting work that would pass it, which is why every loop
+that can be long takes a deadline."
+  (and milliseconds
+    (+ (get-internal-real-time)
+       (quotient (* milliseconds internal-time-units-per-second) 1000))))
+
+(define (deadline-expired? deadline)
+  "Return @code{#t} when @var{deadline} has passed."
+  (and deadline (>= (get-internal-real-time) deadline)))
+
+(define (symbol-at-index text index)
+  "Return the Lisp name around @var{index} in @var{text}, or @code{#f}.
+
+This is the answer to a jump when the buffer has no parse of its current text:
+reading the name under the cursor needs no tree, and the name is the whole of
+what the index is asked about."
+  (let* ((length (string-length text))
+         (at (min (max index 0) length))
+         (start (let loop ((i at))
+                  (if (and (> i 0) (symbol-character? (string-ref text (- i 1))))
+                    (loop (- i 1))
+                    i)))
+         (end (let loop ((i at))
+                (if (and (< i length) (symbol-character? (string-ref text i)))
+                  (loop (+ i 1))
+                  i))))
+    (and (> end start) (substring text start end))))
 
 (define (form-start node) (source-location-index (node-start node)))
 (define (form-end node) (source-location-index (node-end node)))
@@ -457,7 +586,8 @@ than an error."
    (field "range" (json-range text (definition-index definition)
                               (definition-end definition)))))
 
-(define (definition-sites-in ast workspace documents uri text dialect index)
+(define* (definition-sites-in ast workspace documents uri text dialect index
+                              #:key deadline)
   "Return every place the symbol at @var{index} is defined, in the project.
 
 The AST is passed in rather than read here, because a request that asks the
@@ -478,19 +608,41 @@ is most entitled to shadow with a definition of its own."
             '()
             (append (document-definition-sites documents name dialect uri)
                     (workspace-definition-sites workspace name dialect)
-                    ((current-stdlib) dialect name))))])))
+                    (if (deadline-expired? deadline) '()
+                      ((current-stdlib) dialect name)))))])))
 
-(define (definition-sites workspace documents uri text dialect index)
-  "Return every place the symbol at @var{index} is defined, in the project."
-  (definition-sites-in (ast-of-text text dialect) workspace documents
-                       uri text dialect index))
+(define* (definition-sites workspace documents uri text dialect index
+                           #:key deadline)
+  "Return every place the symbol at @var{index} is defined, in the project.
 
-(define* (lsp-definition workspace documents uri text dialect index)
+The parse the buffer already has is used when it is the parse of its current
+text.  When it is not, the answer is the one the index can give about the name
+under the cursor: a jump never replaces a stale parse, because the read that
+would replace it is the read an editor waits on.  A caller that keeps no
+documents at all -- the web editor answers about one buffer and nothing else --
+has no parse to reuse and no index to fall back on, so the buffer is read here."
+  (let* ((document (hash-ref documents uri #f))
+         (ast (if document
+                (document-ast-of document)
+                (ast-of-text text dialect))))
+    (if ast
+      (definition-sites-in ast workspace documents uri text dialect index
+                           #:deadline deadline)
+      (let ((name (symbol-at-index text index)))
+        (if (not name)
+          '()
+          (append (document-definition-sites documents name dialect uri)
+                  (workspace-definition-sites workspace name dialect)
+                  (if (deadline-expired? deadline) '()
+                    ((current-stdlib) dialect name))))))))
+
+(define* (lsp-definition workspace documents uri text dialect index #:key deadline)
   "Return the locations the symbol at @var{index} is defined at, as an array."
   (list->vector
    (map (lambda (site)
           (definition-location (car site) (cadr site) (caddr site)))
-        (definition-sites workspace documents uri text dialect index))))
+        (definition-sites workspace documents uri text dialect index
+                          #:deadline deadline))))
 
 (define (project-texts workspace documents uri text dialect)
   "Return @code{(uri text)} for the buffer, the other buffers and the project."
@@ -501,14 +653,8 @@ is most entitled to shadow with a definition of its own."
                (eq? (document-dialect document) dialect))
          (set! sites (cons (list other-uri (document-text document)) sites))))
      documents)
-    (hash-for-each
-     (lambda (path entry)
-       (let ((other (path->uri path)))
-         (when (and (eq? (indexed-file-dialect entry) dialect)
-                 (not (string=? other uri)))
-           (set! sites (cons (list other (indexed-file-text-of entry)) sites)))))
-     (workspace-index workspace))
-    (reverse sites)))
+    (append (reverse sites)
+            (index-texts (workspace-index workspace) dialect uri))))
 
 (define (reference-location uri text node)
   "Return the JSON location of one mention of a name."
@@ -517,7 +663,7 @@ is most entitled to shadow with a definition of its own."
    (field "range" (json-range text (form-start node) (form-end node)))))
 
 (define* (lsp-references workspace documents uri text dialect index
-                         #:key (include-declaration #t))
+                         #:key (include-declaration #t) deadline)
   "Return every location in the project that mentions the symbol at @var{index}.
 
 A name bound by a form is not a name the project has: `(let ((x 1)) x)' makes
@@ -526,9 +672,11 @@ with every `x' in the project would be answering a question nobody asked.  So a
 mention of a binding is looked for inside the form that binds it, and a mention
 of anything else is looked for in the project, which is where a definition
 lives."
-  (let* ((ast (ast-of-text text dialect))
-         (name (resolve-name ast index))
-         (definition (and name (resolve-definition ast index)))
+  (let* ((document (hash-ref documents uri #f))
+         (ast (and document (document-ast-of document)))
+         (name (or (and ast (resolve-name ast index))
+                 (symbol-at-index text index)))
+         (definition (and ast name (resolve-definition ast index)))
          (scope (and definition (definition-scope definition))))
     (cond
       [(not name) (vector)]
@@ -548,20 +696,24 @@ lives."
         (let ((locations '()))
           (for-each
            (lambda (site)
-             (let* ((site-uri (car site))
-                    (site-text (cadr site))
-                    (site-ast (ast-of-text site-text dialect))
-                    (declarations
-                     (map (lambda (candidate) (definition-index candidate))
-                          (definitions-by-name site-ast name))))
-               (for-each
-                (lambda (node)
-                  (unless (and (not include-declaration)
-                            (memv (form-start node) declarations))
-                    (set! locations
-                          (cons (reference-location site-uri site-text node)
-                                locations))))
-                (occurrences-of site-ast name))))
+             (unless (deadline-expired? deadline)
+               (let* ((site-uri (car site))
+                      (site-text (cadr site))
+                      (site-document (hash-ref documents site-uri #f))
+                      (site-ast (or (and site-document
+                                      (document-ast-of site-document))
+                                  (ast-of-text site-text dialect)))
+                      (declarations
+                       (map (lambda (candidate) (definition-index candidate))
+                            (definitions-by-name site-ast name))))
+                 (for-each
+                  (lambda (node)
+                    (unless (and (not include-declaration)
+                              (memv (form-start node) declarations))
+                      (set! locations
+                            (cons (reference-location site-uri site-text node)
+                                  locations))))
+                  (occurrences-of site-ast name)))))
            (project-texts workspace documents uri text dialect))
           (list->vector (reverse locations)))])))
 
@@ -672,12 +824,14 @@ the start of."
      (lambda (other-uri document)
        (when (and (not (string=? other-uri uri))
                (eq? (document-dialect document) dialect))
-         (for-each (lambda (definition)
-                     (add (definition-name definition) (definition-kind definition) #f))
-                   (filter (lambda (definition)
-                             (not (definition-scope definition)))
-                           (parse-definitions
-                            (ast-of-text (document-text document) dialect))))))
+         (let ((ast (document-ast-of document)))
+           (when ast
+             (for-each (lambda (definition)
+                         (add (definition-name definition)
+                              (definition-kind definition) #f))
+                       (filter (lambda (definition)
+                                 (not (definition-scope definition)))
+                               (parse-definitions ast)))))))
      documents)
     (for-each (lambda (name) (add name 'variable #f))
               (workspace-names workspace dialect))
@@ -719,21 +873,23 @@ the start of."
     (hash-for-each
      (lambda (uri document)
        (when (or (not dialect) (eq? (document-dialect document) dialect))
-         (let ((document-dialect (document-dialect document)))
-           (for-each (lambda (definition)
-                       (unless (definition-scope definition)
-                         (consider uri (document-text document) definition)))
-                     (parse-definitions
-                      (ast-of-text (document-text document) document-dialect))))))
+         (let ((ast (document-ast-of document)))
+           (when ast
+             (for-each (lambda (definition)
+                         (unless (definition-scope definition)
+                           (consider uri (document-text document) definition)))
+                       (parse-definitions ast))))))
      documents)
     (hash-for-each
      (lambda (path entry)
-       (when (or (not dialect) (eq? (indexed-file-dialect entry) dialect))
+       (when (and (or (not dialect) (eq? (indexed-file-dialect entry) dialect))
+               (indexed-file-definitions entry))
          (for-each (lambda (definition)
                      (unless (definition-scope definition)
-                       (consider (path->uri path) (indexed-file-text-of entry) definition)))
-                   (indexed-file-definitions-of entry))))
-     (workspace-index workspace))
+                       (consider (path->uri path) (indexed-file-text entry)
+                                 definition)))
+                   (indexed-file-definitions entry))))
+     (index-files (workspace-index workspace)))
     (list->vector (reverse entries))))
 
 (define (valid-symbol-name? name)
