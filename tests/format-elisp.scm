@@ -127,6 +127,16 @@
        #:got (format-string "(loop\nfor i below n\ndo (message \"%s\" i))"
                             #:dialect 'elisp)))
 
+    ;; A clause body that starts its own line goes at the clause column rather
+    ;; than under the first body form: `emacs-lisp-mode' puts `do', and the
+    ;; forms after it, in one column -- the column of `for' -- and so does
+    ;; sift, because those forms are elements of the loop like any clause.
+    (test "a loop clause body on its own line sits at the clause column"
+      (assert-same-text
+       #:expect "(loop for x in xs\n      do\n      (message \"%s\" x)\n      (message \"%s\" x))"
+       #:got (format-string "(loop for x in xs\ndo\n(message \"%s\" x)\n(message \"%s\" x))"
+                            #:dialect 'elisp)))
+
     (test "strings, escapes and characters are preserved"
       (assert-same-text
        #:expect "(message \"a  b\\n\" ?\\C-x)"

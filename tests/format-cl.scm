@@ -70,6 +70,14 @@
        #:expect "(loop :for x :in xs\n      :do (print x))"
        #:got (format-string "(loop :for x :in xs\n:do (print x))" #:dialect 'cl)))
 
+    ;; The same shape as the Emacs Lisp test, and the same columns, from the
+    ;; other engine that says so: `cl-indent' -- what SLIME indents with --
+    ;; puts `:do' and the body after it at the clause column.
+    (test "a LOOP clause body on its own line sits at the clause column"
+      (assert-same-text
+       #:expect "(loop :for i :below n\n      :do\n      (print i))"
+       #:got (format-string "(loop :for i :below n\n:do\n(print i))" #:dialect 'cl)))
+
     (test "feature conditionals keep both halves on one line"
       (assert-same-text
        #:expect "#+sbcl (defun f ())\n#-sbcl (defun f ())"
