@@ -8,7 +8,7 @@
 # found, and a SARIF document for code scanning (which the caller uploads, so
 # that this action needs no permission of its own beyond reading the tree).
 #
-#   - uses: jjba23/sift@v1.28.0
+#   - uses: jjba23/sift@v1.28.1
 #     with:
 #       paths: src/ tests/
 #

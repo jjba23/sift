@@ -4,7 +4,7 @@
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 #
 #   - repo: https://github.com/jjba23/sift
-#     rev: v1.28.0
+#     rev: v1.28.1
 #     hooks: [{id: sift-format}, {id: sift-lint}]
 #
 # `language: system` means the hook runs whatever `sift` is on the PATH, so
