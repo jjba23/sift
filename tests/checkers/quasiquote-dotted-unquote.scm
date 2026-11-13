@@ -46,6 +46,16 @@
                   #:checker 'quasiquote-dotted-unquote
                   #:expected "`((key unquote value))\n"))
 
+    (test "the fix takes the space after the comma with it"
+      (assert-fix #:source "`((key . , value))\n"
+                  #:checker 'quasiquote-dotted-unquote
+                  #:expected "`((key unquote value))\n"))
+
+    (test "a line break after the comma is kept"
+      (assert-fix #:source "`((key . ,\n   value))\n"
+                  #:checker 'quasiquote-dotted-unquote
+                  #:expected "`((key unquote\n   value))\n"))
+
     (test "a comment between the dot and the comma is kept"
       (assert-fix #:source "`((key . ;; why\n   ,value))\n"
                   #:checker 'quasiquote-dotted-unquote

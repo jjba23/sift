@@ -337,15 +337,27 @@ first expression, where it silently gets the wrong scope."
          (when unquote
            (let* ((dot (cadr (form-elements node)))
                   (start (node-index dot))
-                  (end (+ (node-index unquote)
-                          (string-length (node-token unquote))))
+                  (comma-end (+ (node-index unquote)
+                                (string-length (node-token unquote))))
+                  (value (node-child unquote))
+                  ;; The space after the comma is part of what the rewrite
+                  ;; replaces: `unquote' brings its own, and keeping the
+                  ;; author's as well is the double space `sift format' would
+                  ;; take out.  A line break after the comma is structure and
+                  ;; stays, so only whitespace on the same line is consumed.
+                  (same-line? (not (memv #\newline
+                                         (string->list
+                                          (substring source comma-end
+                                                     (node-index value))))))
+                  (end (if same-line? (node-index value) comma-end))
+                  (replacement (if same-line? "unquote " "unquote"))
                   ;; a comment between the dot and the comma is the author's,
                   ;; and a rewrite that spans it would delete it
                   (fix (and (string-every char-whitespace?
                                           (substring source
                                                      (node-end-index dot)
                                                      (node-index unquote)))
-                         (lambda (text from to) "unquote "))))
+                         (lambda (text from to) replacement))))
              (set! warnings
                    (cons (make-lint-warning/range
                           'quasiquote-dotted-unquote 'warning
