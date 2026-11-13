@@ -634,7 +634,7 @@ parse.
 
 [[file:web/README.org][web/]] is the two jobs that are a function of a string — formatting and
 linting — compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], with an editor page
-around it.  The same reader, the same formatter and all 92 rules run in the tab,
+around it.  The same reader, the same formatter and all 93 rules run in the tab,
 and no input leaves it, because there is nowhere for it to go.
 
 It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
@@ -714,7 +714,7 @@ root.
 :CUSTOM_ID: web-cost
 :END:
 
-The module is 2.3 MB, which is a formatter, a linter and 92 rules on a
+The module is 2.3 MB, which is a formatter, a linter and 93 rules on a
 Wasm GC — a large page by the standards of a web page and a small one by the
 standards of an editor.  Speed is the part of the experiment with numbers
 attached:
@@ -738,7 +738,7 @@ a ~checkers~ list, which is how a page asks for less work.
 :END:
 
 Two questions were being asked.  Whether a Scheme program of real size — not a
-toy, but a formatter with a reader of its own and 92 rules — can be compiled
+toy, but a formatter with a reader of its own and 93 rules — can be compiled
 into something a tab runs: it can, with the caveats above, and the porting work
 amounted to one compatibility directory rather than a rewrite.  Whether the seam
 survives contact: it does, and the test that establishes it runs under Guile in

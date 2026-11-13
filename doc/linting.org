@@ -20,7 +20,7 @@ once, runs the rules the dialect applies to, folds in the defects the reader
 reported, honours the suppression comments, and reports the whole set sorted
 by file, line, column and rule — the order an editor lists them in.
 
-There are 92 rules.  Each is listed with its code and its reasoning in
+There are 93 rules.  Each is listed with its code and its reasoning in
 [[file:rules.org][rules.org]], a document generated from those records, so it
 cannot describe a rule that does not exist, and a test fails when it falls
 behind.  The style the rules belong to, and why each choice is idiomatic Lisp,

@@ -25,6 +25,7 @@
             letrec-single-binding-checker
             letrec-init-reference-checker
             quasiquote-unquote-constant-checker
+            quasiquote-dotted-unquote-checker
             clause-brackets-checker
             docstring-texinfo-checker
             unused-binding-checker
@@ -289,6 +290,79 @@ first expression, where it silently gets the wrong scope."
            #:severity 'info
            #:example '((input . "`(1 ,2)")
                        (fix . "no automatic fix; write the constant directly"))))
+
+;;; ===== quasiquote-dotted-unquote =====
+;;;
+;;; Inside a quasiquote, `(key . ,value)' and `(key unquote value)' are the
+;;; same list: a dotted pair whose tail is `(unquote value)' is a list of
+;;; three elements, whichever way it was read.  The dot is the spelling an
+;;; alist entry gets when its value is computed, and it reads as two halves
+;;; where the second one is the whole rest; writing `unquote' out says which
+;;; element is the variable.
+
+(define (dotted-unquote-entry node)
+  "Return the unquote that tails a @code{(key . ,value)} pair, or @code{#f}."
+  (let ((elements (form-elements node)))
+    (and (= 3 (length elements))
+      (let ((dot (cadr elements))
+            (unquote (caddr elements)))
+        (and (node-atom? dot)
+          (string=? (node-value dot) ".")
+          (node-prefix? unquote)
+          (equal? (node-token unquote) ",")
+          (node-child unquote)
+          unquote)))))
+
+(define (quasiquote-ancestor? ancestors)
+  "Return @code{#t} when a quasiquote encloses a node, with no unquote between."
+  (let loop ((rest ancestors))
+    (cond
+      [(null? rest) #f]
+      [(or (and (node-prefix? (car rest))
+             (equal? (node-token (car rest)) "`"))
+         (list-headed-by? (car rest) 'quasiquote))
+       #t]
+      [(or (and (node-prefix? (car rest))
+             (equal? (node-token (car rest)) ","))
+         (list-headed-by? (car rest) 'unquote))
+       #f]
+      [else (loop (cdr rest))])))
+
+(define (quasiquote-dotted-unquote-warnings ast source dialect)
+  (let ((warnings '()))
+    (walk-with-ancestors
+     (lambda (node ancestors)
+       (let ((unquote (and (quasiquote-ancestor? ancestors)
+                        (dotted-unquote-entry node))))
+         (when unquote
+           (let* ((dot (cadr (form-elements node)))
+                  (start (node-index dot))
+                  (end (+ (node-index unquote)
+                          (string-length (node-token unquote))))
+                  ;; a comment between the dot and the comma is the author's,
+                  ;; and a rewrite that spans it would delete it
+                  (fix (and (string-every char-whitespace?
+                                          (substring source
+                                                     (node-end-index dot)
+                                                     (node-index unquote)))
+                         (lambda (text from to) "unquote "))))
+             (set! warnings
+                   (cons (make-lint-warning/range
+                          'quasiquote-dotted-unquote 'warning
+                          "a dotted pair with an unquote in its tail, which `unquote` written out says the same way"
+                          (node-start node) start end fix)
+                         warnings))))))
+     ast)
+    (reverse warnings)))
+
+(define quasiquote-dotted-unquote-checker
+  (checker 'quasiquote-dotted-unquote
+           "A `(key . ,value)` pair inside a quasiquote, which is the same as `(key unquote value)`"
+           '(scheme)
+           quasiquote-dotted-unquote-warnings
+           #:severity 'warning
+           #:example '((input . "`((key . ,value))")
+                       (fix . "`((key unquote value))"))))
 
 ;;; ===== clause-brackets =====
 
@@ -843,6 +917,7 @@ one, and a file with no path at all names no project to look at."
         letrec-single-binding-checker
         letrec-init-reference-checker
         quasiquote-unquote-constant-checker
+        quasiquote-dotted-unquote-checker
         clause-brackets-checker
         docstring-texinfo-checker
         unused-binding-checker

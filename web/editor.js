@@ -11,7 +11,7 @@
  * one procedure, one JSON document in, one JSON document out.  Nothing here
  * knows how a `cond` clause is indented or what SIFT012 means; it asks, and
  * draws the answer.  That is the point of the port: the browser gets the same
- * formatter and the same 92 rules the command line has, not a
+ * formatter and the same 93 rules the command line has, not a
  * reimplementation of them.
  *
  * A Scheme string comes back *reflected* -- strings are mutable in Scheme, so

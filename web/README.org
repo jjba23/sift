@@ -17,7 +17,7 @@ nothing to trust with your code.
 
 #+begin_quote
 It is the same Scheme that ~bin/sift~ runs.  Not a reimplementation, not a
-subset: the reader, the formatter and all 92 rules are the modules in
+subset: the reader, the formatter and all 93 rules are the modules in
 ~src/sift/~, and all this directory adds to them is the facade that turns a JSON
 request into a call.  The dependency runs one way -- ~web/~ imports the core,
 and the core has never heard of ~web/~ -- and three tests hold that direction.

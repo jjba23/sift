@@ -394,7 +394,8 @@ cannot move when the list is re-sorted."
     (string-literal-argument . "SIFT089")
     (number-literal-argument . "SIFT090")
     (unused-import-from . "SIFT091")
-    (eq-non-symbol . "SIFT092")))
+    (eq-non-symbol . "SIFT092")
+    (quasiquote-dotted-unquote . "SIFT093")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

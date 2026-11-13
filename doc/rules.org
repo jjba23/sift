@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 92 rules in sift 1.27.3.
+There are 93 rules in sift 1.27.3.
 
 * Summary
 
@@ -80,6 +80,7 @@ There are 92 rules in sift 1.27.3.
 | phase-name-quoting | SIFT082 | scheme | warning | A phase named by an unquoted symbol or a string in ~modify-phases~ |
 | predicate-name | SIFT041 | all | info | A procedure that answers a question but is not named like one |
 | provide-missing | SIFT023 | elisp | warning | The file defines a package but has no final ~(provide 'feature)~ |
+| quasiquote-dotted-unquote | SIFT093 | scheme | warning | A ~(key . ,value)~ pair inside a quasiquote, which is the same as ~(key unquote value)~ |
 | quasiquote-unquote-constant | SIFT016 | scheme | info | ~(quasiquote (unquote constant))~ can be simplified |
 | quote-of-constant | SIFT054 | scheme, elisp, cl | info | A quote around a datum that already evaluates to itself |
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
@@ -1397,6 +1398,26 @@ The file defines a package but has no final ~(provide 'feature)~
 
 #+begin_quote
 Run ~sift explain provide-missing~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT093 quasiquote-dotted-unquote
+:PROPERTIES:
+:CUSTOM_ID: quasiquote-dotted-unquote
+:END:
+
+A ~(key . ,value)~ pair inside a quasiquote, which is the same as ~(key unquote value)~
+
+- *Dialects:* scheme
+- *Severity:* warning
+- *Fix:* ~((key unquote value))
+
+#+begin_src scheme
+`((key . ,value))
+#+end_src
+
+#+begin_quote
+Run ~sift explain quasiquote-dotted-unquote~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

@@ -812,6 +812,7 @@ means, and a project that has decided otherwise excludes them by name.
 | SIFT035 | docstring-texinfo             | info     | a Guile docstring does not document a parameter with `@var{}` |
 | SIFT036 | clause-brackets               | warning  | a `cond` clause is written with the other kind of bracket |
 | SIFT070 | letrec-init-reference         | warning  | a `letrec` initializer refers to a binding not yet assigned |
+| SIFT093 | quasiquote-dotted-unquote     | warning  | `(key . ,value)` in a quasiquote says the same as `(key unquote value)` |
 
 *SIFT011*: Scheme allows definitions at the head of a body, but a `define`
 in the middle of an expression defines in the wrong scope — it is almost
@@ -826,6 +827,12 @@ reader looks for the recursion that is not there.
 
 *SIFT016*: `` `(1 ,2) `` evaluates to the same list as `` `(1 2) ``.  The
 unquote is a leftover from a version where the value was computed.
+
+*SIFT093*: a dotted pair whose tail is an unquote is a list of three
+elements, so `` `((key . ,value)) `` and `` `((key unquote value)) `` are the
+same datum.  The dot reads as two halves and puts the whole rest in the
+second one; writing `unquote` out reads as the three elements the reader
+builds, and the fix replaces the dot and the comma with the symbol.
 
 *SIFT035*: Guile renders docstrings as Texinfo.  An argument written `x` is
 plain text; `@var{x}` is typeset as a metavariable in `C-h f` and in the
