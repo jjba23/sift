@@ -58,6 +58,7 @@
             default-blank-lines
             indent-rule
             indent-rules
+            clause-headed?
             default-line-length
             line-length-for
             default-indent
@@ -565,6 +566,18 @@ writes clauses is read."
     [(cl) '(cond case ecase ccase typecase etypecase ctypecase
                  handler-case restart-case)]
     [else '(cond case)]))
+
+(define (clause-headed? dialect head)
+  "Return @code{#t} when the elements of a @var{head} form are clauses.
+
+The elements of such a form are neither arguments to count nor keywords to
+weigh, so a check about a form's *elements* -- how many there are, what they
+are called -- has nothing to say about it.  A loop is the one form whose
+clauses sit flat in its own list instead of in a clause list each, which is
+why it is here and not in @code{clause-taking-forms}: that table also decides
+how a form's children are indented, and a loop's clauses are read on one line."
+  (or (memq head (clause-taking-forms dialect))
+    (and (eq? head 'loop) (memq dialect '(elisp cl)))))
 
 (define (clause-style-for node ctx)
   "Return how the children of @var{node} are written, when they are clauses.

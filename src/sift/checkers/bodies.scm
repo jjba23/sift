@@ -15,6 +15,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 format)
   #:use-module (sift records)
+  #:use-module (sift format)
   #:use-module (sift check base)
   #:export (bodies-checkers
             empty-body-checker
@@ -276,7 +277,11 @@
   (let ((warnings '()))
     (for-each-node
      (lambda (node)
-       (when (node-list? node)
+       ;; A form made of clauses has no keyword argument list to check: every
+       ;; keyword of a `loop' starts a clause, so `:of-type' twice declares
+       ;; the type of two variables and two `:do' clauses both run.
+       (when (and (node-list? node)
+               (not (clause-headed? dialect (node-head-name node))))
          (let ((seen '()))
            (for-each
             (lambda (element)

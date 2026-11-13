@@ -392,7 +392,9 @@ the three dialects apart:
 *Rationale.*  `let` is how Lisp names an intermediate result, and a name is
 what stops a reader re-deriving it.  Deep nesting (more than four levels) or a
 very long body form (more than twelve elements) is the signal that the
-expression wants a step.  `let*` is the right form when a later binding
+expression wants a step.  A form made of clauses is not counted: the elements
+of a `cond` or a `loop` are one per clause, not one expression to split, and
+`let*` is the right form when a later binding
 refers to an earlier one, and `let` when the bindings are independent; a
 binding that does not refer to itself belongs in a `let`, which is what
 SIFT015 states of a `letrec` with one binding.
@@ -1166,6 +1168,10 @@ a reader cannot see that without comparing names.
 
 *SIFT009* (`duplicate-keyword`) catches `(make-window :width 10 :width 20)`:
 one of the two values is being discarded, and nothing in the code says which.
+A form made of clauses is not a call with keyword arguments and is not
+checked: every keyword of a `loop` starts a clause, so `:of-type` written
+twice there declares the type of two different variables, and two `:do`
+clauses both run.
 
 *SIFT038* (`docstring-before-interactive`) is the Emacs Lisp rule that is
 easiest to get wrong by accident: Emacs reads a docstring from the *first*

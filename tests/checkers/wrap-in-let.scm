@@ -28,6 +28,20 @@
 (define wide-source
   (string-append "(define (f)\n  (list " (string-join (map number->string (iota 13)) " ") "))\n"))
 
+(define wide-cond-source
+  (string-append "(defun f (x)\n  (cond\n"
+                 (string-join
+                  (map (lambda (n)
+                         (string-append "        ((= x " (number->string n) ") "
+                                        (number->string n) ")\n"))
+                       (iota 13 1))
+                  "")
+                 "        (t nil)))\n"))
+
+;; Issue #9, in the shape it was reported.
+(define issue-nine-source
+  "(defun test (s)\n  (loop for c across s\n        for pointer :of-type fixnum = 0 then (1+ pointer)\n        with res :of-type list = nil\n        do (push c res)))\n")
+
 (define (spec)
   (suite "checker: wrap-in-let"
 
@@ -42,6 +56,18 @@
     (test "accepts a body form that is already split up"
       (assert-warnings #:source "(define (f x)\n  (let ((y (cdr x)))\n    (list (car y))))\n"
                        #:checker 'wrap-in-let #:expect '()))
+
+    ;; Issue #9: a `loop' is made of clauses, and its elements are those
+    ;; clauses rather than one expression the author should bind in a `let'.
+    ;; Every check about a form's elements has nothing to say about it.
+    (test "a loop is clauses, not a body form of twenty-one elements"
+      (assert-warnings #:source issue-nine-source #:dialect 'elisp
+                       #:checker 'wrap-in-let #:expect '()))
+
+    (test "a cond of many clauses is clauses too"
+      (assert-warnings #:source wide-cond-source #:dialect 'elisp
+                       #:checker 'wrap-in-let
+                       #:options '((max-elements . 12)) #:expect '()))
 
     (test "the depth limit is configuration"
       (assert-warnings #:source deep-source #:checker 'wrap-in-let

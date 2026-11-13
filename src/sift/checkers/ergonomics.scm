@@ -66,13 +66,20 @@ form is written as one long expression instead of a few named steps."
             (lambda (form)
               (when (node-list? form)
                 (let ((depth (form-depth form))
-                      (elements (length (node-elements form))))
+                      (elements (length (node-elements form)))
+                      ;; A clause list has one element per clause, so the
+                      ;; count is not the length of one expression and "bind
+                      ;; part of it in a `let'" is not advice about a `loop'
+                      ;; or a `cond'.  The depth of such a form is still
+                      ;; worth reporting: a clause nests like anything else.
+                      (clauses? (clause-headed? dialect
+                                                (node-head-name form))))
                   (cond
                     [(> depth max-depth)
                      (report form
                              (format #f "this body form nests ~a deep; bind part of it"
                                      depth))]
-                    [(> elements max-elements)
+                    [(and (not clauses?) (> elements max-elements))
                      (report form
                              (format #f "this body form has ~a elements; bind part of it in a `let`"
                                      elements))]))))
