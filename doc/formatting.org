@@ -130,11 +130,21 @@ nested in a list each: they are the elements of the loop itself, so the
       do (push c res))
 #+end_src
 
-That is the column Emacs puts them in.  With nothing after ~(loop~ the
-clauses indent two columns in, which is the body position Emacs gives them as
-well.  A ~loop~ in Common Lisp is the same form and gets the same rule; the
-two columns it used to get came from an entry of ~2~ in both tables, and a
-file written that way is reformatted once.
+That is the column Emacs puts them in, and ~cl-indent~ — the engine SLIME
+indents with — puts a Common Lisp ~loop~ in the same one.  A clause body that
+starts its own line goes there too: ~do~ and the forms after it are all read
+at the clause column, in both dialects.
+
+With nothing after ~(loop~ there is no first clause to line up under, and the
+editors disagree about it: ~emacs-lisp-mode~ moves the clauses one column in
+from the opener, ~cl-indent~ keeps them under the column a first clause would
+have had, and a ~pcase~ with nothing on its opening line is four in.  sift
+indents them two columns in, which is the one answer it gives every clause
+list with no clause on its opening line — a ~cond~ or a ~case~ as much as a
+~loop~ — and formatting that form again changes nothing.
+
+A file whose loops were written by an older sift is reformatted once: the two
+columns they used to get came from an entry of ~2~ in both tables.
 
 A *pair form* is the opposite case: ~setq~, ~setq-default~, ~setq-local~,
 ~setopt~, ~setf~, ~psetf~ and ~psetq~ state their arguments two at a time,
