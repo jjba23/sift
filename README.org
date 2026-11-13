@@ -184,8 +184,9 @@ $ echo $?
 1
 #+end_src
 
-~check~ answered the question a pipeline asks, whether anything would change,
-with a status and a patch, and wrote nothing.  To make the change:
+~check~ returns 0 if the formatting is good. If not, it prints a patch to stdout and returns 1. It never modifies your files.
+
+To make the change:
 
 #+begin_src shell
 $ sift format --write square.scm
