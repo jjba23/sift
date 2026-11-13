@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 93 rules in sift 1.29.0.
+There are 93 rules in sift 1.29.1.
 
 * Summary
 
