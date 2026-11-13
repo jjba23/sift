@@ -62,9 +62,12 @@
        #:expect "(setf a 1\n      b 2)"
        #:got (format-string "(setf a 1\nb 2)" #:dialect 'cl)))
 
-    (test "a LOOP keeps its keyword atoms and indents them two in"
+    ;; A LOOP is clauses, not arguments: Emacs lines every clause up under the
+    ;; first one, and the `clauses' rule says the same thing.  Two columns in
+    ;; is what the table said, and it is not what an Emacs user's `TAB' does.
+    (test "a LOOP lines its clauses up under the first one"
       (assert-same-text
-       #:expect "(loop :for x :in xs\n  :do (print x))"
+       #:expect "(loop :for x :in xs\n      :do (print x))"
        #:got (format-string "(loop :for x :in xs\n:do (print x))" #:dialect 'cl)))
 
     (test "feature conditionals keep both halves on one line"

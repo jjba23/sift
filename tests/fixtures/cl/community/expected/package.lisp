@@ -6,4 +6,4 @@
 
 (defun run (n)
   (loop :for i :below n
-    :do (print i)))
+        :do (print i)))

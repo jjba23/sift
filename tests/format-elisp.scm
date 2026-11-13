@@ -110,6 +110,23 @@
        #:got (format-string "(use-package magit\n             :ensure t\n             :bind\n             (\"C-x g\" . magit-status))"
                             #:dialect 'elisp)))
 
+    ;; A LOOP is the other kind of clause-shaped form, and Emacs lines every
+    ;; clause up under the first one -- `for' here -- rather than two columns
+    ;; in like `use-package'.  The `clauses' rule is the one that says so; the
+    ;; formatter used to treat a loop as an ordinary form and put the clauses
+    ;; where the editor never would.
+    (test "a LOOP lines its clauses up under the first one"
+      (assert-same-text
+       #:expect "(loop for c across s\n      with res = nil\n      do (push c res))"
+       #:got (format-string "(loop for c across s\nwith res = nil\ndo (push c res))"
+                            #:dialect 'elisp)))
+
+    (test "a LOOP with nothing after it indents its clauses two in"
+      (assert-same-text
+       #:expect "(loop\n  for i below n\n  do (message \"%s\" i))"
+       #:got (format-string "(loop\nfor i below n\ndo (message \"%s\" i))"
+                            #:dialect 'elisp)))
+
     (test "strings, escapes and characters are preserved"
       (assert-same-text
        #:expect "(message \"a  b\\n\" ?\\C-x)"

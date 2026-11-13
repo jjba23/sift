@@ -120,6 +120,22 @@ That is where ~TAB~ puts them, because the macro declares
 under the package name instead — thirteen columns in for ~(use-package evil~ —
 and a file formatted that way would carry two indentation schemes.
 
+A ~loop~ is the third kind of clause-shaped form, and its clauses are not
+nested in a list each: they are the elements of the loop itself, so the
+~clauses~ rule lines every one of them up under the first clause:
+
+#+begin_src elisp
+(loop for c across s
+      with res = nil
+      do (push c res))
+#+end_src
+
+That is the column Emacs puts them in.  With nothing after ~(loop~ the
+clauses indent two columns in, which is the body position Emacs gives them as
+well.  A ~loop~ in Common Lisp is the same form and gets the same rule; the
+two columns it used to get came from an entry of ~2~ in both tables, and a
+file written that way is reformatted once.
+
 A *pair form* is the opposite case: ~setq~, ~setq-default~, ~setq-local~,
 ~setopt~, ~setf~, ~psetf~ and ~psetq~ state their arguments two at a time,
 and Emacs lines the second pair up under the first variable, in Common Lisp as
