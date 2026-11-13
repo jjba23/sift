@@ -449,11 +449,17 @@ The workflow takes inputs, all of them optional:
 | ~paths~           | ~.~          | files or directories to judge, space separated                 |
 | ~mode~            | ~ci~         | ~ci~ formats and lints, ~lint~ only lints, ~check~ only checks |
 | ~severity~        | ~warning~    | lowest severity to report: ~error~, ~warning~ or ~info~        |
-| ~install~         | ~guix~       | ~guix~ builds the checkout, ~path~ uses a sift on the PATH     |
+| ~install~         | ~guile~      | how sift arrives: ~guile~, ~path~, ~guix~ or ~nix~             |
 | ~sarif-file~      | ~sift.sarif~ | where the SARIF document goes, empty for none                  |
 | ~fail-on-findings~ | ~true~       | ~false~ reports the findings and passes the job                |
 | ~upload-sarif~    | ~true~       | upload the document to code scanning                           |
-| ~sift-ref~        | ~main~       | which revision of sift provides the action                     |
+| ~sift-ref~        | ~trunk~      | which revision of sift provides the action                     |
+
+The default ~install~ is the fast one: sift is source and a launcher, so a
+Guile 3.0 from the runner's packages runs the checkout as it stands, which is
+one =apt-get install= and no build, where standing up a Guix daemon is minutes.
+~guix~ and ~nix~ build the checkout into a store path instead, and ~path~ uses
+a ~sift~ that an earlier step provided.
 
 Two permissions matter.  The job requests =security-events: write= so that the
 upload can occur; a caller that has narrowed the workflow's permissions must

@@ -828,9 +828,11 @@ jobs:
 
 It annotates the diff with what it found and uploads the SARIF document to code
 scanning, so a finding that was not fixed becomes an alert in the Security tab
-rather than a line in a log that is never scrolled again.  The same repository
-publishes a composite action, for a job that wants sift as one step among its
-own:
+rather than a line in a log that is never scrolled again.  It needs no Guix and
+no build: the job installs Guile 3.0 from the runner's packages and runs the
+checkout as it stands, and ~with: install: guix~ builds it instead for a caller
+that wants a store path.  The same repository publishes a composite action, for
+a job that wants sift as one step among its own:
 
 #+begin_src yaml
 - uses: jjba23/sift@v1.28.1

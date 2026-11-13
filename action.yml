@@ -52,7 +52,7 @@ inputs:
     required: false
     default: sift.sarif
   install:
-    description: How to provide sift. `auto` uses the PATH, then guix, then nix; `path`, `guix` and `nix` name one of them.
+    description: How to provide sift. `auto` uses the PATH, then guile, then guix, then nix; `path`, `guile`, `guix` and `nix` name one of them.
     required: false
     default: auto
   fail-on-findings:

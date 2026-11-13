@@ -21,6 +21,14 @@
 # in `action.yml' at the root, which it checks out and uses.  One
 # implementation, two ways in.
 #
+# How sift arrives is the one choice worth making cheaply.  sift is source and a
+# launcher, so a distribution's Guile 3.0 runs the checkout as it stands, and
+# `install: guile' -- the default -- is an `apt-get install' of one package and
+# no build: seconds, where standing up a Guix daemon is minutes.  `install:
+# guix' and `install: nix' remain for a caller that wants the checkout built
+# into a store path rather than run in place, and `install: path' for one that
+# provided sift in an earlier step.
+#
 # Uploading SARIF needs `security-events: write'.  The job asks for it, so a
 # caller that has restricted the workflow's permissions must allow it too --
 # otherwise `sift' still reports the findings as annotations and the upload
@@ -47,10 +55,10 @@ on:
         type: string
         default: warning
       install:
-        description: How to provide sift. `guix` installs Guix and builds the checkout, `path` uses a sift already on the PATH.
+        description: How to provide sift. `guile` installs Guile from the runner's packages and runs the checkout, `guix` and `nix` build it, `path` uses a sift already on the PATH, `auto` takes whatever is already there.
         required: false
         type: string
-        default: guix
+        default: guile
       sarif-file:
         description: Where to write the SARIF document. Empty writes none.
         required: false
@@ -98,6 +106,15 @@ jobs:
           repository: jjba23/sift
           ref: ${{ inputs.sift-ref }}
           path: .sift
+
+      # sift is source and a launcher, so a distribution's Guile runs the
+      # checkout as it stands: one package install and no build, where standing
+      # up a Guix daemon is minutes.
+      - name: Install Guile
+        if: inputs.install == 'guile'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes --no-install-recommends guile-3.0
 
       - name: Install Guix
         if: inputs.install == 'guix'

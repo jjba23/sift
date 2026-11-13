@@ -13,13 +13,15 @@
 #   SIFT_SEVERITY     error, warning or info                      (default warning)
 #   SIFT_SARIF_FILE   where to write the SARIF document           (default sift.sarif)
 #   SIFT_ANNOTATIONS  true to annotate the diff with `--format=github' (default true)
-#   SIFT_INSTALL      auto, path, guix or nix                     (default auto)
+#   SIFT_INSTALL      auto, path, guile, guix or nix              (default auto)
 #   SIFT_FAIL_ON_FINDINGS  false to report findings and pass      (default true)
 #   SIFT_ACTION_DIR   the checkout of sift to build if it must be  (default its own)
 #
 # `auto' uses a `sift' already on the PATH -- what a Nix shell, a Guix
-# environment or an earlier step provides -- and otherwise builds one from the
-# checkout it lives in, with guix or with nix.  Every install mode answers with
+# environment or an earlier step provides -- and otherwise takes the cheapest
+# way to one from the checkout it lives in: runs the checkout with the `guile'
+# on the PATH, because sift is source and a distribution's Guile runs it, and
+# only then builds it, with guix or with nix.  Every install mode answers with
 # one executable, so the rest of this file does not know which one it is.
 #
 # The exit status is sift's: 0 when the tree is clean, 1 when sift found
@@ -70,21 +72,28 @@ resolve_sift() {
         die "install is path, but there is no sift on the PATH"
       SIFT=$sift
       ;;
+    guile)
+      command -v guile >/dev/null 2>&1 ||
+        die "install is guile, but there is no guile on the PATH"
+      SIFT=$action_dir/bin/sift
+      ;;
     guix) build_with_guix ;;
     nix) build_with_nix ;;
     auto)
       if sift=$(command -v sift); then
         SIFT=$sift
+      elif command -v guile >/dev/null 2>&1; then
+        SIFT=$action_dir/bin/sift
       elif command -v guix >/dev/null 2>&1; then
         build_with_guix
       elif command -v nix-build >/dev/null 2>&1; then
         build_with_nix
       else
-        die "no sift on the PATH, and neither guix nor nix to build one with"
+        die "no sift on the PATH and no guile to run $action_dir with, and neither guix nor nix to build one"
       fi
       ;;
     *)
-      die "unknown install '$install_mode'; sift knows auto, path, guix and nix"
+      die "unknown install '$install_mode'; sift knows auto, path, guile, guix and nix"
       ;;
   esac
 }
