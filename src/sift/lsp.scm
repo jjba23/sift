@@ -997,17 +997,11 @@ typed, and the findings for the part that could be read are still reported."
 (define (definition-hover text dialect definition)
   "Return the hover for @var{definition}, which is what a jump would land on.
 
-A definition written in a file is described by its own form; a builtin has no
-form, and is described by what its implementation says about it."
-  (if (definition-form definition)
-    (symbol-hover text dialect definition)
-    (let ((markdown (stdlib-builtin-markdown (stdlib-for dialect)
-                                             (definition-name definition))))
-      (and markdown
-        (json-object
-         (field "contents"
-                (json-object (field "kind" "markdown")
-                             (field "value" markdown))))))))
+Every definition has a form now, including the ones in the file an
+implementation described itself in -- that file is source, not prose -- so a
+name compiled into the implementation is described exactly as a name written
+in a project is."
+  (symbol-hover text dialect definition))
 
 (define* (lsp-hover config text index #:key (dialect 'scheme) (uri #f))
   "Return the hover for the finding at @var{index}, or @code{#f}."

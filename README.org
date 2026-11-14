@@ -126,8 +126,10 @@ can be silenced without editing the code it objects to.
   input and output: diagnostics, quickfixes and formatting, go to definition
   and references for all four dialects -- including the names the standard
   library and its installed packages define, the documentation an
-  implementation carries for the ones it compiled in, and the compressed
-  sources most Emacs installations ship -- an outline, completion, inlay hints
+  implementation carries for the names it compiled in -- written as a source
+  file in that dialect, so a jump lands in code and not in a list of prose --
+  and the compressed sources most Emacs installations ship -- an outline,
+  completion, inlay hints
   that name a call's arguments, a hover that describes a symbol or the rule
   under it, import organization, a file rename that keeps its module in step,
   and a second opinion from the dialect's own compiler when a buffer is saved.

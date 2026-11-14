@@ -23,10 +23,11 @@
 ;; The second is what an implementation *knows about itself*: `car' is compiled
 ;; into libguile and no file in the installation says where.  Each
 ;; implementation is asked once, in one process, to write down every name it
-;; documents with the argument list and the prose it carries, and that becomes
-;; a file too -- so a jump to a builtin lands on the sentence that describes
-;; it rather than on nothing.  The file says what it is in its own header, so a
-;; reader who arrives there by jumping was told why they are there.
+;; documents, and the answer becomes a source file in that dialect -- a
+;; `define' with a docstring for a procedure, a `define-macro' for a macro, a
+;; `define' documented by the comment above it for a value.  So a jump to
+;; `car' lands in code that reads like the dialect rather than in a list of
+;; prose, and the index over the file is the same index a project's files get.
 ;;
 ;; Racket is the one dialect that has the first and not the second: it ships
 ;; `collects' and `pkgs' as source, so its library is read like a project, and
@@ -62,22 +63,13 @@
   #:use-module (sift json)
   #:use-module (sift analysis)
   #:export (cache-home
-            parse-builtins
-            builtin?
-            builtin-name
-            builtin-kind
-            builtin-signature
-            builtin-documentation
-            builtin-start
-            builtin-end
+            metadata-of
             without-nested-roots
             index-standard-library
             standard-library?
             standard-library-dialect
             stdlib-definitions
             stdlib-names
-            stdlib-builtin
-            stdlib-builtin-markdown
             stdlib-summary
             stdlib-for
             stdlib-warm!
@@ -123,7 +115,7 @@
 ;; 2: a compressed source is read and the package trees a dialect installs
 ;; third-party code into are roots.  An index written before that names too
 ;; few files to answer the question it is asked.
-(define cache-version 2)
+(define cache-version 3)
 
 (define* (make-directories path)
   "Create @var{path} and every missing parent, like @code{mkdir -p}."
@@ -137,119 +129,47 @@
 ;;; record's constructor is a syntax transformer, and a procedure written above
 ;;; it would be compiled against a name that is not bound yet.
 
-(define-record-type <builtin>
-  (make-builtin name start end kind signature documentation)
-  builtin?
-  (name builtin-name)
-  (start builtin-start)
-  (end builtin-end)
-  (kind builtin-kind)
-  (signature builtin-signature)
-  (documentation builtin-documentation))
-
-;; The two indexes a library carries -- the names its files define, and the
-;; names its implementation documents -- are hashes, because both are asked one
-;; name at a time and a name is the only thing a request has.  What has been
-;; read is kept beside them: a jump into a standard library file parses it once
-;; however many times the editor asks about it.
+;; A library carries one index: the names its files define, kept as a hash
+;; because it is asked one name at a time, and a name is the only thing a
+;; request has.  What has been read is kept beside it: a jump into a standard
+;; library file parses it once however many times the editor asks about it.
 (define-record-type <standard-library>
-  (make-standard-library dialect implementation roots builtins names
-                         builtins-path builtins-text texts definitions offered)
+  (make-standard-library dialect implementation roots names
+                         builtins-path texts definitions offered)
   standard-library?
   (dialect standard-library-dialect)
   (implementation standard-library-implementation)
   (roots standard-library-roots)
-  (builtins standard-library-builtins)
   (names standard-library-names)
   (builtins-path standard-library-builtins-path)
-  (builtins-text standard-library-builtins-text)
   (texts standard-library-texts)
   (definitions standard-library-definitions)
   (offered standard-library-offered set-standard-library-offered!))
 
-;;; ===== The generated index =====
+;;; ===== The file an implementation described itself in =====
 ;;;
-;;; One file, one entry per name, the name on a line of its own after a `### '
-;;; marker -- so that the position of the name is the position an editor is
-;;; sent to -- and the prose running until the next entry.  The `sift' lines at
-;;; the top say which implementation wrote it and which directories to read.
-
-(define (next-line text at)
-  "Return two values: the end of the line at @var{at}, and where the next begins."
-  (let ((end (string-index text #\newline at)))
-    (if end
-      (values end (+ end 1))
-      (values (string-length text) (string-length text)))))
-
-(define (entry-starts text)
-  "Return the @code{(start . end)} of every line of @var{text} that begins an entry."
-  (let loop ((at 0) (found '()))
-    (if (>= at (string-length text))
-      (reverse found)
-      (call-with-values (lambda () (next-line text at))
-        (lambda (end next)
-          (loop next
-                (if (and (>= (- end at) 4)
-                      (string=? "### " (substring text at (+ at 4))))
-                  (cons (cons at end) found)
-                  found)))))))
-
-(define (known-kind name)
-  "Return the kind @var{name} spells, or `variable' when it is not one sift has."
-  (cond
-    [(string=? name "function") 'function]
-    [(string=? name "macro") 'macro]
-    [(string=? name "method") 'method]
-    [(string=? name "constant") 'constant]
-    [(string=? name "class") 'class]
-    [(string=? name "struct") 'struct]
-    [else 'variable]))
-
-(define (parse-builtins text)
-  "Return the entries of a generated index, in the order they are written.
-
-An entry is a line beginning `### ', then the name, its kind and its argument
-list, each separated by a tab; what follows, up to the next entry, is the prose
-the implementation wrote about it.  The position kept for each entry is the
-name itself, because that is the range an editor highlights when it arrives."
-  (let ((starts (entry-starts text))
-        (length (string-length text)))
-    (let loop ((rest starts) (entries '()))
-      (if (null? rest)
-        (reverse entries)
-        (let* ((header (car rest))
-               (header-start (car header))
-               (header-end (cdr header))
-               (fields (string-split (substring text (+ header-start 4) header-end)
-                                     #\tab))
-               (name (if (pair? fields) (car fields) ""))
-               (kind (if (pair? (cdr fields)) (cadr fields) ""))
-               (signature (if (pair? (cddr fields)) (caddr fields) ""))
-               ;; the newline that ends the header belongs to the header, so
-               ;; the prose starts where the next line does
-               (doc-start (min header-end length))
-               (doc-end (if (pair? (cdr rest)) (car (cadr rest)) length))
-               (documentation (string-trim-both
-                               (substring text doc-start (max doc-start doc-end)))))
-          (loop (cdr rest)
-                (cons (make-builtin name
-                                    (+ header-start 4)
-                                    (+ header-start 4 (string-length name))
-                                    (known-kind kind)
-                                    signature
-                                    documentation)
-                      entries)))))))
+;;; The second half of a library is the names an implementation compiled in:
+;;; `car' is in libguile and no installed file defines it.  sift asks the
+;;; implementation once and writes the answer as *source* -- a `define' with a
+;;; docstring for a procedure, a `define-macro' for a macro, and a `define'
+;;; whose documentation is the comment above it for a value -- so a jump to
+;;; `car' lands in code that reads like the dialect, and the index over it is
+;;; the same index a project's files get.  The `;; sift:' lines at the top say
+;;; which implementation wrote the file and which directories to read.
 
 (define (metadata-of text)
-  "Return the @code{sift} metadata lines of a generated index, as an alist."
+  "Return the `;; sift: key value' lines of a generated index, as an alist."
   (let loop ((lines (string-split text #\newline)) (metadata '()))
     (cond
       [(null? lines) (reverse metadata)]
-      [(string-prefix? "sift\t" (car lines))
-       (let ((fields (string-split (car lines) #\tab)))
+      [(string-prefix? ";; sift: " (car lines))
+       (let* ((body (substring (car lines) 9))
+              (space (string-index body #\space)))
          (loop (cdr lines)
-               (if (and (>= (length fields) 3) (string=? (car fields) "sift"))
-                 (cons (cons (cadr fields) (caddr fields)) metadata)
+               (if space
+                 (cons (cons (substring body 0 space)
+                             (string-trim-both (substring body (+ space 1))))
+                       metadata)
                  metadata)))]
       [else (loop (cdr lines) metadata)])))
 
@@ -348,6 +268,19 @@ name begins with a dot: the answer is a name index, and a `.git' or a
     (lambda () (read-source #:source text #:dialect dialect))
     (lambda (ast errors) (parse-definitions ast))))
 
+(define (record-file! names dialect path text)
+  "Add the top-level definitions of @var{text}, read as @var{dialect}, to @var{names}."
+  (false-if-exception
+   (for-each
+    (lambda (definition)
+      (unless (definition-scope definition)
+        (let* ((name (definition-name definition))
+               (found (hash-ref names name)))
+          (hash-set! names name
+                     (cons (cons path (definition-kind definition))
+                           (or found '()))))))
+    (definitions-of-text text dialect))))
+
 (define (index-files dialect paths)
   "Return a hash from the name each of @var{paths} defines to where it does.
 
@@ -360,49 +293,46 @@ all of them."
     (for-each
      (lambda (path)
        (let ((text (read-file-text path byte-limit)))
-         (when text
-           (false-if-exception
-            (for-each
-             (lambda (definition)
-               (unless (definition-scope definition)
-                 (let* ((name (definition-name definition))
-                        (found (hash-ref names name)))
-                   (hash-set! names name
-                              (cons (cons path (definition-kind definition))
-                                    (or found '()))))))
-             (definitions-of-text text dialect))))))
+         (when text (record-file! names dialect path text))))
      paths)
     names))
 
 ;;; ===== A library a caller has in hand =====
 
-(define* (index-standard-library #:key dialect roots builtins-text
-                                 (builtins-path #f) (implementation "unknown"))
-  "Return the standard library @var{roots} and @var{builtins-text} describe.
+(define* (index-standard-library #:key dialect roots (builtins-path #f)
+                                 (implementation "unknown"))
+  "Return the standard library @var{roots} and @var{builtins-path} describe.
 
 Nothing is discovered, nothing is written and no implementation is asked: this
 is the shape both the discovery and a test fill in, which is what lets the
-reading of a library be tested without one."
-  (make-standard-library dialect
-                         implementation
-                         (without-nested-roots (existing-directories roots))
-                         (parse-builtins builtins-text)
-                         (index-files dialect
-                                      (files-under-roots
-                                       (without-nested-roots
-                                        (existing-directories roots))
-                                       (dialect-extensions dialect)))
-                         builtins-path
-                         builtins-text
-                         (make-hash-table)
-                         (make-hash-table)
-                         #f))
+reading of a library be tested without one.  @var{builtins-path} is the file
+the implementation described itself in, if it wrote one; it is read with the
+same reader as @var{roots}, and with a limit that fits a file holding every
+name an implementation documents."
+  (let* ((roots (without-nested-roots (existing-directories roots)))
+         ;; the generated file may sit inside a root the reader named, and it
+         ;; is read once, with the limit it was written under
+         (names (index-files dialect
+                             (remove (lambda (path) (equal? path builtins-path))
+                                     (files-under-roots
+                                      roots (dialect-extensions dialect))))))
+    (when (and builtins-path (file-exists? builtins-path))
+      (let ((text (read-file-text builtins-path generated-byte-limit)))
+        (when text (record-file! names dialect builtins-path text))))
+    (make-standard-library dialect implementation roots names builtins-path
+                           (make-hash-table) (make-hash-table) #f)))
 
 (define (library-text library path)
-  "Return the text of @var{path}, read once per library."
-  (let ((texts (standard-library-texts library)))
+  "Return the text of @var{path}, read once per library.
+
+The generated file is larger than a source file because it holds every name an
+implementation documents, so it is read with the limit it was written under."
+  (let ((texts (standard-library-texts library))
+        (limit (if (equal? path (standard-library-builtins-path library))
+                 generated-byte-limit
+                 byte-limit)))
     (or (hash-ref texts path)
-      (let ((text (read-file-text path byte-limit)))
+      (let ((text (read-file-text path limit)))
         (when text (hash-set! texts path text))
         text))))
 
@@ -437,141 +367,83 @@ both are tried before the answer is nothing."
                          (list bare))
                        string=?)))
 
-(define (site-rank site)
+(define (site-rank site builtins-path)
   "Return how good an answer @var{site} is, lowest first.
 
-A definition that writes its parameters -- `(define (format port . args) ...)'
--- is the best answer, because it is what a reader means by \"where this is
-defined\"; the documentation an implementation wrote about a name it compiled
-in comes next, because it is prose about the name rather than a line to read
-around; and a definition whose value is some other expression comes last, since
-`(define car (r5rs:car ...))' is a definition of `car' and not the one a reader
-was asking about."
+Actual code comes before the file an implementation described itself in, and a
+definition that writes its parameters -- `(define (format port . args) ...)'
+-- comes before a value: a jump should land where a reader can read around it.
+The generated file is ranked last rather than excluded, because it is code
+too; it is simply the answer of last resort, and a project, a required library
+or the installation's own sources beat it."
   (let* ((definition (caddr site))
          (formals (definition-formals definition)))
     (cond
-      [(and (definition-form definition) (pair? formals)) 0]
-      [(not (definition-form definition)) 1]
-      [else 2])))
+      [(and builtins-path (equal? (car site) (path->uri builtins-path))) 2]
+      [(pair? formals) 0]
+      [else 1])))
 
-(define (ordered-sites sites)
+(define (ordered-sites sites builtins-path)
   "Return @var{sites} with the answers a reader wants first, in file order."
-  (stable-sort sites (lambda (a b) (< (site-rank a) (site-rank b)))))
+  (stable-sort sites (lambda (a b)
+                       (< (site-rank a builtins-path)
+                          (site-rank b builtins-path)))))
 
 (define (stdlib-definitions library name)
   "Return @code{(uri text definition)} for every place @var{library} defines @var{name}.
 
 Every place, ordered by what a reader asking the question would rather be shown:
-a definition that writes its parameters first, then the documentation the
-implementation carries, then a definition whose value is something else.  The
+a definition that writes its parameters, then a definition whose value is
+something else, then the file the implementation described itself in.  The
 order is stable, so the files stay in the order the walk found them."
   (if (standard-library? library)
     (let ((parts (name-parts name)))
       (ordered-sites
-       (append
-        (append-map
-         (lambda (entry)
-           (let ((path (car entry)))
-             (let ((text (library-text library path))
-                   (definitions (library-definitions library path)))
-               (if text
-                 (map (lambda (definition)
-                        (list (path->uri path) text definition))
-                      (filter (lambda (definition)
-                                (and (not (definition-scope definition))
-                                  (member (definition-name definition) parts)))
-                              (or definitions '())))
-                 '()))))
-         (append-map (lambda (part)
-                       (or (hash-ref (standard-library-names library) part) '()))
-                     parts))
-        (builtin-sites library parts))))
+       (append-map
+        (lambda (entry)
+          (let ((path (car entry)))
+            (let ((text (library-text library path))
+                  (definitions (library-definitions library path)))
+              (if text
+                (map (lambda (definition)
+                       (list (path->uri path) text definition))
+                     (filter (lambda (definition)
+                               (and (not (definition-scope definition))
+                                 (member (definition-name definition) parts)))
+                             (or definitions '())))
+                '()))))
+        (append-map (lambda (part)
+                      (or (hash-ref (standard-library-names library) part) '()))
+                    parts))
+       (standard-library-builtins-path library)))
     '()))
-
-(define (builtin-sites library parts)
-  "Return the place the generated index describes one of @var{parts}, or nothing."
-  (let ((builtin (find (lambda (entry)
-                         (member (builtin-name entry) parts))
-                       (standard-library-builtins library))))
-    (if builtin
-      ;; A builtin has no form, which is the truth about it: it is not written
-      ;; in a file sift can read.  What it has is a place in the generated
-      ;; index and the documentation written there.
-      (list (list (or (standard-library-builtins-path library) "")
-                  (standard-library-builtins-text library)
-                  (make-definition (builtin-name builtin)
-                                   #f
-                                   #f
-                                   (builtin-kind builtin)
-                                   #f
-                                   (builtin-start builtin)
-                                   (builtin-end builtin)
-                                   '())))
-      '())))
-
-(define (stdlib-builtin library name)
-  "Return the generated entry @var{library} holds for @var{name}, or @code{#f}."
-  (and (standard-library? library)
-    (find (lambda (entry) (member (builtin-name entry) (name-parts name)))
-          (standard-library-builtins library))))
 
 (define (stdlib-names library)
   "Return @code{(name . kind)} for every name @var{library} knows.
 
-A builtin is offered with the kind its implementation states, because that is
-the kind the editor colours it with; a name only a file defines is offered with
-the kind that file's definition has."
+A name is offered with the kind its definition has, which is the kind the
+editor colours it with; the generated file states one the same way a project's
+file does."
   (if (standard-library? library)
     (or (standard-library-offered library)
-      (let ((names '())
-            (seen (make-hash-table)))
-        (for-each
-         (lambda (builtin)
-           (unless (hash-ref seen (builtin-name builtin))
-             (hash-set! seen (builtin-name builtin) #t)
-             (set! names (cons (cons (builtin-name builtin)
-                                     (builtin-kind builtin))
-                               names))))
-         (standard-library-builtins library))
+      (let ((names '()))
         (hash-for-each
          (lambda (name entries)
-           (unless (hash-ref seen name)
-             (hash-set! seen name #t)
-             (set! names (cons (cons name (cdr (car entries))) names))))
+           (set! names (cons (cons name (cdr (car entries))) names)))
          (standard-library-names library))
         (let ((offered (reverse names)))
           (set-standard-library-offered! library offered)
           offered)))
     '()))
 
-(define (stdlib-builtin-markdown library name)
-  "Return the documentation of @var{name}, as a hover shows it, or @code{#f}."
-  (let* ((builtin (and (standard-library? library) (stdlib-builtin library name)))
-         (documentation (and builtin (builtin-documentation builtin))))
-    (and builtin
-      (string-append
-       (format #f "**~a** — ~a" (builtin-name builtin) (builtin-kind builtin))
-       (if (string-null? (builtin-signature builtin))
-         ""
-         (format #f "~%~%```~a~%~a~%```"
-                 (symbol->string (standard-library-dialect library))
-                 (builtin-signature builtin)))
-       (if (string-null? documentation)
-         (format #f "~%~%*built into ~a, which carries no documentation for it*"
-                 (standard-library-implementation library))
-         (format #f "~%~%~a~%~%*documented by ~a*"
-                 documentation
-                 (standard-library-implementation library)))))))
-
 (define (stdlib-summary library)
   "Return one line saying what @var{library} holds, or @code{#f} when it holds nothing."
   (and (standard-library? library)
-    (format #f "~a: ~a, ~a names, ~a builtins"
+    (format #f "~a: ~a, ~a names"
             (standard-library-dialect library)
             (standard-library-implementation library)
             (hash-fold (lambda (name entries count) (+ count 1)) 0
-                       (standard-library-names library))
-            (length (standard-library-builtins library)))))
+                       (standard-library-names library)))))
 
 ;;; ===== Asking the implementation =====
 ;;;
@@ -580,29 +452,56 @@ the kind that file's definition has."
 ;;; means something different to each of them, and the path is the one thing
 ;;; they must not disagree about.
 
+;;; Each script writes *source*: the dialect's own definition form, with the
+;;; documentation where that dialect keeps it.  The answer is read back by the
+;;; same reader and the same index a project's files get, so a jump lands on a
+;;; `define' rather than on a line of prose.
+
 (define guile-script
-  "(use-modules (ice-9 documentation) (ice-9 format) (ice-9 session))
-(define (signature-of name arguments)
+  "(use-modules (ice-9 documentation) (ice-9 format) (ice-9 session)
+             (srfi srfi-1) (srfi srfi-13))
+(define (formals-of arguments)
   (if (not (pair? arguments))
-    (format #f \"(~a ...)\" name)
+    \"...\"
     (let ((required (or (assq-ref arguments 'required) '()))
           (optional (or (assq-ref arguments 'optional) '()))
           (rest (assq-ref arguments 'rest)))
       (string-append
-       \"(\" (symbol->string name)
-       (if (null? required) \"\" (format #f \" ~{~a~^ ~}\" required))
-       (if (null? optional) \"\" (format #f \" #:optional ~{~a~^ ~}\" optional))
-       (if rest (format #f \" . ~a\" rest) \"\")
+       \"(\"
+       (string-join
+        (remove string-null?
+                (append (map symbol->string required)
+                        (if (null? optional)
+                          '()
+                          (cons \"#:optional\" (map symbol->string optional)))
+                        (if rest (list \".\" (symbol->string rest)) '())))
+        \" \")
        \")\"))))
-(define (kind-of value)
-  (cond ((procedure? value) \"function\")
-        ((false-if-exception (macro? value)) \"macro\")
-        (else \"variable\")))
+(define (comment-lines text)
+  (string-join (map (lambda (line) (string-append \";; \" line))
+                    (string-split text #\\newline))
+               \"\\n\"))
+(define (write-entry port name value doc)
+  (cond
+    ((procedure? value)
+     (format port \"(define (~a ~a)\\n  ~s\\n  #f)\\n\\n\"
+             name (formals-of (procedure-arguments value)) doc))
+    ((false-if-exception (macro? value))
+     (format port \"(define-macro (~a . args)\\n  ~s\\n  #f)\\n\\n\" name doc))
+    (else
+     ;; Scheme has no docstring slot for a value, so the comment above the
+     ;; definition carries the prose and a reader still lands on the `define'.
+     (format port \"~a\\n(define ~a #f)\\n\\n\" (comment-lines doc) name))))
 (let ((target (getenv \"SIFT_STDLIB_OUT\")))
   (when target
     (call-with-output-file target
       (lambda (port)
-        (format port \"sift\\tversion\\t~a\\n\" (version))
+        (format port \";; sift --- the names GNU Guile ~a documents about itself\\n\" (version))
+        (format port \";;\\n;; Written by asking the implementation once.  sift's language server reads\\n\")
+        (format port \";; this file like any other source file: a procedure is a `define' with a\\n\")
+        (format port \";; docstring, a macro is a `define-macro', and a value is a `define' whose\\n\")
+        (format port \";; documentation is the comment above it.\\n;;\\n\")
+        (format port \";; sift: version ~a\\n\" (version))
         ;; A user's own Scheme libraries are the third-party half of what a
         ;; project imports; the profile directories are on `%load-path' only
         ;; when the shell put them there.
@@ -617,24 +516,18 @@ the kind that file's definition has."
                               \"/.guix-profile/share/guile/site/3.0\")
                (string-append (or (getenv \"HOME\") \"\")
                               \"/.config/guix/current/share/guile/site/3.0\")))
-        (for-each (lambda (path) (format port \"sift\\troot\\t~a\\n\" path))
+        (for-each (lambda (path)
+                    (format port \";; sift: root ~a\\n\" path))
                   %load-path)
+        (format port \"\\n\")
         (module-map
          (lambda (name variable)
            (let ((value (false-if-exception
                          (and (variable-bound? variable) (variable-ref variable)))))
              (when value
-               (format port \"### ~a\\t~a\\t~a\\n\"
-                       name
-                       (kind-of value)
-                       (if (procedure? value)
-                         (or (false-if-exception
-                              (signature-of name (procedure-arguments value)))
-                             \"\")
-                         \"\"))
                (let ((doc (false-if-exception (object-documentation value))))
                  (when (and (string? doc) (not (string-null? doc)))
-                   (format port \"~a\\n\" (string-trim-both doc)))))))
+                   (write-entry port name value doc))))))
          (resolve-module '(guile)))))))
 ")
 
@@ -642,7 +535,11 @@ the kind that file's definition has."
   "(let ((target (getenv \"SIFT_STDLIB_OUT\")))
   (when target
     (with-temp-file target
-      (insert (format \"sift\\tversion\\t%s\\n\" emacs-version))
+      (insert (format \";; sift --- the names GNU Emacs %s documents about itself\\n\" emacs-version))
+      (insert \";;\\n;; Written by asking the implementation once.  sift's language server reads\\n\")
+      (insert \";; this file like any other Emacs Lisp file: a procedure is a `defun' with\\n\")
+      (insert \";; a docstring, a macro a `defmacro', and a value a `defvar'.\\n;;\\n\")
+      (insert (format \";; sift: version %s\\n\" emacs-version))
       ;; Third-party packages live below `package-user-dir', and `-Q' ran no
       ;; init file to put them or the system's site-lisp on `load-path'.  The
       ;; directories are added whole: the index walk is recursive, and its
@@ -659,23 +556,29 @@ the kind that file's definition has."
                    (not (member directory load-path)))
           (setq load-path (append load-path (list directory)))))
       (dolist (directory load-path)
-        (insert (format \"sift\\troot\\t%s\\n\" directory)))
+        (insert (format \";; sift: root %s\\n\" directory)))
+      (insert \"\\n\")
       (mapatoms
        (lambda (symbol)
          (let ((doc (condition-case nil (documentation symbol) (error nil))))
            (when (and (stringp doc) (> (length doc) 0))
-             (insert (format \"### %s\\t%s\\t%s\\n\"
-                             symbol
-                             (cond ((macrop symbol) \"macro\")
-                                   ((fboundp symbol) \"function\")
-                                   (t \"variable\"))
-                             (or (condition-case nil
-                                     (let ((arguments (help-function-arglist symbol t)))
-                                       (and arguments (format \"%S\" arguments)))
-                                   (error nil))
-                                 \"\")))
-             (insert (replace-regexp-in-string \"^ +\" \"\" doc))
-             (insert \"\\n\"))))))))
+             (let ((arguments (condition-case nil
+                                  (help-function-arglist symbol t)
+                                (error nil))))
+               ;; an arglist that is not loaded yet comes back as prose, and a
+               ;; string is not a parameter list
+               (unless (listp arguments)
+                 (setq arguments '(&rest args)))
+               (cond
+                 ((macrop symbol)
+                  (insert (format \"(defmacro %S %S\\n  %S\\n  nil)\\n\\n\"
+                                  symbol (or arguments '(&rest args)) doc)))
+                 ((fboundp symbol)
+                  (insert (format \"(defun %S %S\\n  %S\\n  nil)\\n\\n\"
+                                  symbol (or arguments '(&rest args)) doc)))
+                 (t
+                  (insert (format \"(defvar %S nil\\n  %S)\\n\\n\" symbol doc))))))))))
+      (insert \"(provide 'sift-builtins)\\n\"))))
 ")
 
 (define sbcl-script
@@ -691,8 +594,14 @@ the kind that file's definition has."
                               :direction :output
                               :if-exists :supersede
                               :external-format :utf-8)
-        (format stream \"sift~cversion~c~a~%\" #\\tab #\\tab
+        (format stream \";; sift --- the names SBCL ~a documents about itself~%\"
                 (lisp-implementation-version))
+        (format stream \";;~%;; Written by asking the implementation once.  sift's language server~%\")
+        (format stream \";; reads this file like any other Common Lisp file: a procedure is a~%\")
+        (format stream \";; `defun' with a docstring, a macro a `defmacro', and a value a~%\")
+        (format stream \";; `defvar'.~%;;~%\")
+        (format stream \";; sift: version ~a~%\" (lisp-implementation-version))
+        (format stream \"~%\")
         (dolist (package-name '(\"COMMON-LISP\" \"SB-EXT\"))
           (let ((package (find-package package-name)))
             (when package
@@ -704,12 +613,12 @@ the kind that file's definition has."
                                            (documentation symbol 'variable))))
                        (text (or function-doc variable-doc)))
                   (when (and text (> (length text) 0))
-                    (format stream \"### ~(~a~)~c~a~c~a~%\" symbol #\\tab
-                            (cond (function-doc
-                                   (if (macro-function symbol) \"macro\" \"function\"))
-                                  (t \"variable\"))
-                            #\\tab
-                            (or (and lambda-list
+                    (cond
+                      (function-doc
+                       (format stream \"(~a ~(~a~) ~a~%  ~s~%  nil)~%~%\"
+                               (if (macro-function symbol) \"defmacro\" \"defun\")
+                               symbol
+                               (or (and lambda-list
                                      (ignore-errors
                                       ;; named one by one: an argument list as
                                       ;; SBCL prints it carries the package each
@@ -724,9 +633,10 @@ the kind that file's definition has."
                                                      (string-downcase
                                                       (format nil \"~a\" argument))))
                                                (funcall lambda-list symbol)))))
-                                \"\"))
-                    (write-string text stream)
-                      (terpri stream)))))))))))
+                                   \"(&rest args)\")
+                               text))
+                      (variable-doc
+                       (format stream \"(defvar ~(~a~) nil~%  ~s)~%~%\" symbol text)))))))))))))
 ")
 
 (define dialects
@@ -886,8 +796,15 @@ data directory."
       (or name "unknown"))))
 
 (define (builtins-file dialect)
-  (let ((directory (cache-directory)))
-    (and directory (format #f "~a/~a-builtins.txt" directory dialect))))
+  "Return the file @var{dialect}'s implementation describes itself in.
+
+The file is source in the dialect it describes -- `.scm' for Scheme, `.el' for
+Emacs Lisp, `.lisp' for Common Lisp -- because it is read by the same reader as
+a project's files and a jump into it should land on code."
+  (let ((directory (cache-directory))
+        (extensions (dialect-extensions dialect)))
+    (and directory (dialect-script dialect) (pair? extensions)
+      (format #f "~a/~a-builtins~a" directory dialect (car extensions)))))
 
 (define (index-file dialect)
   (let ((directory (cache-directory)))
@@ -987,37 +904,31 @@ the index it was making."
      (vector->list files))
     names))
 
-(define (library-of-index dialect document builtins-text)
+(define (library-of-index dialect document)
   "Return the library a stored index describes."
   (make-standard-library dialect
                          (json-ref document "implementation" "unknown")
                          (vector->list (json-ref document "roots" (vector)))
-                         (parse-builtins builtins-text)
                          (names-from-json (json-ref document "files" (vector)))
                          (builtins-file dialect)
-                         builtins-text
                          (make-hash-table)
                          (make-hash-table)
                          #f))
 
 (define (stored-library dialect program)
   "Return @var{dialect}'s library from its index, or @code{#f} when there is none."
-  (let ((document (written-index dialect program))
-        (generated (builtins-file dialect)))
-    (and document generated
-      (let ((text (read-file-text generated generated-byte-limit)))
-        (and text (library-of-index dialect document text))))))
+  (let ((document (written-index dialect program)))
+    (and document (library-of-index dialect document))))
 
 ;;; ===== Asking for one =====
 
-(define (index-and-write! dialect program generated roots text implementation)
+(define (index-and-write! dialect program generated roots implementation)
   "Index @var{roots} as @var{dialect}'s library and write the index down.
 
-@var{text} is the generated index the implementation described itself with, or
-the empty string for a dialect read from source alone."
+@var{generated} is the file the implementation described itself in, or
+@code{#f} for a dialect that is read from source alone."
   (let ((library (index-standard-library #:dialect dialect
                                          #:roots roots
-                                         #:builtins-text text
                                          #:builtins-path generated
                                          #:implementation implementation)))
     (write-index! dialect library program)
@@ -1029,16 +940,16 @@ the empty string for a dialect read from source alone."
 @var{override} is a list of directories to read instead of the ones the
 implementation names, which is how a source tree a reader unpacked themselves
 is handed over.  Racket has no script to ask -- its library ships as source --
-so its generated index is empty and the files are the whole answer."
-  (let ((generated (builtins-file dialect))
-        (script (dialect-script dialect)))
-    (and generated
-      (make-directories (cache-directory))
-      ;; what is written beside the index is moved into place, so that a run
-      ;; that fails leaves the one it had
-      (let ((partial (temporary-path generated)))
-        (if script
-          (let ((arguments (cdr (assq 'arguments (dialect-spec dialect)))))
+so the files are the whole answer."
+  (let ((script (dialect-script dialect)))
+    (make-directories (cache-directory))
+    (if script
+      (let ((generated (builtins-file dialect))
+            (arguments (cdr (assq 'arguments (dialect-spec dialect)))))
+        (and generated
+          ;; what is written beside the index is moved into place, so that a
+          ;; run that fails leaves the one it had
+          (let ((partial (temporary-path generated)))
             (and (run-to-file program (append arguments (list script)) partial)
               (let ((text (read-file-text partial generated-byte-limit)))
                 (and text
@@ -1047,17 +958,10 @@ so its generated index is empty and the files are the whole answer."
                     (index-and-write!
                      dialect program generated
                      (or override (discovered-roots dialect (metadata-of text)))
-                     text
-                     (implementation-name dialect (metadata-of text))))))))
-          (and (false-if-exception
-                (call-with-output-file partial (lambda (port) #t)))
-            (begin
-              (false-if-exception (rename-file partial generated))
-              (index-and-write!
-               dialect program generated
-               (or override (discovered-roots dialect '()))
-               ""
-               (implementation-name dialect '())))))))))
+                     (implementation-name dialect (metadata-of text))))))))))
+      (index-and-write! dialect program #f
+                        (or override (discovered-roots dialect '()))
+                        (implementation-name dialect '())))))
 
 ;; The libraries are asked for by dialect and kept for the session: the index
 ;; is the same for every project in the editor, and reading it once is what
@@ -1124,8 +1028,7 @@ be read."
         (or library
           (and configured-roots
             (index-standard-library #:dialect dialect
-                                    #:roots configured-roots
-                                    #:builtins-text "")))))))
+                                    #:roots configured-roots)))))))
 
 (define (index-on-disk? dialect)
   "Return @code{#t} when @var{dialect}'s index is written down already.
@@ -1134,8 +1037,9 @@ What that means for a request is the difference between reading one file and
 adding up a library: the first is a request that waits, and the second is one
 that is answered without the library until the thread reading it is done."
   (let ((index (index-file dialect))
-        (generated (builtins-file dialect)))
-    (and index generated (file-exists? index) (file-exists? generated))))
+        (generated (and (dialect-script dialect) (builtins-file dialect))))
+    (and index (file-exists? index)
+      (or (not generated) (file-exists? generated)))))
 
 (define (stdlib-for dialect)
   "Return @var{dialect}'s standard library, reading it on first use.
@@ -1178,11 +1082,7 @@ lets an editor show that the work is happening rather than that sift is idle."
                     (when report
                       (report (format #f "indexing the ~a library" dialect)))
                     (let ((library (stdlib-for dialect)))
-                      ;; a library read from source alone has no builtins and
-                      ;; is still a library: what says it was read is a name
-                      (and library
-                        (or (> (length (standard-library-builtins library)) 0)
-                          (pair? (stdlib-names library)))
+                      (and library (pair? (stdlib-names library))
                         (let ((summary (stdlib-summary library)))
                           (when report (report summary))
                           summary))))

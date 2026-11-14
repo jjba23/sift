@@ -32,26 +32,36 @@
 
 ;;; ===== A library a test writes down =====
 
-(define builtins-text
-  (string-join
-   '("sift\tversion\t3.0.11"
-     "sift\troot\t/usr/share/guile/3.0"
-     "### car\tfunction\t(car pair)"
-     "    Return the contents of the car field of pair."
-     ""
-     "### cons\tfunction\t(cons x y)"
-     "    Return a new pair whose car is x and whose cdr is y."
-     ""
-     "### native-array-ref\tsomething\t(native-array-ref array k)"
-     "    No kind sift has a word for.")
-   "\n"))
+(define generated-source
+  (string-append
+   ";; sift --- the names GNU Guile 3.0.9 documents about itself\n"
+   ";;\n"
+   ";; Written by asking the implementation once.  A procedure is a `define'\n"
+   ";; with a docstring, and a value is a `define' whose documentation is the\n"
+   ";; comment above it.\n"
+   ";;\n"
+   ";; sift: version 3.0.9\n"
+   ";; sift: root /usr/share/guile/3.0\n"
+   "\n"
+   "(define (car pair)\n"
+   "  \"Return the contents of the car field of pair.\"\n"
+   "  #f)\n"
+   "\n"
+   ";; The empty list.\n"
+   "(define null '())\n"
+   "\n"
+   "(define-macro (when test . body)\n"
+   "  \"Evaluate body when test is true.\"\n"
+   "  #f)\n"))
 
-(define* (library-of directory #:key (builtins builtins-text))
-  "Return a standard library whose sources are the files under DIRECTORY."
+(define* (library-of directory #:key (builtins #f))
+  "Return a standard library whose sources are the files under DIRECTORY.
+
+BUILTINS, when given, is the file an implementation described itself in -- the
+second half of the library, written as source like the first."
   (index-standard-library #:dialect 'scheme
                           #:roots (list directory)
-                          #:builtins-text builtins
-                          #:builtins-path (string-append directory "/builtins.txt")))
+                          #:builtins-path builtins))
 
 (define (names-of library)
   (map car (stdlib-names library)))
@@ -67,37 +77,82 @@ path it ends in rather than by the string the test wrote down."
 
 (define (spec)
   (suite "stdlib: the standard library on disk"
+    ;; the tests set HOME, PATH, PLTCOLLECTS and XDG_CACHE_HOME for the
+    ;; discovery they check, and an environment variable is process-wide: two
+    ;; tests in flight would read each other's answer
+    #:concurrent? #f
 
-    (test "an entry names a builtin, its kind, its argument list and its prose"
-      (let ((entries (parse-builtins builtins-text)))
-        (assert-equal #:expect (list "car" "cons" "native-array-ref")
-          #:got (map builtin-name entries))))
+    (test "the metadata lines say which implementation wrote the file"
+      (let ((metadata (metadata-of generated-source)))
+        (assert-equal #:expect "3.0.9" #:got (cdr (assoc "version" metadata)))
+        (assert-equal #:expect "/usr/share/guile/3.0"
+          #:got (cdr (assoc "root" metadata)))))
 
-    (test "a procedure is a function and carries its signature"
-      (let ((car* (find (lambda (builtin) (string=? (builtin-name builtin) "car"))
-                        (parse-builtins builtins-text))))
-        (assert-equal #:expect 'function #:got (builtin-kind car*))
-        (assert-equal #:expect "(car pair)" #:got (builtin-signature car*))))
+    (test "the generated file is source: its definitions and docstrings are read"
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/scheme-builtins.scm") generated-source)
+         (let* ((builtins (string-append directory "/scheme-builtins.scm"))
+                (library (library-of directory #:builtins builtins))
+                (car-site (car (stdlib-definitions library "car")))
+                (definition (caddr car-site)))
+           (assert-equal #:expect "car" #:got (definition-name definition))
+           (assert-equal #:expect 'function #:got (definition-kind definition))
+           ;; the reader keeps the quotes it read, and hover strips them
+           (assert-equal #:expect "\"Return the contents of the car field of pair.\""
+             #:got (definition-docstring definition))
+           (assert-true (and (definition-form definition) #t)
+             #:name "a builtin is a form a reader can read around")
+           (assert-true (string-suffix? "/scheme-builtins.scm" (car car-site))
+             #:name "and the answer names the generated file")))))
 
-    (test "the prose of an entry is the paragraph under it"
-      (let ((cons* (find (lambda (builtin) (string=? (builtin-name builtin) "cons"))
-                         (parse-builtins builtins-text))))
-        (assert-equal #:expect "Return a new pair whose car is x and whose cdr is y."
-          #:got (builtin-documentation cons*))))
+    (test "a macro and a value are read as the dialect writes them"
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/scheme-builtins.scm") generated-source)
+         (let* ((library (library-of directory
+                                     #:builtins (string-append
+                                                 directory "/scheme-builtins.scm")))
+                (macro (caddr (car (stdlib-definitions library "when"))))
+                (value (caddr (car (stdlib-definitions library "null")))))
+           (assert-equal #:expect 'macro #:got (definition-kind macro))
+           (assert-equal #:expect "\"Evaluate body when test is true.\""
+             #:got (definition-docstring macro))
+           (assert-equal #:expect 'variable #:got (definition-kind value))
+           (assert-equal #:expect #f #:got (definition-docstring value)
+             #:name "Scheme has no docstring slot for a value; the comment
+carries it")))))
 
-    (test "an entry's position is the name written in it"
-      (let ((car* (car (parse-builtins builtins-text))))
-        (assert-equal #:expect "car"
-          #:got (substring builtins-text (builtin-start car*) (builtin-end car*)))))
+    (test "a real source definition is offered before the generated file"
+      ;; the generated file is the answer of last resort: a project, a
+      ;; required library or the installation's own source wins
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/scheme-builtins.scm") generated-source)
+         (spit (string-append directory "/car.scm")
+               "(define (car pair)\n  (primitive-car pair))\n")
+         (let* ((builtins (string-append directory "/scheme-builtins.scm"))
+                (library (library-of directory #:builtins builtins))
+                (sites (stdlib-definitions library "car")))
+           (assert-equal #:expect 2 #:got (length sites))
+           (assert-true (string-suffix? "/car.scm" (car (car sites)))
+             #:name "the source file comes first")
+           (assert-true (string-suffix? "/scheme-builtins.scm"
+                                        (car (cadr sites)))
+             #:name "and the generated file last")))))
 
-    (test "a kind with no word of its own is a variable"
-      (let ((ref (find (lambda (builtin)
-                         (string=? (builtin-name builtin) "native-array-ref"))
-                       (parse-builtins builtins-text))))
-        (assert-equal #:expect 'variable #:got (builtin-kind ref))))
-
-    (test "a file with no entries has no builtins"
-      (assert-equal #:expect '() #:got (parse-builtins "")))
+    (test "the generated file is read with the limit it was written under"
+      ;; it holds every name an implementation documents, so it is larger than
+      ;; the 500 kB a source file is read up to
+      (with-temp-directory
+       (lambda (directory)
+         (let ((builtins (string-append directory "/scheme-builtins.scm"))
+               (doc (make-string 600000 #\x)))
+           (spit builtins
+                 (string-append "(define (big-name)\n  \"" doc "\"\n  #f)\n"))
+           (let ((library (library-of directory #:builtins builtins)))
+             (assert-equal #:expect 1
+               #:got (length (stdlib-definitions library "big-name"))))))))
 
     (test "a root that another root contains is not walked twice"
       (assert-equal #:expect (list "/a" "/c" "/d/e")
@@ -134,8 +189,7 @@ path it ends in rather than by the string the test wrote down."
                     (string-append directory "/widget.el.gz"))
          (let* ((library (index-standard-library
                           #:dialect 'elisp
-                          #:roots (list directory)
-                          #:builtins-text ""))
+                          #:roots (list directory)))
                 (sites (stdlib-definitions library "widget-size"))
                 (site (and (pair? sites) (car sites))))
            (assert-equal #:expect 1 #:got (length sites)
@@ -168,16 +222,14 @@ path it ends in rather than by the string the test wrote down."
            (spit (string-append inner "/base.scm") "(define (only-one) 1)\n")
            (let ((library (index-standard-library
                            #:dialect 'scheme
-                           #:roots (list directory inner)
-                           #:builtins-text "")))
+                           #:roots (list directory inner))))
              (assert-equal #:expect 1
                #:got (length (stdlib-definitions library "only-one"))))))))
 
     (test "a directory that is not there is an empty library, not an error"
       (let ((library (index-standard-library
                       #:dialect 'scheme
-                      #:roots (list "/nonexistent-sift-stdlib")
-                      #:builtins-text "")))
+                      #:roots (list "/nonexistent-sift-stdlib"))))
         (assert-equal #:expect '() #:got (stdlib-definitions library "car"))
         (assert-equal #:expect '() #:got (stdlib-names library))))
 
@@ -260,8 +312,7 @@ path it ends in rather than by the string the test wrote down."
                               "(define (make-widget size) (* size 2))\n\n"
                               "(struct posn (x y) #:transparent)\n"))
          (let ((library (index-standard-library #:dialect 'racket
-                                                #:roots (list directory)
-                                                #:builtins-text "")))
+                                                #:roots (list directory))))
            (assert-equal #:expect (list "make-widget" "posn")
              #:got (sort (names-of library) string<?)
              #:name "the names the module defines, and not its `#lang' line")
@@ -317,34 +368,14 @@ path it ends in rather than by the string the test wrote down."
                    (setenv "PLTCOLLECTS" previous-collects)
                    (unsetenv "PLTCOLLECTS")))))))))
 
-    ;; ===== the builtins =====
+    ;; ===== the summary =====
 
-    (test "a builtin is defined where the generated index writes it"
-      (let* ((library (index-standard-library #:dialect 'scheme
-                                              #:roots '()
-                                              #:builtins-text builtins-text))
-             (sites (stdlib-definitions library "car"))
-             (site (and (pair? sites) (car sites)))
-             (definition (and site (caddr site))))
-        (assert-equal #:expect 1 #:got (length sites))
-        (assert-equal #:expect "car" #:got (definition-name definition))
-        ;; a builtin is not a form in a file: what it has is a place in the
-        ;; generated index and the documentation written there
-        (assert-equal #:expect #f #:got (definition-form definition))
-        (assert-equal #:expect "car"
-          #:got (substring (cadr site) (definition-index definition)
-                           (definition-end definition)))))
-
-    (test "the documentation of a builtin is the prose beside it"
-      (let ((library (index-standard-library #:dialect 'scheme
-                                             #:roots '()
-                                             #:builtins-text builtins-text)))
-        (assert-contains #:expect (stdlib-builtin-markdown library "car")
-          #:got "Return the contents of the car field of pair.")))
-
-    (test "a builtin nobody documents is not offered"
-      (let ((library (index-standard-library #:dialect 'scheme
-                                             #:roots '()
-                                             #:builtins-text builtins-text)))
-        (assert-equal #:expect #f
-          #:got (stdlib-builtin-markdown library "nonesuch"))))))
+    (test "the summary counts the names the library holds"
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/scheme-builtins.scm") generated-source)
+         (let ((library (library-of directory
+                                    #:builtins (string-append
+                                                directory "/scheme-builtins.scm"))))
+           (assert-equal #:expect "scheme: unknown, 3 names"
+             #:got (stdlib-summary library))))))))

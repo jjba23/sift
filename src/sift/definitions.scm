@@ -287,6 +287,8 @@ no place to put one, which is why the case is written out here."
            (if (and first (node-list? first))
              (docstring-at (nth-or args 1))
              #f))]
+        [(memq operator '(define-macro))
+         (docstring-at (nth-or args 1))]
         [(memq operator '(defun defmacro defsubst cl-defun cl-defmacro cl-defsubst
                                 defmethod cl-defmethod defgeneric cl-defgeneric
                                 define-minor-mode define-derived-mode
