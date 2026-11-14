@@ -1773,6 +1773,18 @@ together and the test gets whatever had already come in."
         (assert-contains #:expect (json-ref value "value") #:got "Square X."
           #:name "the definition's own docstring, not the rule's")))
 
+    (test "the hover shows the comment above a definition with no docstring"
+      ;; a value has no docstring slot in Scheme, and the comment above it is
+      ;; how a Lisp has always documented one
+      (let* ((text ";; The answer to everything.\n(define answer 42)\n(display answer)\n")
+             (result (session (list (initialize-request 1)
+                                    (open-at buffer-uri text)
+                                    (hover-at-request 2 buffer-uri 2 9))))
+             (value (json-ref (json-ref (answer-to (cdr result) 2) "result")
+                              "contents")))
+        (assert-contains #:expect (json-ref value "value")
+          #:got "The answer to everything.")))
+
     (test "completion offers the names the project defines"
       (let* ((result (session (list (initialize-request 1)
                                     (open-at lib-uri lib-source)

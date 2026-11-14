@@ -196,12 +196,22 @@ The second half is what an implementation *knows about itself*.  `car` is
 compiled into libguile and no file in the installation says where; `dolist` is
 a macro the Emacs binary carries; `loop` is a symbol in the `COMMON-LISP`
 package and its documentation is in SBCL.  Each implementation is therefore
-asked once, in a single process, to write down every name it documents, with
-the argument list and the prose it carries.  That file becomes an answer too:
-a jump to `car` lands on the entry that describes it, and the hover shows the
-argument list and the sentence, or says plainly that this installation carries
-no documentation for the name.  The file opens with a line saying what it is,
-so a reader who arrives there by jumping was told why they are there.
+asked once, in a single process, to write down every name it documents, and the
+answer is written as *source in that dialect*: a procedure becomes a `define`
+or `defun` with its docstring, a macro a `define-macro` or `defmacro`, and a
+value a `define` or `defvar` whose documentation is carried the way that
+dialect carries one.  So a jump to `car` lands in code that reads like the
+file it is in, the hover is the hover of any other definition, and a value
+whose language has no docstring slot is documented by the comment above it --
+which is how a Lisp has always documented a value.  The file opens with a
+comment saying what it is and which implementation wrote it, so a reader who
+arrives there by jumping was told why they are there.
+
+The generated file is the answer of last resort: a definition in a project, in
+a required library or in the installation's own sources is offered before it,
+and the generated one is offered when nothing else defines the name.  It is
+read with the same reader as everything else, so a name it holds is a
+definition rather than a line of prose.
 
 A library that is not installed is not guessed at.  The answer is the smaller
 one -- the project, the buffers, and the rule under the cursor -- unless the

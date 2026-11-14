@@ -993,6 +993,42 @@ an editor will not apply the edit over typing that arrived in the meantime."
            (project-texts workspace documents uri text dialect)))
         (json-object (field "documentChanges" (list->vector (reverse changes))))))))
 
+(define (comment-text line)
+  "Return @var{line} without its comment semicolons and the space after them."
+  (let loop ((chars (string->list (string-trim-both line))))
+    (if (and (pair? chars) (char=? (car chars) #\;))
+      (loop (cdr chars))
+      (string-trim (list->string chars)))))
+
+(define (leading-comment text index)
+  "Return the comment block that ends just above the line at @var{index}.
+
+A Lisp has documented a value with the comment above it for as long as it has
+had values, and a procedure that carries no docstring is often described there
+too.  The block is the run of comment lines immediately above, and a blank
+line ends it: a comment separated by a blank line is about something else."
+  (let ((lines (string-split
+                (substring text 0 (min index (string-length text)))
+                #\newline)))
+    (let loop ((rest (reverse (drop-right lines 1))) (found '()))
+      (cond
+        [(null? rest) (and (pair? found) (string-join found "\n"))]
+        [else
+          (let ((line (car rest)))
+            (cond
+              [(string-null? (string-trim-both line))
+               (and (pair? found) (string-join found "\n"))]
+              [(string-prefix? ";" (string-trim-both line))
+               (loop (cdr rest) (cons (comment-text line) found))]
+              [else (and (pair? found) (string-join found "\n"))]))]))))
+
+(define (definition-documentation text definition)
+  "Return what documents @var{definition}: its docstring, or the comment above it."
+  (let ((docstring (definition-docstring definition)))
+    (or (and docstring (documentation-text docstring))
+      (and (definition-form definition)
+        (leading-comment text (form-start (definition-form definition)))))))
+
 (define (symbol-hover text dialect definition)
   "Return the hover that describes a definition rather than a rule.
 
@@ -1018,7 +1054,7 @@ disagree about how many arguments a definition wants."
                             dialect-name
                             (symbol-detail definition text)
                             summary
-                            (definition-docstring definition))))))))
+                            (definition-documentation text definition))))))))
 
 (define (documentation-text text)
   "Return a docstring without the quotes the reader kept around it."
