@@ -283,7 +283,7 @@ cannot move when the list is re-sorted."
   (%make-lint-checker name (or code (rule-code name)) description dialects
                       proc severity example))
 
-(define sift-version "1.30.0")
+(define sift-version "1.31.0")
 
 ;;; The dialects sift reads, in the order a message lists them.  Racket is
 ;;; here because it is a Scheme in everything the reader, the formatter and
