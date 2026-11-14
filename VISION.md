@@ -60,22 +60,12 @@ into an immutable snapshot rather than waited for.
    that a second implementation can be checked rather than merely read. The
    browser build proves one codebase can serve two surfaces; a specification
    would prove the style is more than this codebase's opinion.
-2. **Macro awareness without a macro expander.** The largest correctness gap is
-   that a project's own macro is invisible to indentation, references and inlay
-   hints. The plausible answer is a declared table — indentation, arity, which
-   arguments are data, which are body — in the shape Emacs has kept for `indent`
-   and `edebug` specs, and it would make the server right about code that is not
-   the standard library.
-3. **Resolution across files.** Following `define-module`, `#:use-module`,
+2. **Resolution across files.** Following `define-module`, `#:use-module`,
    `defpackage` and `provide` far enough that a reference is a binding rather
    than a name, and a project-wide rename is correct in every file that uses the
    definition. That is the difference between a linter for a file and a tool for
    a project.
-4. **Every editor, equally.** Not "Emacs first": the LSP surface is the product
-   and the Emacs package is one client of it. The refusals then shrink where the
-   answer is knowable — folding from form structure, range formatting from the
-   enclosing definition, pull diagnostics beside the pushed ones.
-5. **Project-scale operations that stay reviewable.** A rename, a fix-all or a
+3. **Project-scale operations that stay reviewable.** A rename, a fix-all or a
    formatting sweep should produce one patch whose hunks are the change, with
    the guarantees sift already gives one file: no invented delimiters, no made-up
    names, no fix that cannot be re-linted clean.
@@ -176,12 +166,6 @@ never compiled anything.
 - **The style is the artefact.** If the corpus and the rationale are good
   enough, the implementation is replaceable and the conventions outlive it —
   the bet gofmt won, made in a much smaller community.
-- **Macros are where Lisp tooling dies.** Every tool that stops at names
-  eventually loses the trust of the code it cannot see. A declared table, a
-  convention for declaring an expansion, or both, is the bet worth making.
-- **The tab as a first-class surface**, for the reader who has a buffer and no
-  project: a formatter and a linter that start in a keystroke, with an honest
-  statement of what they cannot know.
 - **One analysis, four consumers.** Findings, fixes, hover and inlay hints are
   four renderings of one walk. Keeping them so is what lets a new output format
   or a new client be an afternoon's work.
