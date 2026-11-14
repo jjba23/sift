@@ -401,7 +401,10 @@ cannot move when the list is re-sorted."
     (number-literal-argument . "SIFT090")
     (unused-import-from . "SIFT091")
     (eq-non-symbol . "SIFT092")
-    (quasiquote-dotted-unquote . "SIFT093")))
+    (quasiquote-dotted-unquote . "SIFT093")
+    ;; the rules about how much a definition asks of a reader
+    (cognitive-complexity . "SIFT094")
+    (cyclomatic-complexity . "SIFT095")))
 
 (define (rule-code name)
   "Return the code of the rule named @var{name}, or @code{#f}."

@@ -895,7 +895,9 @@ makes `ci --format=sarif' one document that holds both answers."
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
-        (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
+        (cons 'max-definition-depth (config-ref config 'max-definition-depth))
+        (cons 'max-cognitive-complexity (config-ref config 'max-cognitive-complexity))
+        (cons 'max-cyclomatic-complexity (config-ref config 'max-cyclomatic-complexity))))
 
 (define* (lint-text config source #:key (path #f) (label #f) (severity #f))
   "Lint one source, returning @code{(values warnings dialect status)}.

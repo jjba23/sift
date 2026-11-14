@@ -161,6 +161,7 @@ src/sift/
   reader.scm        the hand-written, permissive, location-preserving reader
   format.scm        the pipeline, the indentation tables, the renderer
   check/base.scm    walking a tree, reading a form, line arithmetic
+  complexity.scm    how much a definition asks of a reader
   checkers/         one module per family of rules
   pool.scm          the work spread over the processors, answered in order
   lint.scm          run, suppress, filter, sort, fix, re-lint

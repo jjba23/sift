@@ -559,7 +559,7 @@ $ sift doctor
 sift 1.29.2
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       93
+  rules       95
   dialects    scheme, racket, elisp, cl
 
 Configuration
