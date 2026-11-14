@@ -212,7 +212,7 @@ silently answering something would be worse."
   "Return the dialect the request asks to be read as."
   (let ((name (request-string request "dialect" "scheme")))
     (or (string->dialect name)
-      (usage-failure "unknown dialect: ~a (the dialects are scheme, elisp and cl)"
+      (usage-failure "unknown dialect: ~a (the dialects are scheme, racket, elisp and cl)"
                      name))))
 
 (define (request-style request)
@@ -371,8 +371,8 @@ first, and an `options' object can carry any of the rest of them, by the names
 
 A checker whose dialects are the symbol `all' -- because the rule is about
 whitespace and whitespace is whitespace in every Lisp -- is listed with the
-three dialects spelled out, so that a rule browser filters on what the rule
-does rather than on how it was written down."
+dialects spelled out, so that a rule browser filters on what the rule does
+rather than on how it was written down."
   (let ((declared (lint-checker-dialects checker))
         (example (lint-checker-example checker)))
     (object (field "name" (symbol->string (lint-checker-name checker)))

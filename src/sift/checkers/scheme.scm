@@ -103,7 +103,7 @@ first expression, where it silently gets the wrong scope."
 (define internal-define-checker
   (checker 'internal-define
            "`define` inside a procedure body, after the first expression"
-           '(scheme)
+           '(scheme racket)
            internal-define-warnings
            #:severity 'warning
            #:example '((input . "(define (f)\n  (define y 1)\n  (if y 2 3))")
@@ -132,7 +132,7 @@ first expression, where it silently gets the wrong scope."
 (define if-without-else-checker
   (checker 'if-without-else
            "`if` with no else branch, where `when` expresses the intent"
-           '(scheme)
+           '(scheme racket)
            if-without-else-warnings
            #:severity 'warning
            #:example '((input . "(if (ready?) (go))")
@@ -177,7 +177,7 @@ first expression, where it silently gets the wrong scope."
 (define letrec-single-binding-checker
   (checker 'letrec-single-binding
            "`letrec` with a single binding that does not need recursive scope"
-           '(scheme)
+           '(scheme racket)
            letrec-single-binding-warnings
            #:severity 'info
            #:example '((input . "(letrec ((x 1)) x)")
@@ -285,7 +285,7 @@ first expression, where it silently gets the wrong scope."
 (define quasiquote-unquote-constant-checker
   (checker 'quasiquote-unquote-constant
            "`(quasiquote (unquote constant))` can be simplified"
-           '(scheme)
+           '(scheme racket)
            quasiquote-unquote-constant-warnings
            #:severity 'info
            #:example '((input . "`(1 ,2)")
@@ -370,7 +370,7 @@ first expression, where it silently gets the wrong scope."
 (define quasiquote-dotted-unquote-checker
   (checker 'quasiquote-dotted-unquote
            "A `(key . ,value)` pair inside a quasiquote, which is the same as `(key unquote value)`"
-           '(scheme)
+           '(scheme racket)
            quasiquote-dotted-unquote-warnings
            #:severity 'warning
            #:example '((input . "`((key . ,value))")
@@ -415,8 +415,14 @@ first expression, where it silently gets the wrong scope."
     (when wanted
       (for-each-form
        (lambda (node)
+         ;; `match' clauses are bracket-writing the same way a `cond' clause
+         ;; is, and Racket writes both with a square one.  `syntax-case' is
+         ;; left out because its second element is a list of literals rather
+         ;; than a clause.
          (when (and (node-list? node)
-                 (memq (node-head-name node) '(cond case)))
+                 (memq (node-head-name node)
+                       '(cond case match match* match-lambda
+                              match-lambda*)))
            ;; the clauses are the children of the form, not the form itself
            (for-each check (form-arguments node))))
        ast))
@@ -425,7 +431,7 @@ first expression, where it silently gets the wrong scope."
 (define clause-brackets-checker
   (checker 'clause-brackets
            "A `cond` or `case` clause written with the other kind of bracket"
-           '(scheme)
+           '(scheme racket)
            clause-brackets-warnings
            #:severity 'warning
            #:example '((input . "(cond ((= x 1) 'one)\n      (else 'other))")
@@ -580,7 +586,7 @@ in a `do' or a `let' that only declares."
 (define unused-binding-checker
   (checker 'unused-binding
            "A binding whose name is never referenced in the form that binds it"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            unused-binding-warnings
            #:severity 'warning
            #:example '((input . "(let ((x 1) (y 2)) x)")

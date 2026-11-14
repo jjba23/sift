@@ -77,10 +77,13 @@ yet, and its fix swaps the two delimiter characters and nothing else.
 :END:
 
 1. A form whose first element is a symbol is looked up in the dialect's table
-   (~scheme-indent-rules~, ~elisp-indent-rules~, ~cl-indent-rules~ in
-   ~src/sift/format.scm~).  Every entry indents the body two columns in from
-   the opening parenthesis; the table exists so that a form whose operator
-   stands alone on its line is not indented from the operator instead.
+   (~scheme-indent-rules~, ~racket-indent-rules~, ~elisp-indent-rules~,
+   ~cl-indent-rules~ in ~src/sift/format.scm~).  Every entry indents the body
+   two columns in from the opening parenthesis; the table exists so that a
+   form whose operator stands alone on its line is not indented from the
+   operator instead.  Racket's table is the shortest, and ~if~ is deliberately
+   not in it: Racket lines the arms of an ~if~ up under its test, which is
+   what rule 3 gives a form the table does not know.
 2. A form whose first element is not a symbol is a data list — a binding list,
    a ~cond~ clause — and its elements align under the first.  So does a
    vector, whatever its first element is: see [[#vectors][Read syntax, dialect
@@ -181,7 +184,7 @@ and a project rule takes precedence over the built-in table.
 sift is written in Guile and for Guile, so the read syntax it knows best is
 Guile's.  It is not restricted to Guile: the reader implements the read syntax
 of R6RS, R7RS and the Schemes that follow them — Chez, Gauche, Chicken, Chibi,
-Gambit, MIT — and of the other two dialects sift formats.
+Gambit, MIT — and of the other three dialects sift formats.
 
 #+begin_src scheme
 (define table #(one two three))         ; a vector
@@ -192,6 +195,23 @@ Gambit, MIT — and of the other two dialects sift formats.
   #`(list #,x #,@xs))                   ; syntax-case: Guile and R6RS
 #+end_src
 
+#+begin_src racket
+#lang racket                            ; the module's first line, kept whole
+(define table #(one two three))         ; a vector
+(define bytes #u8(1 2 3))               ; a bytevector
+(struct posn (x y) #:transparent)        ; a keyword, not a symbol
+(printf #rx"^[a-z]+$" "sift")           ; a regexp literal
+#'(define made by a macro)               ; syntax, and the same three prefixes
+#+end_src
+
+- A Racket module opens with a ~#lang~ line, and that line is a node of its
+  own: it is the module's header, it is never split into the two atoms it
+  looks like, and it is data rather than trivia, so a project that separates
+  its top-level forms with one blank line gets the blank line every Racket
+  file has after it.
+- A Racket keyword is spelled ~#:height~, and the reader says that it is a
+  keyword rather than an uninterned symbol: the two are the same characters
+  and a different datum, and only the dialect knows which one was written.
 - A vector's elements align under its first element, whatever that element
   is.  ~#(foo bar)~ is a literal that holds two symbols, not a call to ~foo~,
   so the formatter does not apply a call's alignment to it.
@@ -199,8 +219,8 @@ Gambit, MIT — and of the other two dialects sift formats.
   ~#u8(...)~ is the one Guile and R7RS write, ~#vu8(...)~ the one R6RS writes,
   and both are kept as they were written.
 - In Emacs Lisp the square bracket is the vector syntax and is read as one.
-  In Scheme and Common Lisp the same bracket is a parenthesis by another name
-  — a ~cond~ clause — and is not a vector at all.
+  In Scheme, Racket and Common Lisp the same bracket is a parenthesis by
+  another name — a ~cond~ clause — and is not a vector at all.
 - ~#{ ... }#~ is one atom, from the ~#{~ to the first ~}#~ that is not
   escaped: spaces, brackets and newlines inside a name are the name.  Nothing
   inside it is formatted, because nothing inside it is code.
@@ -247,6 +267,12 @@ form leaves a list that never closes.
 | a backslash   | —                     | escapes the next char  | escapes the next char  |
 | a bar         | opens an escaped name | an ordinary character  | opens an escaped name  |
 
+Racket reads a name the way Scheme does, with one exception: a backslash in a
+name is nothing there, because a Racket name with a delimiter in it is written
+~|like this|~ and never escaped.  The table is otherwise Scheme's, so
+~number'~ is one name in a Racket file too, and ~a{b~ is one name in all four
+of them.
+
 A brace is therefore never a bracket: Guile reads ~{a b}~ as the two symbols
 ~{a~ and ~b}~, and reading it as a list would split a name in two and leave a
 form that never closes.  The Schemes that do read ~{...}~ as parentheses keep
@@ -259,16 +285,17 @@ seeing:
 
 | Construct                            | Read in      | Reported in     |
 |--------------------------------------+--------------+-----------------|
-| ~#{ ... }#~ extended symbol          | Scheme       | Emacs Lisp, CL  |
-| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme       | Emacs Lisp, CL  |
-| ~#`~, ~#,~, ~#,@~ syntax-case        | Scheme       | Emacs Lisp, CL  |
-| ~#;~ datum comment                   | Scheme       | Emacs Lisp, CL  |
-| ~#\a~ character literal              | Scheme, CL   | Emacs Lisp      |
+| ~#lang~ module header                | Racket       | Scheme, Elisp, CL |
+| ~#{ ... }#~ extended symbol          | Scheme       | Emacs Lisp, CL, Racket |
+| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme, Racket | Emacs Lisp, CL |
+| ~#`~, ~#,~, ~#,@~ syntax-case        | Scheme, Racket | Emacs Lisp, CL |
+| ~#;~ datum comment                   | Scheme, Racket | Emacs Lisp, CL |
+| ~#\a~ character literal              | Scheme, Racket, CL | Emacs Lisp |
 | ~?a~ character literal               | Emacs Lisp   | —               |
-| ~#p"..."~ pathname                   | CL           | Scheme, Elisp   |
-| ~#.~ read-time evaluation            | CL           | Scheme, Elisp   |
-| ~#+~, ~#-~ feature conditional       | CL           | Scheme, Elisp   |
-| ~#(...)~ vector, ~#<...>~ object     | all three    | —               |
+| ~#p"..."~ pathname                   | CL           | Scheme, Elisp, Racket |
+| ~#.~ read-time evaluation            | CL           | Scheme, Elisp, Racket |
+| ~#+~, ~#-~ feature conditional       | CL           | Scheme, Elisp, Racket |
+| ~#(...)~ vector, ~#<...>~ object     | all four     | —               |
 | ~#1=~ datum label                    | CL, Elisp, R7RS | —            |
 
 ** What it does not do

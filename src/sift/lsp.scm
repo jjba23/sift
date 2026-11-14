@@ -303,14 +303,16 @@ position covers one character, which is what an editor can highlight."
 
 ;;; ===== Renaming a file, and the module it names =====
 ;;;
-;;; A file is not a module in any of the three dialects, but it is the thing a
+;;; A file is not a module in any of the four dialects, but it is the thing a
 ;;; reader renames when the module changes: the editor asks before the move,
 ;;; and the answer is the edits that keep the name and the file in step.  The
-;;; three dialects disagree about what a module is, so each has its own rule:
+;;; dialects disagree about what a module is, so each has its own rule:
 ;;; Scheme names a library in a form and imports it by that name; Emacs Lisp
 ;;; names a feature with `provide' and asks for it with `require'; Common Lisp
 ;;; has packages, and a package is not a file, so a file rename changes no
-;;; name there and the answer is nothing.
+;;; name there and the answer is nothing.  Racket names a module by its path
+;;; and `require`s it by a relative one, which is a rewrite this does not do
+;;; yet, so it answers nothing either.
 
 (define (path-basename path)
   "Return the last segment of @var{path}."
@@ -1102,9 +1104,9 @@ form, and is described by what its implementation says about it."
                            (field "indexStatus" #t)
                            (field "indexStatusNotification" "sift/indexStatus")))))
 
-           ;; A file rename is a module rename in two of the three dialects,
-           ;; and the editor asks before it moves the file.  The filters say
-           ;; which files sift has an opinion about.
+           ;; A file rename is a module rename in two of the dialects, and the
+           ;; editor asks before it moves the file.  The filters say which
+           ;; files sift has an opinion about.
            (field "workspace"
                   (json-object
                    (field "fileOperations"

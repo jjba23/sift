@@ -1,5 +1,5 @@
-;; sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
-;; Common Lisp.
+;; sift --- a dialect-aware formatter and linter for Scheme, Racket, Emacs Lisp
+;; and Common Lisp.
 ;;
 ;; SPDX-License-Identifier: MIT
 ;; Copyright © Josep Bigorra <jjbigorra@gmail.com>
@@ -93,7 +93,7 @@
             node-atom? node-list? node-vector? node-bytevector?
             node-string? node-comment? node-block-comment?
             node-whitespace? node-prefix? node-datum-comment?
-            node-conditional? node-shebang? node-opaque?
+            node-conditional? node-shebang? node-language? node-opaque?
             node-stray-delimiter?
             node-data? ; a datum, as opposed to trivia
             node-trivia? ; whitespace or a comment
@@ -266,7 +266,7 @@ the formatter and the linter promise the same output on every run."
   (name lint-checker-name) ; symbol
   (code lint-checker-code) ; "SIFT012": the stable name of the rule
   (description lint-checker-description) ; string, one sentence
-  (dialects lint-checker-dialects) ; '(scheme elisp cl), '(...), or 'all
+  (dialects lint-checker-dialects) ; '(scheme racket elisp cl), '(...), or 'all
   (proc lint-checker-proc) ; (lambda (ast source dialect) warnings)
   (severity lint-checker-severity) ; default severity of its findings
   (example lint-checker-example)) ; #f or an alist for `explain`
@@ -285,7 +285,13 @@ cannot move when the list is re-sorted."
 
 (define sift-version "1.29.2")
 
-(define dialects '(scheme elisp cl))
+;;; The dialects sift reads, in the order a message lists them.  Racket is
+;;; here because it is a Scheme in everything the reader, the formatter and
+;;; half the rules care about -- a square bracket is a clause, `#;' comments out
+;;; one datum, `#|...|#' nests -- and a language of its own in the places they
+;;; differ: `#lang' opens a file, `#:kw' is a keyword, a `cond' clause is a
+;;; bracket by convention, and `import' is spelled `require'.
+(define dialects '(scheme racket elisp cl))
 
 ;;; ===== Rule codes =====
 ;;;
@@ -412,9 +418,11 @@ cannot move when the list is re-sorted."
   "Return the dialect named by @var{string}, or @code{#f}.
 
 Both the editor-facing names and the everyday ones are accepted, so
-@code{elisp} and @code{emacs-lisp} name the same dialect."
+@code{elisp} and @code{emacs-lisp} name the same dialect, and @code{rkt} is
+the name an editor gives a Racket buffer beside the language's own."
   (case [string->symbol (string-downcase string)]
     [(scheme) 'scheme]
+    [(racket rkt) 'racket]
     [(elisp emacs-lisp emacs) 'elisp]
     [(cl common-lisp lisp) 'cl]
     [else #f]))
@@ -449,6 +457,7 @@ Both the editor-facing names and the everyday ones are accepted, so
 ;;;   prefix           the prefix token, e.g. "'"     child, gap, verbatim
 ;;;   conditional      "#+" or "#-"                   feature, guarded-form
 ;;;   shebang          the whole first line           --
+;;;   language         "#lang racket" and its line    --
 ;;;   opaque           text copied verbatim           --
 ;;;
 ;;; A vector is a list node whose `open' field is "#(" and a bytevector one
@@ -523,6 +532,7 @@ without writing a lambda around every accessor."
 (define (node-prefix? node) (node-kind? node 'prefix))
 (define (node-conditional? node) (node-kind? node 'conditional))
 (define (node-shebang? node) (node-kind? node 'shebang))
+(define (node-language? node) (node-kind? node 'language))
 (define (node-opaque? node) (node-kind? node 'opaque))
 (define (node-vector? node)
   "Return @code{#t} for a vector literal.

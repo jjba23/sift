@@ -24,7 +24,7 @@
 FROM debian:stable-slim
 
 LABEL org.opencontainers.image.title="sift" \
-      org.opencontainers.image.description="A dialect-aware formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp" \
+      org.opencontainers.image.description="A dialect-aware formatter, linter and language server for Scheme, Racket, Emacs Lisp and Common Lisp" \
       org.opencontainers.image.source="https://github.com/jjba23/sift" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.documentation="https://github.com/jjba23/sift/blob/master/README.org"

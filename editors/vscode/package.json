@@ -1,7 +1,7 @@
 {
   "name": "sift",
   "displayName": "sift",
-  "description": "Formatting, linting and quickfixes for Scheme, Emacs Lisp and Common Lisp, from the sift executable.",
+  "description": "Formatting, linting and quickfixes for Scheme, Racket, Emacs Lisp and Common Lisp, from the sift executable.",
   "version": "1.29.2",
   "publisher": "jjba23",
   "license": "MIT",
@@ -55,6 +55,7 @@
           "enum": [
             "auto",
             "scheme",
+            "racket",
             "elisp",
             "cl"
           ],

@@ -214,8 +214,8 @@
 ;;; ===== Documents =====
 ;;;
 ;;; One record per open buffer.  The language identifier the client sent is
-;;; kept, because `scheme', `emacs-lisp' and `lisp' are three dialects to sift
-;;; and one of them has three spellings.
+;;; kept, because `scheme', `racket', `emacs-lisp' and `lisp' are four dialects
+;;; to sift and one of them has three spellings.
 
 (define-record-type <document>
   (make-document uri text language-id version dialect published ast)
@@ -1066,12 +1066,12 @@ way of saying \"the next one\"."
   "Return one parameter as a signature writes it.
 
 A keyword is spelled the way the dialect spells one, because that is the word
-a caller types: `#:height' in Guile, `:height' in Common Lisp."
+a caller types: `#:height' in Guile and in Racket, `:height' in Common Lisp."
   (let ((kind (car parameter))
         (node (cdr parameter)))
     (case kind
       [(key)
-       (string-append (if (eq? dialect 'scheme) "#:" ":")
+       (string-append (if (memq dialect '(scheme racket)) "#:" ":")
                       (symbol->string (or (and (node-atom? node) (atom-symbol node))
                                         'key)))]
       [else

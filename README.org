@@ -6,17 +6,17 @@
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>
 
 #+title: sift
-#+subtitle: an idempotent formatter, a rule-based linter and a language server for Scheme, Emacs Lisp and Common Lisp
+#+subtitle: an idempotent formatter, a rule-based linter and a language server for Scheme, Racket, Emacs Lisp and Common Lisp
 #+author: Josep Bigorra
 #+email: jjbigorra@gmail.com
 #+options: toc:2 num:nil
 #+language: en
-#+description: A dialect-aware formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp. Formatting is a fixed point on text that preserves every comment, blank line and reader macro, and every fixture in the test suite asserts it.
-#+keywords: scheme emacs-lisp common-lisp formatter linter lsp guile emacs static-analysis
+#+description: A dialect-aware formatter, linter and language server for Scheme, Racket, Emacs Lisp and Common Lisp. Formatting is a fixed point on text that preserves every comment, blank line and reader macro, and every fixture in the test suite asserts it.
+#+keywords: scheme racket emacs-lisp common-lisp formatter linter lsp guile emacs static-analysis
 
-*an idempotent formatter, a rule-based linter and a language server for Scheme, Emacs Lisp and Common Lisp*
+*an idempotent formatter, a rule-based linter and a language server for Scheme, Racket, Emacs Lisp and Common Lisp*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.29.2-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-92-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.29.2-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-93-2f6f4f.svg]]
 
 sift reads a Lisp source file, reports what is ill-formed in it, and rewrites
 its whitespace.  The rewrite is a total function on text and a fixed point:
@@ -25,10 +25,11 @@ a ~#;~ datum comment or a ~#.~ read-time form appears in the output in the place
 it was in the input.  Both properties are asserted over every fixture in the
 suite, so neither is a promise that expires quietly.
 
-Three dialects are read, each by the rules of its own report rather than by a
-compromise between them: Scheme, Emacs Lisp and Common Lisp.  A square bracket
-is a vector in one of them and a clause in the next, and sift does not average
-the two.
+Four dialects are read, each by the rules of its own report rather than by a
+compromise between them: Scheme, Racket, Emacs Lisp and Common Lisp.  A square
+bracket is a vector in one of them and a clause in the next, sift does not
+average the two, and a Racket module is read from the ~#lang~ line that opens
+it rather than from the extension of the file it is in.
 
 [[file:assets/sift-demo.gif]]
 
@@ -94,19 +95,20 @@ can be silenced without editing the code it objects to.
   ~#.~ read-time forms and ~#<...>~ objects return exactly as they were read.
   Formatting is a fixed point: the second run changes nothing.  The suite
   asserts preservation and idempotence over every fixture.
-- *The dialect is determined, not assumed.*  Three dialects, one program:
+- *The dialect is determined, not assumed.*  Four dialects, one program:
   character literals, read macros, ~#| ... |#~ block comments, ~#;~ datum
   comments, package prefixes, LOOP and docstring conventions follow the
   dialect's own report rather than a compromise.  So does a square bracket,
-  which is a vector in Emacs Lisp and a clause in Scheme, and ~#{ ... }#~,
-  which is a symbol and only Guile reads.  Guile is the dialect sift is written
-  in and the one its reader knows most closely; the other two are read from
-  their specifications.
+  which is a vector in Emacs Lisp and a clause in Scheme, ~#{ ... }#~, which is
+  a symbol and only Guile reads, and a ~#lang~ line, which opens a Racket
+  module and means nothing anywhere else.  Guile is the dialect sift is
+  written in and the one its reader knows most closely; the other three are
+  read from their specifications.
 - *Three jobs, three commands.*  Formatting, linting and fixing are separate
   by design: ~format~ prints, ~--write~ writes, ~lint~ reports, ~lint --fix~
   fixes, and ~ci~ asks the formatting question and the lint question in one
   pass without touching the tree.
-- *Ninety-two rules, each with its rationale.*  Every rule has a name, a
+- *Ninety-three rules, each with its rationale.*  Every rule has a name, a
   stable code (~SIFT012~), a sentence, the dialects it applies to, an example
   and its own test file.  ~sift explain RULE~ reads the reasoning out of the
   program, and [[file:doc/rules.org][doc/rules.org]] is generated from the rule records, so the
@@ -122,13 +124,16 @@ can be silenced without editing the code it objects to.
   and a range comment outlives the code it was written for.
 - *One language server, every editor.*  ~sift lsp~ speaks LSP over standard
   input and output: diagnostics, quickfixes and formatting, go to definition
-  and references for all three dialects -- including the names the standard
+  and references for all four dialects -- including the names the standard
   library and its installed packages define, the documentation an
   implementation carries for the ones it compiled in, and the compressed
   sources most Emacs installations ship -- an outline, completion, inlay hints
   that name a call's arguments, a hover that describes a symbol or the rule
   under it, import organization, a file rename that keeps its module in step,
   and a second opinion from the dialect's own compiler when a buffer is saved.
+  The standard library sift can index is the one of Scheme, Emacs Lisp and
+  Common Lisp: no Racket program describes ~racket/base~ for it yet, so a
+  Racket buffer gets everything a buffer can answer for itself.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and
@@ -254,8 +259,8 @@ $ sift doctor
 sift 1.29.2
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       92
-  dialects    scheme, elisp, cl
+  rules       93
+  dialects    scheme, racket, elisp, cl
 
 Compilers
   scheme available
@@ -534,20 +539,22 @@ The determination is an ordered sequence of tests, and the first that answers
 wins:
 
 1. ~--dialect~, or the ~dialect~ setting.
-2. The extension: ~.scm~, ~.ss~, ~.sld~, ~.sls~ are Scheme; ~.el~ is Emacs
-   Lisp; ~.lisp~, ~.cl~, ~.asd~, ~.lsp~ are Common Lisp.
-3. The shebang: ~guile~ is Scheme, ~sbcl~, ~clisp~, ~ecl~ and ~ccl~ are Common
-   Lisp, ~emacs~ is Emacs Lisp.
-4. A marker in the first 200 lines: ~(in-package ...)~ or ~(defpackage ...)~
-   is Common Lisp, ~(define-module ...)~ or ~(use-modules ...)~ is Scheme, a
+2. The extension: ~.scm~, ~.ss~, ~.sld~, ~.sls~ and ~.sps~ are Scheme; ~.rkt~,
+   ~.rktd~, ~.rktl~ and ~.scrbl~ are Racket; ~.el~ is Emacs Lisp; ~.lisp~,
+   ~.cl~, ~.asd~, ~.lsp~ are Common Lisp.
+3. The shebang: ~guile~ is Scheme, ~racket~ is Racket, ~sbcl~, ~clisp~, ~ecl~
+   and ~ccl~ are Common Lisp, ~emacs~ is Emacs Lisp.
+4. A marker in the first 200 lines: a ~#lang~ line is Racket,
+   ~(in-package ...)~ or ~(defpackage ...)~ is Common Lisp,
+   ~(define-module ...)~ or ~(use-modules ...)~ is Scheme, a
    ~lexical-binding: t~ header is Emacs Lisp.
-5. Otherwise it says so, and names the three dialects.  Guessing is not among
+5. Otherwise it says so, and names the four dialects.  Guessing is not among
    the answers: a tool that guesses at a dialect will one day rewrite a Common
    Lisp file as Scheme, and the diff will be blamed on the code.
 
 An editor that has already resolved the language is better informed than any of
 this: the language server takes the identifier the client sends (~scheme~,
-~emacs-lisp~, ~lisp~) and goes by that.
+~racket~, ~emacs-lisp~, ~lisp~) and goes by that.
 
 * Formatting
 :PROPERTIES:
@@ -571,7 +578,7 @@ every dialect's read syntax, and the four things it will not do.
 A rule is a record: a name, a code, a description, the dialects it applies to,
 a severity, a procedure and an example.  The driver runs those the dialect
 selects, adds the reader's own findings, applies the suppression comments, and
-emits the result in source order.  The catalogue holds 92 of them, listed one by
+emits the result in source order.  The catalogue holds 93 of them, listed one by
 one in [[file:doc/rules.org][doc/rules.org]].  [[file:doc/linting.org][doc/linting.org]] covers the rest: what a fix may
 touch, why a fix is discarded rather than guessed at, and how a rule is silenced
 for a line or for a form.
@@ -581,13 +588,14 @@ for a line or for a form.
 :CUSTOM_ID: style-guides
 :END:
 
-The style is not an invention: it is the common practice of the three Lisp
+The style is not an invention: it is the common practice of the four Lisp
 communities, written down where it can be argued with.
 [[file:doc/style.org][doc/style.org]] is the long form -- each choice, the alternative it beat and the
 reason -- including [[file:doc/style.org::#riastradh][which of Riastradh's rules sift keeps]] and what it
 declines, the Emacs Lisp conventions that are really byte-compiler warnings, the
-reasons Common Lisp keeps its closers, and the square bracket a Scheme ~cond~
-clause is written with.  The settings a project is likely to hold differently
+reasons Common Lisp keeps its closers, the square bracket a Scheme ~cond~
+clause is written with, and the rules sift declines to run on a Racket file
+because their premise is another dialect's.  The settings a project is likely to hold differently
 are listed in [[file:doc/configuration.org::#settings][the configuration page]]: a project that has settled a
 convention should not have to argue with its formatter about it.
 
@@ -996,7 +1004,9 @@ it is a contribution that can be carried to the end:
 - *A dialect detail.*  An escape spelled differently, a comment syntax in an
   unexpected place, a form whose body indents by something other than two:
   [[file:tests/reader-scheme.scm][tests/reader-scheme.scm]] and [[file:tests/format-scheme.scm][tests/format-scheme.scm]] are where that behaviour is
-  written down.
+  written down, and the three Racket suites -- [[file:tests/reader-racket.scm][reader]],
+  [[file:tests/format-racket.scm][formatter]] and [[file:tests/lint-racket.scm][linter]] -- are the same way of saying it for the fourth
+  dialect.
 - *An editor integration.*  Neovim, Vim and VS Code each have a directory and a
   test written in that editor's own tool.  Another editor is one directory more.
 - *A word in the documentation.*  The README, [[file:doc/style.org][the style document]] and the rule

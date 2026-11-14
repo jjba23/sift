@@ -374,7 +374,7 @@ The settings:
 |-----------------------+---------+------------------------------------------------------------|
 | ~sift.executable~      | ~sift~  | the program; a bare name is looked up on the PATH          |
 | ~sift.severity~        | ~info~  | the lowest severity to report: error, warning or info      |
-| ~sift.dialect~         | ~auto~  | auto goes by the extension; or name scheme, elisp or cl    |
+| ~sift.dialect~         | ~auto~  | auto goes by the extension; or name scheme, racket, elisp or cl |
 | ~sift.lintOn~          | ~change~ | open, change or save                                      |
 | ~sift.formatOnSave~    | ~false~ | format before saving                                       |
 
@@ -559,8 +559,8 @@ $ sift doctor
 sift 1.29.2
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       39
-  dialects    scheme, elisp, cl
+  rules       93
+  dialects    scheme, racket, elisp, cl
 
 Configuration
   project  /home/joe/Hacking/sift/sift.yaml

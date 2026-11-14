@@ -75,7 +75,7 @@
     "(do)"
     "(λ (x) x)"))
 
-(define dialects '(scheme elisp cl))
+(define dialects '(scheme racket elisp cl))
 
 (define (spec)
   (suite "robustness"

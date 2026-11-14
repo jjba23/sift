@@ -72,6 +72,7 @@ for dir in tests/fixtures/*/*/expected; do
   style=$(basename \"$(dirname \"$dir\")\")
   case $(basename \"$(dirname \"$(dirname \"$dir\")\")\") in
     elisp) dialect=elisp ;;
+    racket) dialect=racket ;;
     cl) dialect=cl ;;
     *) dialect=scheme ;;
   esac

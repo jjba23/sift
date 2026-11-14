@@ -79,8 +79,8 @@
   "Return the soft line limit sift uses for @var{dialect} when none is given.
 
 Emacs Lisp is held to 80 columns -- the width the Emacs manual assumes for a
-docstring's first line and for a source file read side by side -- while
-Scheme and Common Lisp get 96."
+docstring's first line and for a source file read side by side -- while Scheme,
+Racket and Common Lisp get 96."
   (if (eq? dialect 'elisp) 80 96))
 
 (define* (line-length-for dialect #:optional (override #f))
@@ -91,9 +91,10 @@ Scheme and Common Lisp get 96."
 
 Guile's own sources write a `cond' clause as `[(= x 1) ...]', and so does the
 Guix code base; a Scheme file therefore gets square brackets for its clause
-lists unless the caller says otherwise.  Emacs Lisp and Common Lisp have no
-such convention, so they keep whatever the author wrote."
-  (if (eq? dialect 'scheme) 'square 'preserve))
+lists unless the caller says otherwise.  Racket writes the clause of a `cond',
+a `case' and a `match' the same way, and gets the same answer.  Emacs Lisp and
+Common Lisp have no such convention, so they keep whatever the author wrote."
+  (if (memq dialect '(scheme racket)) 'square 'preserve))
 
 (define brackets-styles '(square parens preserve))
 
@@ -221,6 +222,65 @@ such convention, so they keep whatever the author wrote."
     (ert-deftest . 2) (should . 2) (should-error . 2) (should-not . 2)
     (cl-letf . 2) (dolist-with-progress-reporter . 2)))
 
+;;; Racket's table is the shortest of the four, and deliberately so.  Racket
+;;; indents a body two columns in from the opener, and leaves everything else to
+;;; the generic rule -- which lines a call's arguments up under the first one --
+;;; so a form needs an entry only when its elements are a *body* rather than
+;;; arguments.  `if` is the case that proves it: Racket writes
+;;;
+;;;   (if test
+;;;       then
+;;;       else)
+;;;
+;;; with the arms lined up under the test, which is what the generic rule does
+;;; and what an entry of 2 would undo.  `require' and `provide' are left out for
+;;; the same reason: their specs line up under the first spec, and every Racket
+;;; file that breaks a `require' across lines writes it that way.
+(define racket-indent-rules
+  '((define . 2) (define-values . 2) (define-syntax . 2)
+    (define-syntax-rule . 2) (define-syntax-parser . 2)
+    (define-for-syntax . 2) (define/contract . 2) (define/match . 2)
+    (define-simple-macro . 2) (define-record-type . 2)
+    (define-sequence-syntax . 2) (define-logger . 2)
+    (struct . 2) (struct* . 2)
+    (lambda . 2) (λ . 2) (case-lambda . 2)
+    (let . 2) (let* . 2) (letrec . 2) (let-values . 2) (let*-values . 2)
+    (letrec-values . 2) (let/cc . 2) (let/ec . 2)
+    (let-syntax . 2) (letrec-syntax . 2)
+    (parameterize . 2) (with-handlers . 2) (with-handlers* . 2)
+    (with-syntax . 2) (with-syntax* . 2)
+    (begin . 2) (begin0 . 2) (begin-for-syntax . 2)
+    (module . 2) (module* . 2) (module+ . 2)
+    (when . 2) (unless . 2) (and . 2) (or . 2) (do . 2)
+    (delay . 2) (delay/name . 2) (delay/thread . 2)
+    (dynamic-wind . 2) (call-with-values . 2) (guard . 2)
+    (call-with-input-file . 2) (call-with-output-file . 2)
+    (with-input-from-file . 2) (with-output-to-file . 2)
+    (call-with-output-string . 2) (with-output-to-string . 2)
+    ;; the iteration forms: a sequence of clauses and then a body
+    (for . 2) (for/list . 2) (for*/list . 2) (for/vector . 2)
+    (for*/vector . 2) (for/hash . 2) (for/hasheq . 2) (for/hasheqv . 2)
+    (for/and . 2) (for/or . 2) (for/first . 2) (for/last . 2)
+    (for/sum . 2) (for/product . 2) (for/set . 2) (for*/set . 2)
+    (for/fold . 2) (for*/fold . 2) (for/foldr . 2)
+    (for/lists . 2) (for*/lists . 2)
+    ;; the forms whose elements are clauses, which are aligned under the first
+    ;; clause when it is written on the head's line.  A `match' or a
+    ;; `syntax-case' is not one of them: its first element is the value being
+    ;; matched or the syntax being destructured, so its clauses -- which are
+    ;; still clauses, and still bracketed -- go two columns in, where every
+    ;; Racket file puts them.
+    (cond . clauses) (case . clauses)
+    (match-lambda . clauses) (match-lambda* . clauses)
+    (match . 2) (match* . 2) (syntax-case . 2) (syntax-parse . 2)
+    ;; a binding form whose pattern is the first element
+    (match-let . 2) (match-let* . 2) (match-letrec . 2) (match-define . 2)
+    (syntax-rules . 2)
+    (quote . 2) (quasiquote . 2) (unquote . 2) (unquote-splicing . 2)
+    (syntax . 2) (quasisyntax . 2) (unsyntax . 2) (unsyntax-splicing . 2)
+    (quote-syntax . 2)
+    (test-case . 2)))
+
 (define cl-indent-rules
   '((defun . 2) (defmacro . 2) (defmethod . 2) (defgeneric . 2)
     (defclass . 2) (defpackage . 2) (defstruct . 2) (define-condition . 2)
@@ -250,6 +310,7 @@ such convention, so they keep whatever the author wrote."
   "Return the indentation table for @var{dialect}."
   (case dialect
     [(scheme) scheme-indent-rules]
+    [(racket) racket-indent-rules]
     [(elisp) elisp-indent-rules]
     [(cl) cl-indent-rules]
     [else scheme-indent-rules]))
@@ -533,12 +594,17 @@ zero rather than pushed through it."
   "Return the @code{(open . close)} pair @var{node} is written with.
 
 A clause list of `cond' or `case' is written with the bracket style the
-dialect asks for -- square in Scheme -- and every other list keeps the
-delimiters it was read with, because `#(' is not a round bracket by another
-name."
+dialect asks for -- square in Scheme and in Racket -- and every other list
+keeps the delimiters it was read with, because `#(' is not a round bracket by
+another name.
+
+An empty `()' keeps its parentheses wherever it is written: it is never a
+clause with a body, and in `(syntax-case stx () ...)' it is the literals
+list -- the one child of a clause-taking form that is not a clause."
   (let ((open (node-open node))
         (close (node-close node)))
-    (if (and clause-style (round-or-square? open close))
+    (if (and clause-style (pair? (node-elements node))
+          (round-or-square? open close))
       (case clause-style
         [(square) (cons "[" "]")]
         [(parens) (cons "(" ")")]
@@ -559,8 +625,11 @@ name."
 A clause is a test or a condition and a body, so the forms that take them are
 the ones whose children are not arguments: aligning a body under the operator
 of its clause -- `(error (e) ...' under `(e)' -- is not how either Lisp that
-writes clauses is read."
+writes clauses is read.  Racket has more of them, because a `match' clause
+begins with a pattern rather than with a test."
   (case dialect
+    [(racket) '(cond case match match* match-lambda match-lambda*
+                     syntax-case syntax-parse)]
     [(elisp) '(cond pcase condition-case
                     cl-case cl-ecase cl-typecase cl-etypecase)]
     [(cl) '(cond case ecase ccase typecase etypecase ctypecase
@@ -587,11 +656,12 @@ generic rule applies.  `square' or `parens' is the bracket a Scheme clause is
 written with, and `keep' says the child is a clause that keeps its own
 delimiters -- which is what a dialect with no such convention gets.
 
-Only Scheme brackets its clauses.  A square bracket is not Emacs Lisp syntax,
-and is not Common Lisp syntax either, so `brackets: square' in a project's
-configuration -- which reads as a choice about style -- would otherwise write
-a file its own dialect cannot read back, and a formatter that does that is
-worse than one with no opinion.
+Only the Schemes bracket their clauses: Guile and Racket write a clause as
+`[test body]', and a Racket `match' clause too.  A square bracket is not
+Emacs Lisp syntax, and is not Common Lisp syntax either, so `brackets: square'
+in a project's configuration -- which reads as a choice about style -- would
+otherwise write a file its own dialect cannot read back, and a formatter that
+does that is worse than one with no opinion.
 
 A vector is never a clause list, whatever its first element is called: the
 `cond' in `#(cond a b)' is a symbol inside a literal, not the form, and
@@ -599,7 +669,7 @@ A vector is never a clause list, whatever its first element is called: the
   (let ((head (node-head-name node))
         (brackets (ctx-brackets ctx)))
     (and (memq head (clause-taking-forms (ctx-dialect ctx)))
-      (if (and (eq? (ctx-dialect ctx) 'scheme)
+      (if (and (memq (ctx-dialect ctx) '(scheme racket))
             (memq brackets '(square parens)))
         brackets
         'keep))))

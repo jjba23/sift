@@ -256,7 +256,7 @@ this program refuses to tell."
 
 (define (dialect-option value)
   (or (string->dialect value)
-    (usage-error "unknown dialect `~a'; supported dialects are scheme, elisp and cl"
+    (usage-error "unknown dialect `~a'; supported dialects are scheme, racket, elisp and cl"
                  value)))
 
 (define (style-option value)
@@ -480,7 +480,7 @@ rather than guesses, and says which dialects it knows."
   (or (config-ref config 'dialect)
     (and path (detect-dialect #:file path #:source source))
     (and source (detect-dialect #:source source))
-    (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|elisp|cl"
+    (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|racket|elisp|cl"
                  (or label path "the input"))))
 
 (define (error-findings warnings)
@@ -1233,7 +1233,7 @@ untrusted.  That is what this prints."
                      (format #t "  guile       ~a~%" (version))
                      (format #t "  library     ~a~%" (library-directory))
                      (format #t "  rules       ~a~%" (length rules))
-                     (format #t "  dialects    scheme, elisp, cl~%")
+                     (format #t "  dialects    scheme, racket, elisp, cl~%")
                      (newline)
                      (format #t "Compilers~%")
                      (for-each

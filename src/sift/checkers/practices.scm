@@ -482,8 +482,12 @@ under a quote -- `'()' or `(quote ())', which are the two shapes this reads."
     (for-each-node
      (lambda (node)
        ;; a definition has parameters, and only the ones a caller must pass
-       ;; positionally are the ones a call site has to read past
-       (let ((formals (and (definition-form? node) (formal-elements node))))
+       ;; positionally are the ones a call site has to read past.  A
+       ;; `define-values' form names the values an expression produces, so its
+       ;; tuple of six names is not a call site six arguments long.
+       (let ((formals (and (definition-form? node)
+                        (not (eq? (node-head-name node) 'define-values))
+                        (formal-elements node))))
          (when formals
            (let ((count (required-positional-formals formals)))
              (when (> count limit)
@@ -536,7 +540,7 @@ lost its colon."
 (define quote-of-constant-checker
   (checker 'quote-of-constant
            "A quote around a datum that already evaluates to itself"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            quote-of-constant-warnings
            #:severity 'info
            #:example '((input . "'5")
@@ -545,7 +549,7 @@ lost its colon."
 (define eq-on-literal-checker
   (checker 'eq-on-literal
            "`eq?` asked about a number or a string, where identity is not the question"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            eq-on-literal-warnings
            #:severity 'warning
            #:example '((input . "(eq? (length items) 3)")
@@ -554,7 +558,7 @@ lost its colon."
 (define cond-else-not-last-checker
   (checker 'cond-else-not-last
            "A `cond` clause after `else`, which can never run"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            cond-else-not-last-warnings
            #:severity 'warning
            #:example '((input . "(cond ((a) 1) (else 2) ((b) 3))")
@@ -563,7 +567,7 @@ lost its colon."
 (define duplicate-case-datum-checker
   (checker 'duplicate-case-datum
            "A `case` datum matched by an earlier clause"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            duplicate-case-datum-warnings
            #:severity 'warning
            #:example '((input . "(case x ((a) 1) ((a b) 2))")
@@ -572,7 +576,7 @@ lost its colon."
 (define too-many-arguments-checker
   (checker 'too-many-arguments
            "A parameter list long enough that a call site has to be looked up"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            too-many-arguments-warnings
            #:severity 'info
            #:example '((input . "(define (place x y width height colour outline) ...)")
@@ -592,7 +596,7 @@ lost its colon."
 (define apply-of-list-checker
   (checker 'apply-of-list
            "`apply` of a `list`, or of the empty list, where a call says it once"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            apply-of-list-warnings
            #:severity 'info
            #:example '((input . "(apply f 1 (list 2 3))")
@@ -601,7 +605,7 @@ lost its colon."
 (define let-sibling-checker
   (checker 'let-sibling
            "A `let` initializer that refers to a name the same `let` binds"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            let-sibling-warnings
            #:severity 'warning
            #:example '((input . "(let ((a (f)) (b (g a))) b)")
@@ -610,7 +614,7 @@ lost its colon."
 (define needless-let*-checker
   (checker 'needless-let*
            "A `let*` none of whose initializers depends on an earlier binding"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            needless-let*-warnings
            #:severity 'info
            #:example '((input . "(let* ((a (f)) (b (g))) (+ a b))")
@@ -619,7 +623,7 @@ lost its colon."
 (define eq-nil-checker
   (checker 'eq-nil
            "`eq?` or `equal?` against `nil`, where `null` asks the question"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            eq-nil-warnings
            #:severity 'warning
            #:example '((input . "(eq? x '())")
@@ -628,7 +632,7 @@ lost its colon."
 (define append-nothing-checker
   (checker 'append-nothing
            "An `append` with the empty list among its arguments"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            append-nothing-warnings
            #:severity 'info
            #:example '((input . "(append xs '())")

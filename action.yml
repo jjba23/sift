@@ -23,7 +23,7 @@
 # one-line way to get both halves.
 
 name: sift
-description: Format check and lint Scheme, Emacs Lisp and Common Lisp, with annotations and SARIF.
+description: Format check and lint Scheme, Racket, Emacs Lisp and Common Lisp, with annotations and SARIF.
 
 author: Josep Bigorra
 branding:

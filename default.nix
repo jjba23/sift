@@ -87,9 +87,9 @@ stdenv.mkDerivation {
   '';
 
   meta = {
-    description = "Dialect-aware formatter and linter for Scheme, Emacs Lisp and Common Lisp";
+    description = "Dialect-aware formatter and linter for Scheme, Racket, Emacs Lisp and Common Lisp";
     longDescription = ''
-      sift formats and lints Scheme, Emacs Lisp and Common Lisp without losing
+      sift formats and lints Scheme, Racket, Emacs Lisp and Common Lisp without losing
       a byte: it reads every comment, blank line and reader prefix into a node
       of its own, so formatting is reversible and idempotent, and its checkers
       are documented, independently testable and aware of which dialect they

@@ -109,9 +109,9 @@ specific language for test suites.")
     (native-inputs (list guile-veritas))
     (inputs (list guile-3.0))
     (home-page "https://github.com/jjba23/sift")
-    (synopsis "Dialect-aware formatter and linter for Scheme, Emacs Lisp and Common Lisp")
+    (synopsis "Dialect-aware formatter and linter for Scheme, Racket, Emacs Lisp and Common Lisp")
     (description
-     "sift formats and lints Scheme, Emacs Lisp and Common Lisp without
+     "sift formats and lints Scheme, Racket, Emacs Lisp and Common Lisp without
 losing a byte: it reads every comment, blank line and reader prefix into a
 node of its own, so formatting is reversible and idempotent, and its
 checkers are documented, independently testable and aware of which dialect

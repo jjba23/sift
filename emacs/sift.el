@@ -18,7 +18,7 @@
 
 ;;; Commentary:
 
-;; sift formats and lints Scheme, Emacs Lisp and Common Lisp.  This package
+;; sift formats and lints Scheme, Racket, Emacs Lisp and Common Lisp.  This package
 ;; is the editor side of it, and it is deliberately thin: every decision is
 ;; made by the executable, and Emacs only carries the text there and the
 ;; findings back.
@@ -72,9 +72,10 @@
 ;;     the fixed text in hand before it returns, and the change is one `undo'
 ;;     away.
 ;;
-;; Setup, for all three dialects:
+;; Setup, for all four dialects:
 ;;
 ;;   (add-hook 'scheme-mode-hook #'sift-mode)
+;;   (add-hook 'racket-mode-hook #'sift-mode)
 ;;   (add-hook 'emacs-lisp-mode-hook #'sift-mode)
 ;;   (add-hook 'lisp-mode-hook #'sift-mode)
 ;;
@@ -99,7 +100,7 @@
 (defvar eglot-server-programs)
 
 (defgroup sift nil
-  "Formatting and linting for Scheme, Emacs Lisp and Common Lisp."
+  "Formatting and linting for Scheme, Racket, Emacs Lisp and Common Lisp."
   :group 'languages
   :prefix "sift-"
   :link '(url-link "https://github.com/jjba23/sift"))
@@ -112,11 +113,11 @@
 (defcustom sift-dialect nil
   "Dialect to tell sift about, or nil to guess from the major mode.
 
-The value is one of \"scheme\", \"elisp\" or \"cl\".  Leave it nil unless
-you edit a Lisp in a mode this package does not know: the project's own
+The value is one of \"scheme\", \"racket\", \"elisp\" or \"cl\".  Leave it nil
+unless you edit a Lisp in a mode this package does not know: the project's own
 `sift.yaml' is the right place for a project-wide setting."
   :type '(choice (const :tag "From the major mode" nil)
-           (const "scheme") (const "elisp") (const "cl"))
+           (const "scheme") (const "racket") (const "elisp") (const "cl"))
   :group 'sift)
 
 (defcustom sift-format-style nil
@@ -154,6 +155,8 @@ buffer wants while it is being written."
 (defconst sift--mode-dialects
   '((scheme-mode . "scheme")
     (scheme-ts-mode . "scheme")
+    (racket-mode . "racket")
+    (racket-repl-mode . "racket")
     (emacs-lisp-mode . "elisp")
     (lisp-mode . "cl")
     (lisp-data-mode . "cl")
@@ -740,7 +743,7 @@ that arrives for an older question is dropped."
 ;; when there is no Eglot -- a second backend in an Eglot buffer would report
 ;; every finding twice.
 
-(defcustom sift-eglot-modes '(scheme-mode emacs-lisp-mode lisp-mode)
+(defcustom sift-eglot-modes '(scheme-mode racket-mode emacs-lisp-mode lisp-mode)
   "The major modes Eglot starts a sift language server for."
   :type '(repeat symbol)
   :group 'sift)

@@ -150,7 +150,7 @@ too high), and it compresses the module.  The one behaviour it has to be worked
 | ~F12~ or ~Ctrl~+click                | jump to the definition, in this buffer       |
 | ~Outline~                            | the buffer's definitions, click to go there  |
 | ~Rules~                              | every rule, with its example                 |
-| the dialect selector                 | Scheme, Emacs Lisp or Common Lisp            |
+| the dialect selector                 | Scheme, Racket, Emacs Lisp or Common Lisp    |
 
 The four editor questions -- hover, definition, completion, outline -- are
 answered by *the language server's own code*, not by a second implementation:
@@ -281,7 +281,7 @@ and the members a request may carry:
 | Member             | Applies to        | What it is                                         |
 |--------------------+-------------------+----------------------------------------------------|
 | ~source~           | all but ~checkers~| the buffer, as a string                            |
-| ~dialect~          | format, lint, fix | ~scheme~, ~elisp~ or ~cl~ (default ~scheme~)        |
+| ~dialect~          | format, lint, fix | ~scheme~, ~racket~, ~elisp~ or ~cl~ (default ~scheme~) |
 | ~style~            | format            | ~community~ or ~dangling~                          |
 | ~indent~           | format, lint      | indentation width, in columns                      |
 | ~brackets~         | format            | ~square~, ~parens~ or ~preserve~                    |

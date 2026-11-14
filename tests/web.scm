@@ -382,7 +382,14 @@ exactly the bug that would reach a tab and no test."
                                           (cons "source" "(cond ((= x 1) (a)))\n")
                                           (cons "dialect" "scheme")))
                         "source")
-        #:name "Scheme writes its clauses with brackets"))
+        #:name "Scheme writes its clauses with brackets")
+      (assert-equal
+        #:expect "#lang racket\n(match value\n  [(list a b) (+ a b)])\n"
+        #:got (field-of (result-of (asked (cons "op" "format")
+                                          (cons "source" "#lang racket\n(match value\n((list a b) (+ a b)))\n")
+                                          (cons "dialect" "racket")))
+                        "source")
+        #:name "Racket keeps its `#lang` line and brackets its match clauses"))
 
     (test "the style reaches the formatter"
       (assert-equal
@@ -512,12 +519,12 @@ exactly the bug that would reach a tab and no test."
         (assert-true (> (string-length (field-of finding "example")) 0)
           #:name "and an example to read")))
 
-    (test "a rule that applies to every dialect lists the three"
+    (test "a rule that applies to every dialect lists them all"
       (let* ((checkers (vector->list (field-of (result-of (asked (cons "op" "checkers")))
                                                "checkers")))
              (tabs (find (lambda (checker) (equal? (field-of checker "name") "tabs"))
                          checkers)))
-        (assert-equal #:expect 3 #:got (vector-length (field-of tabs "dialects"))
+        (assert-equal #:expect 4 #:got (vector-length (field-of tabs "dialects"))
           #:name "symbol `all' is spelled out")))
 
     ;; --- the answers are portable -------------------------------------

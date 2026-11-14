@@ -413,9 +413,14 @@ whose clauses begin with a datum."
 ;; Forms whose clauses start with a datum rather than with code.  In
 ;; `(case x ((a b) ...))' the list `(a b)' is a list of *values* to match, not
 ;; a call, so a rule about the shape of a form has no business looking inside
-;; it.
+;; it.  A `match' pattern is the same kind of thing one level further: `(list a
+;; b)' in `(match x [(list a b) ...])' names a shape, and a rule that read it
+;; as a call to `list' -- which is what `apply-of-list` and `let-sibling' would
+;; do -- would report code that is not there.  Scheme has `match' too, through
+;; `(ice-9 match)'; the pattern position is the same one.
 (define case-form-heads
-  '(case ecase ccase typecase etypecase ctypecase))
+  '(case ecase ccase typecase etypecase ctypecase
+     match match* match-lambda match-lambda* syntax-case syntax-parse))
 
 ;;; --- declarations, definitions and calls ------------------------------
 ;;;
