@@ -60,7 +60,7 @@ There are 95 rules in sift 1.30.0.
 | inputs-label-alist | SIFT087 | scheme | warning | An ~inputs~ written as a labelled alist instead of a list of packages |
 | interactive-without-arguments | SIFT076 | elisp | warning | A command with required parameters whose ~interactive~ form supplies none |
 | interactive-without-docstring | SIFT021 | elisp | warning | An ~interactive~ command without a docstring |
-| internal-define | SIFT011 | scheme, racket | warning | ~define~ inside a procedure body, after the first expression |
+| internal-define | SIFT011 | scheme | warning | ~define~ inside a procedure body, after the first expression |
 | keyword-arguments | SIFT032 | all | info | A call with more positional arguments than a reader can keep in mind |
 | let-sibling | SIFT065 | scheme, racket, elisp, cl | warning | A ~let~ initializer that refers to a name the same ~let~ binds |
 | let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
@@ -1003,7 +1003,7 @@ Run ~sift explain interactive-without-docstring~ at the command line, or ~M-x si
 
 ~define~ inside a procedure body, after the first expression
 
-- *Dialects:* scheme, racket
+- *Dialects:* scheme
 - *Severity:* warning
 - *Fix:* no automatic fix; use ~let' for a local binding
 

@@ -39,7 +39,7 @@
             patterns->string))
 
 (define lisp-extensions
-  '(".scm" ".ss" ".sld" ".sls" ".sps" ".rkt" ".rktd" ".rktl" ".scrbl" ".el"
+  '(".scm" ".ss" ".sld" ".sls" ".sps" ".rkt" ".rktd" ".rktl" ".el"
     ".lisp" ".cl" ".asd" ".lsp" ".system"))
 
 (define (compressed-path? path)

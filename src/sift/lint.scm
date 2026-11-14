@@ -110,8 +110,11 @@ list of names to skip.  Selecting a checker that does not apply to the
 dialect is not an error -- it simply runs nothing for that dialect."
   (let* ((available (checkers-for-dialect dialect))
          (selected (if include
+                     ;; a name that does not apply to the dialect selects
+                     ;; nothing, which is what the docstring promises
                      (filter (lambda (checker)
-                               (memq (lint-checker-name checker) include))
+                               (and (memq (lint-checker-name checker) include)
+                                 (lint-checker-for-dialect? checker dialect)))
                              (all-checkers))
                      available))
          (excluded (map normalise-checker-name (or exclude '()))))

@@ -30,11 +30,11 @@ const { minimalEdit, dialectFor } = require('./edit');
 
 // The extensions this extension answers for.  The dialect of one is in
 // `edit.js`, next to the arithmetic, so that it can be tested without VS Code.
-const DIALECTS = ['scm', 'ss', 'sld', 'sls', 'rkt', 'rktd', 'rktl', 'scrbl',
+const DIALECTS = ['scm', 'ss', 'sld', 'sls', 'rkt', 'rktd', 'rktl',
   'el', 'lisp', 'cl', 'asd'];
 
 /** The document filter every provider here is registered with. */
-const SELECTOR = { scheme: 'file', pattern: '**/*.{scm,ss,sld,sls,rkt,rktd,rktl,scrbl,el,lisp,cl,asd}' };
+const SELECTOR = { scheme: 'file', pattern: '**/*.{scm,ss,sld,sls,rkt,rktd,rktl,el,lisp,cl,asd}' };
 
 /** The diagnostics of each open document, by URI. */
 const collections = new Map();

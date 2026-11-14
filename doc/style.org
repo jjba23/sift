@@ -988,9 +988,9 @@ The rules a Racket file gets are the ones whose subject is a form every Lisp
 shares -- `cond`, `case`, `let`, `apply`, `quote`, a binding list, a body --
 plus the twenty that read *text* and therefore never had a dialect at all:
 whitespace, line length, comment levels, delimiter balance, naming, nesting.
-That is forty-six of the ninety-three.
+That is forty-seven of the ninety-five.
 
-Six rules do not apply, and each for a reason a reader can check:
+Nine rules do not apply, and each for a reason a reader can check:
 
 - *SIFT060* `unused-import`, *SIFT061* `library-not-found` and *SIFT062*
   `unused-definition` read `import`, `define-library` and `define-module`.
@@ -1018,6 +1018,10 @@ Six rules do not apply, and each for a reason a reader can check:
 - *SIFT006* `redundant-progn` is about `progn`, which Racket spells `begin`.
   The rule is silent there rather than wrong, and the Racket spelling would be
   a rule of its own.
+- *SIFT011* `internal-define` reports a `define` that comes after the first
+  expression of a body.  Racket's internal-definition context allows
+  definitions and expressions in any order, so the form the rule calls
+  misplaced is the form Racket writes.
 
 Three more of the dialect's own conventions are honoured rather than imposed:
 

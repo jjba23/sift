@@ -243,6 +243,7 @@
                (not (node-vector? node))
                (null? (node-elements node))
                (not (quoted-context? ancestors))
+               (not (pattern-context? node ancestors))
                (pair? ancestors))
          (let ((parent (car ancestors)))
            ;; `()` is suspicious as an argument to a call, and nowhere else:

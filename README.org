@@ -541,7 +541,7 @@ wins:
 
 1. ~--dialect~, or the ~dialect~ setting.
 2. The extension: ~.scm~, ~.ss~, ~.sld~, ~.sls~ and ~.sps~ are Scheme; ~.rkt~,
-   ~.rktd~, ~.rktl~ and ~.scrbl~ are Racket; ~.el~ is Emacs Lisp; ~.lisp~,
+   ~.rktd~ and ~.rktl~ are Racket; ~.el~ is Emacs Lisp; ~.lisp~,
    ~.cl~, ~.asd~, ~.lsp~ are Common Lisp.
 3. The shebang: ~guile~ is Scheme, ~racket~ is Racket, ~sbcl~, ~clisp~, ~ecl~
    and ~ccl~ are Common Lisp, ~emacs~ is Emacs Lisp.

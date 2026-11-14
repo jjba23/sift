@@ -6,9 +6,10 @@
 ;;; Commentary:
 ;;
 ;; Racket is a Scheme in everything the reader already understands -- `#;',
-;; `#|...|#', a bytevector, a square bracket, `#'`/`#``/`#,`/`#,` -- and a
+;; `#|...|#', a square bracket, `#'`/`#``/`#,`/`#,` -- and a
 ;; language of its own in three places: a `#lang' line opens the file, `#:kw'
-;; is a keyword rather than a symbol, and Guile's `#{...}#' is not there at
+;; is a keyword rather than a symbol, `{...}' is another spelling of `(...)',
+;; and Guile's `#{...}#' is not there at
 ;; all.  What this file pins down is both halves: the syntax that is shared is
 ;; read without a warning, the syntax that is another dialect's is reported,
 ;; and a Racket file round-trips byte for byte.
@@ -43,11 +44,16 @@
 (define (spec)
   (suite "reader: Racket"
 
-    (test "a Racket file is one file of each of its four extensions"
+    (test "a Racket file is one of each of its three extensions"
       (map (lambda (path)
              (assert-equal #:expect 'racket #:got (detect-dialect #:file path)
                #:name path))
-           '("guestbook.rkt" "data.rktd" "helper.rktl" "manual.scrbl")))
+           '("guestbook.rkt" "data.rktd" "helper.rktl")))
+
+    (test "a Scribble file is not claimed as Racket"
+      ;; `.scrbl' has an at-expression reader of its own, and a formatter
+      ;; that does not implement it would collapse `@verbatim{a  b}'
+      (assert-equal #:expect #f #:got (detect-dialect #:file "manual.scrbl")))
 
     (test "a `#lang' line and a `racket' shebang name the dialect"
       (assert-equal #:expect 'racket
@@ -80,7 +86,55 @@
 
     (test "the reader macros Racket shares with Scheme are not reported"
       (assert-equal #:expect '()
-        #:got (messages "#;(dead)\n#| note |#\n#u8(1 2)\n#\\a\n#'x\n#`x\n#,x\n#,@x\n")))
+        #:got (messages "#;(dead)\n#| note |#\n#\\a\n#'x\n#`x\n#,x\n#,@x\n")))
+
+    (test "a bytevector is Scheme syntax, and Racket says so"
+      (assert-equal #:expect 1 #:got (length (messages "#u8(1 2)\n")))
+      (assert-equal #:expect 1 #:got (length (messages "#vu8(1 2)\n")))
+      (assert-contains #:expect (car (messages "#u8(1 2)\n")) #:got "bytevector"))
+
+    (test "an identifier may carry an escaped delimiter"
+      ;; Racket's reader quotes the next character of a name with a backslash:
+      ;; `foo\\(' is one name, and the `(' does not open a list
+      (let ((node (car (data-nodes "foo\\(\n"))))
+        (assert-equal #:expect 'symbol #:got (node-atom-type node))
+        (assert-equal #:expect "foo\\(" #:got (node-value node)))
+      (assert-equal #:expect '()
+        #:got (map lint-warning-message
+                   (call-with-values
+                     (lambda () (read-source-string "foo\\( bar\n" #:dialect 'racket))
+                     (lambda (ast errors) errors))))
+      (assert-same-text #:expect "foo\\(\n" #:got (round-trip "foo\\(\n")))
+
+    (test "a single-colon name is an identifier, not a keyword"
+      (let ((node (car (data-nodes ":height\n"))))
+        (assert-equal #:expect 'symbol #:got (node-atom-type node))
+        (assert-equal #:expect ":height" #:got (node-value node))))
+
+    (test "a brace is another spelling of a parenthesis"
+      (let ((node (car (data-nodes "{a b}\n"))))
+        (assert-true (node-list? node) #:name "a list")
+        (assert-equal #:expect "{" #:got (node-open node))
+        (assert-equal #:expect "}" #:got (node-close node)))
+      ;; the quoted brace list is data, and its `if' must stay inside the quote
+      (assert-same-text #:expect "'{(if ready? (go))}\n"
+                        #:got (round-trip "'{(if ready? (go))}\n")))
+
+    (test "a `#lang' line may follow the shebang that runs the module"
+      (assert-same-text
+       #:expect "#!/usr/bin/env racket\n#lang racket\n\n(provide x)\n"
+       #:got (round-trip "#!/usr/bin/env racket\n#lang racket\n\n(provide x)\n"))
+      (assert-equal #:expect 'racket
+        #:got (detect-dialect
+               #:source "#!/usr/bin/env racket\n#lang racket\n(provide x)\n")))
+
+    (test "a marker in a comment or a string does not name the dialect"
+      (assert-equal #:expect 'scheme
+        #:got (detect-dialect
+               #:source "(define-module (demo))\n;; Racket uses #lang racket\n"))
+      (assert-equal #:expect 'scheme
+        #:got (detect-dialect
+               #:source "(define-module (demo))\n(display \"#lang racket\")\n")))
 
     (test "Guile's extended symbol is not Racket syntax, and says so"
       (let ((reported (messages "#{foo bar}#\n")))
