@@ -36,7 +36,10 @@ What exists and is tested:
 - **A language server**, `sift lsp`: diagnostics, quickfixes, formatting,
   definition, references, an outline, completion, inlay hints, hover, signature
   help, rename, five code actions and import organization — and a
-  `method not found` for everything else rather than a guess. The clients are
+  `method not found` for everything else rather than a guess. A name no file in
+  the project defines is answered for by the standard library of all four
+  dialects: the sources of the three that document their compiled names to a
+  program, and the `collects` and `pkgs` Racket ships as source. The clients are
   thin wrappers over it: `emacs/sift.el` for Flymake and Eglot, a Neovim setup, a
   Vim plugin with a compiler, a VS Code extension, a pre-commit hook and two
   GitHub Actions.
@@ -87,13 +90,6 @@ into an immutable snapshot rather than waited for.
 - **Pull diagnostics (`textDocument/diagnostic`).** Refused; findings are pushed
   after every change. The hard part is holding one diagnosis in two models
   without the lint driver becoming two code paths that drift.
-- **A Racket standard library.** The fourth dialect was added the way the entry
-  here said it would have to be: the reader, the formatter and each rule
-  re-argued, and the rules whose premise is another dialect's left out. What it
-  does not have is a library index, because asking `racket/base` what it exports
-  means shipping a Racket program sift would have to maintain the way it
-  maintains the Guile, Emacs Lisp and SBCL ones; a Racket buffer is answered for
-  by the buffer and the project alone.
 - **Linting a change rather than a tree.** A pipeline wants findings on the lines
   a diff touched. The hard part is the failing decision: whether a job fails on a
   new finding only.

@@ -28,6 +28,12 @@
 ;; it rather than on nothing.  The file says what it is in its own header, so a
 ;; reader who arrives there by jumping was told why they are there.
 ;;
+;; Racket is the one dialect that has the first and not the second: it ships
+;; `collects' and `pkgs' as source, so its library is read like a project, and
+;; a name that only the compiled `#%kernel' defines is the one it cannot
+;; answer.  Not shipping a Racket program to describe it is a decision and not
+;; an omission -- the files are already there.
+;;
 ;; Nothing here downloads anything.  A standard library that is not installed
 ;; is a standard library sift cannot read, and the answer is a smaller answer
 ;; rather than a wrong one; `stdlib:' in `sift.yaml' is how a reader who
@@ -737,7 +743,14 @@ the kind that file's definition has."
         ;; `--noinform' is a runtime option, so it comes before the Lisp ones: in
         ;; the middle of them SBCL refuses to start at all.
         (arguments . ("--noinform" "--non-interactive" "--eval"))
-        (name . "SBCL"))))
+        (name . "SBCL"))
+    ;; Racket has a program and no script: it ships `collects' and `pkgs' as
+    ;; source, so its library is read rather than asked for.  `.scrbl' is
+    ;; Racket too, but a Scribble file documents a name rather than defining
+    ;; one, and the package trees ship thousands of them.
+    (racket (extensions . (".rkt" ".rktd" ".rktl"))
+            (program . "racket")
+            (name . "Racket"))))
 
 (define (dialect-spec dialect)
   (let ((entry (assq dialect dialects)))
@@ -825,11 +838,44 @@ implementation to answer a question about a path."
                  "/usr/local/lib/sbcl/contrib"
                  "/usr/lib/sbcl/contrib"))))
 
+(define (racket-roots)
+  "Return the directories a Racket installation keeps its library in.
+
+Racket ships `collects' -- the library `#lang racket' is written from -- and
+`pkgs', what was installed beside it, as source, so the index is read the way
+Guile's is rather than asked for.  The installation's prefix is the directory
+above the `racket' the `PATH' names; `PLTCOLLECTS' is the variable Racket
+itself reads, and a `--user' package install puts a version's trees under the
+data directory."
+  (let* ((program (program-file "racket"))
+         (prefix (and program
+                   (let ((bin (dirname program)))
+                     (and (string=? "bin" (basename bin)) (dirname bin))))))
+    (existing-directories
+     (append
+      (if prefix
+        (list (string-append prefix "/share/racket/collects")
+              (string-append prefix "/share/racket/pkgs"))
+        '())
+      (append-map
+       (lambda (parent)
+         (append-map
+          (lambda (version)
+            (list (string-append parent "/" version "/collects")
+                  (string-append parent "/" version "/pkgs")))
+          (or (false-if-exception (scandir parent)) '())))
+       (filter directory? (list (home-path ".local/share/racket")
+                                (home-path ".racket"))))
+      (string-split (or (getenv "PLTCOLLECTS") "") #\:)))))
+
 (define (discovered-roots dialect metadata)
   "Return the directories @var{dialect}'s library is in, as @var{metadata} says."
-  (if (eq? dialect 'cl)
-    (common-lisp-roots)
-    (existing-directories (metadata-values metadata "root"))))
+  (cond
+    [(eq? dialect 'cl) (common-lisp-roots)]
+    ;; Racket is asked nothing, so it names no root: discovery says where its
+    ;; installation shipped its source instead.
+    [(eq? dialect 'racket) (racket-roots)]
+    [else (existing-directories (metadata-values metadata "root"))]))
 
 (define (implementation-name dialect metadata)
   "Return a sentence naming the implementation that wrote @var{metadata}."
@@ -964,37 +1010,54 @@ the index it was making."
 
 ;;; ===== Asking for one =====
 
+(define (index-and-write! dialect program generated roots text implementation)
+  "Index @var{roots} as @var{dialect}'s library and write the index down.
+
+@var{text} is the generated index the implementation described itself with, or
+the empty string for a dialect read from source alone."
+  (let ((library (index-standard-library #:dialect dialect
+                                         #:roots roots
+                                         #:builtins-text text
+                                         #:builtins-path generated
+                                         #:implementation implementation)))
+    (write-index! dialect library program)
+    library))
+
 (define (build-library dialect program override)
-  "Ask @var{dialect}'s implementation to describe itself, then index its files.
+  "Read @var{dialect}'s library, asking its implementation when there is one.
 
 @var{override} is a list of directories to read instead of the ones the
 implementation names, which is how a source tree a reader unpacked themselves
-is handed over."
+is handed over.  Racket has no script to ask -- its library ships as source --
+so its generated index is empty and the files are the whole answer."
   (let ((generated (builtins-file dialect))
-        (arguments (cdr (assq 'arguments (dialect-spec dialect))))
         (script (dialect-script dialect)))
-    (and generated script
+    (and generated
       (make-directories (cache-directory))
-      ;; the description is written beside the index and moved into place, so
-      ;; that a run that fails leaves the one it had
+      ;; what is written beside the index is moved into place, so that a run
+      ;; that fails leaves the one it had
       (let ((partial (temporary-path generated)))
-        (and (run-to-file program (append arguments (list script)) partial)
-          (let ((text (read-file-text partial generated-byte-limit)))
-            (and text
-              (begin
-                (false-if-exception (rename-file partial generated))
-                (let ((library (index-standard-library
-                                #:dialect dialect
-                                #:roots (or override
-                                          (discovered-roots
-                                           dialect (metadata-of text)))
-                                #:builtins-text text
-                                #:builtins-path generated
-                                #:implementation
-                                (implementation-name dialect
-                                                     (metadata-of text)))))
-                  (write-index! dialect library program)
-                  library)))))))))
+        (if script
+          (let ((arguments (cdr (assq 'arguments (dialect-spec dialect)))))
+            (and (run-to-file program (append arguments (list script)) partial)
+              (let ((text (read-file-text partial generated-byte-limit)))
+                (and text
+                  (begin
+                    (false-if-exception (rename-file partial generated))
+                    (index-and-write!
+                     dialect program generated
+                     (or override (discovered-roots dialect (metadata-of text)))
+                     text
+                     (implementation-name dialect (metadata-of text))))))))
+          (and (false-if-exception
+                (call-with-output-file partial (lambda (port) #t)))
+            (begin
+              (false-if-exception (rename-file partial generated))
+              (index-and-write!
+               dialect program generated
+               (or override (discovered-roots dialect '()))
+               ""
+               (implementation-name dialect '())))))))))
 
 ;; The libraries are asked for by dialect and kept for the session: the index
 ;; is the same for every project in the editor, and reading it once is what
@@ -1115,7 +1178,11 @@ lets an editor show that the work is happening rather than that sift is idle."
                     (when report
                       (report (format #f "indexing the ~a library" dialect)))
                     (let ((library (stdlib-for dialect)))
-                      (and library (> (length (standard-library-builtins library)) 0)
+                      ;; a library read from source alone has no builtins and
+                      ;; is still a library: what says it was read is a name
+                      (and library
+                        (or (> (length (standard-library-builtins library)) 0)
+                          (pair? (stdlib-names library)))
                         (let ((summary (stdlib-summary library)))
                           (when report (report summary))
                           summary))))
