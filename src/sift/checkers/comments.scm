@@ -84,14 +84,23 @@ not a top-level comment."
 
 ;;; ===== comment-semicolons =====
 
-(define (comment-level inside?)
+(define (comment-level inside? dialect)
   "Return the number of semicolons a line comment takes at this position.
 
 One at the end of a line, two inside a form, three at top level.  A heading --
 four -- is not a level this answers: it is a level the rule accepts and never
 asks for, because deciding that a comment is a heading is deciding what the
-comment is for."
-  (if inside? 2 3))
+comment is for.
+
+Racket is the exception at top level, and it is not a detail: a Racket file
+writes a comment on its own line with two semicolons, which is what the style
+guide shows, what `raco fmt' keeps, and what a three-semicolon comment means
+there -- a section heading.  Asking for three would demote every heading in
+the file to a plain comment."
+  (cond
+    [inside? 2]
+    [(eq? dialect 'racket) 2]
+    [else 3]))
 
 (define (comment-pad? character)
   "Return @code{#t} for the characters a comment may be padded with."
@@ -145,7 +154,7 @@ fix run over a buffer changes nothing a person wrote."
      (lambda (node inside?)
        (let* ((text (node-value node))
               (semicolons (semicolon-count text))
-              (required (comment-level inside?))
+              (required (comment-level inside? dialect))
               ;; a heading is four semicolons at top level, and the rule has
               ;; no business demoting one: three or more is where a top-level
               ;; comment belongs
@@ -162,7 +171,9 @@ fix run over a buffer changes nothing a person wrote."
              [(not right-level?)
               (report node (if inside?
                              "a comment inside a form takes two semicolons"
-                             "a top-level comment takes three semicolons")
+                             (if (eq? dialect 'racket)
+                               "a top-level comment takes two semicolons"
+                               "a top-level comment takes three semicolons"))
                       required)]
              [else #f]))))
      ast)

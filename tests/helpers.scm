@@ -376,7 +376,8 @@ list to keep in step."
 
 (define (dialect-of path)
   (let ((parts (string-split path #\/)))
-    (cond [(member "elisp" parts) 'elisp]
+    (cond [(member "racket" parts) 'racket]
+          [(member "elisp" parts) 'elisp]
           [(member "cl" parts) 'cl]
           [else 'scheme])))
 

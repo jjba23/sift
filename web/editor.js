@@ -260,7 +260,10 @@ const request = (op, extra) => ({
   dialect: dialect.value,
   style: style.value,
   severity: severity.value,
-  label: "buffer." + (dialect.value === "elisp" ? "el" : dialect.value === "cl" ? "lisp" : "scm"),
+  label: "buffer." + (dialect.value === "elisp" ? "el"
+    : dialect.value === "cl" ? "lisp"
+    : dialect.value === "racket" ? "rkt"
+    : "scm"),
   ...extra,
 });
 

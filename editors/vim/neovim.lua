@@ -18,8 +18,10 @@ local sift = { "sift", "lsp" }
 
 -- The dialects sift reads, by filetype and by extension: a buffer is started
 -- once, at whichever of these it matches first.
-local filetypes = { "scheme", "scheme.guile", "elisp", "emacs-lisp", "lisp" }
-local extensions = { "scm", "ss", "sld", "sls", "el", "lisp", "cl", "asd" }
+local filetypes = { "scheme", "scheme.guile", "racket", "elisp", "emacs-lisp",
+  "lisp" }
+local extensions = { "scm", "ss", "sld", "sls", "rkt", "rktd", "rktl", "scrbl",
+  "el", "lisp", "cl", "asd" }
 
 local function matches(pattern)
   return vim.fn.glob(pattern, false, true)
@@ -86,7 +88,8 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 -- asked to write: this asks it.
 vim.api.nvim_create_autocmd("BufWritePre", {
   group = group,
-  pattern = { "*.scm", "*.ss", "*.sld", "*.sls", "*.el", "*.lisp", "*.cl", "*.asd" },
+  pattern = { "*.scm", "*.ss", "*.sld", "*.sls", "*.rkt", "*.rktd", "*.rktl",
+    "*.scrbl", "*.el", "*.lisp", "*.cl", "*.asd" },
   callback = function()
     vim.lsp.buf.format({ async = false })
   end,

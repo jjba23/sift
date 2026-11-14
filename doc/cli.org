@@ -52,7 +52,7 @@ counterpart, over which the command line takes precedence.
 
 | Option                     | Where                           | What it does                                                          |
 |----------------------------+---------------------------------+-----------------------------------------------------------------------|
-| ~--dialect~                | all                             | Scheme, elisp or cl; overrides detection                              |
+| ~--dialect~                | all                             | Scheme, racket, elisp or cl; overrides detection                      |
 | ~--stdin~                  | format, lint, check, ci         | Read one source from standard input                                   |
 | ~--stdout~                 | format                          | Write the result to standard output (the default without ~--write~)   |
 | ~--write~, ~-w~            | format                          | Rewrite the files in place                                            |

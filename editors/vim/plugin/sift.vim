@@ -4,7 +4,8 @@
 " Copyright © Josep Bigorra <jjbigorra@gmail.com>
 "
 " Copy this directory to ~/.vim (or point a plugin manager at it) and the
-" commands below appear for Scheme, Emacs Lisp and Common Lisp buffers.
+" commands below appear for Scheme, Racket, Emacs Lisp and Common Lisp
+" buffers.
 "
 "   :SiftLint      fill the quickfix list with sift's findings
 "   :SiftFormat    format the buffer, keeping the cursor where it was
@@ -25,10 +26,10 @@ set cpo&vim
 
 augroup sift
   autocmd!
-  autocmd FileType scheme,elisp,lisp command! -buffer -bar SiftLint call sift#lint()
-  autocmd FileType scheme,elisp,lisp command! -buffer -bar SiftFormat call sift#format()
-  autocmd FileType scheme,elisp,lisp command! -buffer -bar SiftFix call sift#fix()
-  autocmd FileType scheme,elisp,lisp command! -buffer -bar SiftExplain call sift#explain()
+  autocmd FileType scheme,racket,elisp,lisp command! -buffer -bar SiftLint call sift#lint()
+  autocmd FileType scheme,racket,elisp,lisp command! -buffer -bar SiftFormat call sift#format()
+  autocmd FileType scheme,racket,elisp,lisp command! -buffer -bar SiftFix call sift#fix()
+  autocmd FileType scheme,racket,elisp,lisp command! -buffer -bar SiftExplain call sift#explain()
 augroup END
 
 let &cpo = s:save_cpo

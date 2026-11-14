@@ -252,7 +252,7 @@ and stable by definition."
     (map symbol->string (if (eq? applies 'all) dialects applies))))
 
 (define (dialects-sentence names)
-  "Return @var{names} as an English list: scheme, elisp and cl."
+  "Return @var{names} as an English list: scheme, racket, elisp and cl."
   (cond
     [(null? names) "any dialect"]
     [(null? (cdr names)) (car names)]
@@ -568,7 +568,8 @@ can select, because the name printed is the name `--checker' takes."
     (format port "DIALECTS~%~a~%~%"
             (let ((dialects (lint-checker-dialects checker)))
               (if (eq? dialects 'all)
-                "all dialects: scheme, elisp, cl"
+                (format #f "all dialects: ~a"
+                        (string-join (checker-dialect-names checker) ", "))
                 (string-join (map symbol->string dialects) ", "))))
     (format port "SEVERITY~%~a~%~%" (lint-checker-severity checker))
     (when (and example (assq 'input example))

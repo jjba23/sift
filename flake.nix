@@ -24,7 +24,7 @@
 # with an engine and no Nix.
 
 {
-  description = "sift — a formatter, linter and language server for Scheme, Emacs Lisp and Common Lisp";
+  description = "sift — a formatter, linter and language server for Scheme, Racket, Emacs Lisp and Common Lisp";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

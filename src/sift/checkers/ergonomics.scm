@@ -272,14 +272,16 @@ their own; a parameter written `(name default)' contributes `name'."
                [else #f]))
        (or (option 'field-macros default-field-macros) default-field-macros)))
 
-(define (too-long-call-message name count paired)
+(define (too-long-call-message name count paired dialect)
   "Return what to say about a form that states more than a reader can hold.
 
 A pair form cannot be shortened with keywords -- `(setq :key 1)' states
-nothing -- so it is told to be split instead."
+nothing -- so it is told to be split instead.  A keyword is spelled the way the
+dialect spells one, because that is the word the author would have to type."
   (if paired
     (format #f "`~a` states ~a pairs in one form; split it" name count)
-    (format #f "`~a` takes ~a positional arguments; consider `:key`" name count)))
+    (format #f "`~a` takes ~a positional arguments; consider `~a`" name count
+            (if (eq? dialect 'racket) "#:key" ":key"))))
 
 (define (keyword-arguments-warnings ast source dialect)
   (let ((max-positional (or (option 'max-positional 5)))
@@ -315,7 +317,8 @@ nothing -- so it is told to be split instead."
              (set! warnings
                    (cons (make-lint-warning 'keyword-arguments 'info
                                             (too-long-call-message name count
-                                                                   paired)
+                                                                   paired
+                                                                   dialect)
                                             (node-start node))
                          warnings))))))
      ast)

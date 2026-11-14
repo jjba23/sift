@@ -18,18 +18,18 @@ There are 93 rules in sift 1.29.2.
 
 | Name | Code | Dialects | Severity | What it says |
 |------+------+----------+----------+--------------|
-| append-nothing | SIFT068 | scheme, elisp, cl | info | An ~append~ with the empty list among its arguments |
-| apply-of-list | SIFT064 | scheme, elisp, cl | info | ~apply~ of a ~list~, or of the empty list, where a call says it once |
+| append-nothing | SIFT068 | scheme, racket, elisp, cl | info | An ~append~ with the empty list among its arguments |
+| apply-of-list | SIFT064 | scheme, racket, elisp, cl | info | ~apply~ of a ~list~, or of the empty list, where a call says it once |
 | assoc-ref-outputs | SIFT080 | scheme | warning | ~(assoc-ref %outputs "out")~ inside a gexp, where ~#$output~ says it |
-| beta-reduction | SIFT046 | scheme, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
+| beta-reduction | SIFT046 | scheme, racket, elisp, cl | info | A lambda applied in place, where a ~let~ would say the same thing once |
 | blank-line-in-body | SIFT052 | all | info | A blank line in the middle of a body, where one paragraph belongs |
 | call-arity | SIFT088 | scheme, elisp, cl | info | A call whose arguments do not match the definition in this file: too few, too many, or a keyword it does not take |
 | case-literal-datum | SIFT069 | scheme, cl | warning | A ~case~ datum that ~eqv?~ cannot decide, such as a string |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
-| clause-brackets | SIFT036 | scheme | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
+| clause-brackets | SIFT036 | scheme, racket | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
 | comment-semicolons | SIFT051 | all | info | A comment's semicolon level does not say where it belongs |
-| composition | SIFT047 | scheme | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
-| cond-else-not-last | SIFT056 | scheme, elisp, cl | warning | A ~cond~ clause after ~else~, which can never run |
+| composition | SIFT047 | scheme, racket | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
+| cond-else-not-last | SIFT056 | scheme, racket, elisp, cl | warning | A ~cond~ clause after ~else~, which can never run |
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
 | defcustom-without-type | SIFT059 | elisp | warning | A ~defcustom~ whose value Customize cannot render for lack of ~:type~ |
@@ -43,46 +43,46 @@ There are 93 rules in sift 1.29.2.
 | docstring-texinfo | SIFT035 | scheme | info | A Guile docstring that does not document its arguments with ~@var{}~ |
 | double-colon | SIFT026 | cl | warning | Use of ~package::internal-symbol~ in production code |
 | duplicate-binding | SIFT037 | all | warning | The same name bound twice in one binding list |
-| duplicate-case-datum | SIFT057 | scheme, elisp, cl | warning | A ~case~ datum matched by an earlier clause |
+| duplicate-case-datum | SIFT057 | scheme, racket, elisp, cl | warning | A ~case~ datum matched by an earlier clause |
 | duplicate-keyword | SIFT009 | all | warning | A keyword argument given more than once in the same call |
 | ecase-otherwise | SIFT072 | cl | warning | A default clause in ~ecase~, ~etypecase~, ~ccase~ or ~ctypecase~ |
 | empty-body | SIFT005 | all | warning | A ~cond~, ~let~ or ~lambda~ form with no body |
-| empty-form | SIFT008 | scheme | warning | ~()~ used where a value is expected |
-| eq-nil | SIFT067 | scheme, elisp, cl | warning | ~eq?~ or ~equal?~ against ~nil~, where ~null~ asks the question |
-| eq-non-symbol | SIFT092 | scheme, elisp, cl | warning | ~eq~/~eq?~ of a literal that identity cannot decide, where the value predicate can |
-| eq-on-literal | SIFT055 | scheme, elisp, cl | warning | ~eq?~ asked about a number or a string, where identity is not the question |
-| eta-reduction | SIFT045 | scheme | info | A lambda that only passes its argument on, where the procedure itself would do |
+| empty-form | SIFT008 | scheme, racket | warning | ~()~ used where a value is expected |
+| eq-nil | SIFT067 | scheme, racket, elisp, cl | warning | ~eq?~ or ~equal?~ against ~nil~, where ~null~ asks the question |
+| eq-non-symbol | SIFT092 | scheme, racket, elisp, cl | warning | ~eq~/~eq?~ of a literal that identity cannot decide, where the value predicate can |
+| eq-on-literal | SIFT055 | scheme, racket, elisp, cl | warning | ~eq?~ asked about a number or a string, where identity is not the question |
+| eta-reduction | SIFT045 | scheme, racket | info | A lambda that only passes its argument on, where the procedure itself would do |
 | gexp-output-script | SIFT079 | scheme | warning | A ~#$output~ in a gexp that makes a file rather than a derivation |
 | gexp-quoted | SIFT077 | scheme | warning | A gexp written under a quote, where what is quoted is the form |
-| if-without-else | SIFT012 | scheme | warning | ~if~ with no else branch, where ~when~ expresses the intent |
+| if-without-else | SIFT012 | scheme, racket | warning | ~if~ with no else branch, where ~when~ expresses the intent |
 | inputs-label-alist | SIFT087 | scheme | warning | An ~inputs~ written as a labelled alist instead of a list of packages |
 | interactive-without-arguments | SIFT076 | elisp | warning | A command with required parameters whose ~interactive~ form supplies none |
 | interactive-without-docstring | SIFT021 | elisp | warning | An ~interactive~ command without a docstring |
-| internal-define | SIFT011 | scheme | warning | ~define~ inside a procedure body, after the first expression |
+| internal-define | SIFT011 | scheme, racket | warning | ~define~ inside a procedure body, after the first expression |
 | keyword-arguments | SIFT032 | all | info | A call with more positional arguments than a reader can keep in mind |
-| let-sibling | SIFT065 | scheme, elisp, cl | warning | A ~let~ initializer that refers to a name the same ~let~ binds |
+| let-sibling | SIFT065 | scheme, racket, elisp, cl | warning | A ~let~ initializer that refers to a name the same ~let~ binds |
 | let-simplification | SIFT048 | all | info | A ~let~ that binds a name to return it, binds nothing, or binds once with ~let*~ |
 | letrec-init-reference | SIFT070 | scheme | warning | A ~letrec~ initializer that refers to a binding the form has not assigned yet |
-| letrec-single-binding | SIFT015 | scheme | info | ~letrec~ with a single binding that does not need recursive scope |
+| letrec-single-binding | SIFT015 | scheme, racket | info | ~letrec~ with a single binding that does not need recursive scope |
 | lexical-binding-missing | SIFT020 | elisp | warning | The file header lacks ~-*- lexical-binding: t; -*-~ |
 | library-not-found | SIFT061 | scheme | warning | An ~import~ of a library that neither the file nor the project declares |
 | line-length | SIFT003 | all | warning | Line exceeds the configured soft limit (96 columns, 80 in Emacs Lisp) |
 | loop-keyword-style | SIFT029 | cl | info | Symbolic LOOP keywords where the project style asks for literal ~:keywords~ |
 | mixed-lambda-list | SIFT073 | cl | warning | A lambda list with both ~&optional~ and ~&key~ |
 | naming-convention | SIFT040 | all | warning | An underscore or camelCase in the name of a definition |
-| needless-let* | SIFT066 | scheme, elisp, cl | info | A ~let*~ none of whose initializers depends on an earlier binding |
+| needless-let* | SIFT066 | scheme, racket, elisp, cl | info | A ~let*~ none of whose initializers depends on an earlier binding |
 | negated-if | SIFT033 | scheme, elisp, cl | warning | ~if~ or ~when~ with a negated test, which ~unless~ says directly |
 | nesting-depth | SIFT044 | all | warning | A definition whose body nests deeper than the configured limit |
-| number-literal-argument | SIFT090 | scheme, elisp, cl | warning | A string passed to an operator whose arguments are numbers |
+| number-literal-argument | SIFT090 | scheme, racket, elisp, cl | warning | A string passed to an operator whose arguments are numbers |
 | package-description-literal | SIFT085 | scheme | warning | A description built by ~string-append~ rather than written as one string |
 | package-prefix | SIFT025 | cl | warning | Exported symbols referenced without a package prefix |
 | package-synopsis | SIFT084 | scheme | warning | A synopsis that opens with an article, ends with a period, or starts in lower case |
 | phase-name-quoting | SIFT082 | scheme | warning | A phase named by an unquoted symbol or a string in ~modify-phases~ |
 | predicate-name | SIFT041 | all | info | A procedure that answers a question but is not named like one |
 | provide-missing | SIFT023 | elisp | warning | The file defines a package but has no final ~(provide 'feature)~ |
-| quasiquote-dotted-unquote | SIFT093 | scheme | warning | A ~(key . ,value)~ pair inside a quasiquote, which is the same as ~(key unquote value)~ |
-| quasiquote-unquote-constant | SIFT016 | scheme | info | ~(quasiquote (unquote constant))~ can be simplified |
-| quote-of-constant | SIFT054 | scheme, elisp, cl | info | A quote around a datum that already evaluates to itself |
+| quasiquote-dotted-unquote | SIFT093 | scheme, racket | warning | A ~(key . ,value)~ pair inside a quasiquote, which is the same as ~(key unquote value)~ |
+| quasiquote-unquote-constant | SIFT016 | scheme, racket | info | ~(quasiquote (unquote constant))~ can be simplified |
+| quote-of-constant | SIFT054 | scheme, racket, elisp, cl | info | A quote around a datum that already evaluates to itself |
 | reader-prefix-break | SIFT007 | all | warning | A newline between a reader prefix and its datum |
 | redundant-identity | SIFT030 | cl | info | ~(identity x)~ or ~(funcall #'foo ...)~ where the value suffices |
 | redundant-progn | SIFT006 | all | warning | ~progn~ used as the sole body of a form that already has an implicit ~progn~ |
@@ -92,24 +92,24 @@ There are 93 rules in sift 1.29.2.
 | single-letter-name | SIFT053 | all | info | A variable named with a single letter |
 | special-variable-name | SIFT042 | elisp, cl | info | A special variable or constant whose name does not say so |
 | string-append-file-append | SIFT081 | scheme | info | A gexp ~string-append~ of a package and a literal path, where ~file-append~ says it |
-| string-literal-argument | SIFT089 | scheme, elisp, cl | warning | A number or boolean passed where the operator's convention says a string |
+| string-literal-argument | SIFT089 | scheme, racket, elisp, cl | warning | A number or boolean passed where the operator's convention says a string |
 | sxml-attributes | SIFT049 | scheme | warning | An element's ~(@ ...)~ list is missing, repeated, empty, or not the first child |
 | sxml-child | SIFT050 | scheme | warning | A child of an element that is a list of children rather than a child |
 | sxml-empty-element | SIFT063 | scheme | warning | An element with attributes and no children, which serializes as a self-closing tag |
 | tabs | SIFT002 | all | warning | Tab characters used for indentation |
-| too-many-arguments | SIFT058 | scheme, elisp, cl | info | A parameter list long enough that a call site has to be looked up |
+| too-many-arguments | SIFT058 | scheme, racket, elisp, cl | info | A parameter list long enough that a call site has to be looked up |
 | trailing-blank-lines | SIFT010 | all | info | More than two consecutive blank lines at end of file |
 | trailing-whitespace | SIFT001 | all | warning | Lines ending with spaces or tabs |
 | ungexp-outside-gexp | SIFT078 | scheme | warning | An ~#$~, ~#$@~, ~#+~ or ~#+@~ with no gexp around it |
-| unless-without-body | SIFT014 | scheme, cl | warning | ~unless~ form with no body |
+| unless-without-body | SIFT014 | scheme, racket, cl | warning | ~unless~ form with no body |
 | unmatched-parens | SIFT004 | all | error | Unbalanced or unmatched parentheses or brackets |
 | unused-argument | SIFT043 | all | info | A parameter that the definition never refers to |
-| unused-binding | SIFT039 | scheme, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
+| unused-binding | SIFT039 | scheme, racket, elisp, cl | warning | A binding whose name is never referenced in the form that binds it |
 | unused-definition | SIFT062 | scheme | info | A definition nothing in the file uses, in a module that does not export it |
 | unused-import | SIFT060 | scheme | info | A name or a library an ~import~ brings in that the file never uses |
 | unused-import-from | SIFT091 | cl | info | A name a ~defpackage~ imports with ~:import-from~ and the file never uses |
 | use-modules-in-gexp | SIFT083 | scheme | warning | A build module imported inside a gexp that ~with-imported-modules~ does not mark |
-| when-without-body | SIFT013 | scheme, cl | warning | ~when~ form with no body |
+| when-without-body | SIFT013 | scheme, racket, cl | warning | ~when~ form with no body |
 | wrap-in-let | SIFT031 | all | info | A body form that is too deep or too long to read as one expression |
 
 * The rules, one by one
@@ -121,7 +121,7 @@ There are 93 rules in sift 1.29.2.
 
 An ~append~ with the empty list among its arguments
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* xs
 
@@ -141,7 +141,7 @@ Run ~sift explain append-nothing~ at the command line, or ~M-x sift-explain-at-p
 
 ~apply~ of a ~list~, or of the empty list, where a call says it once
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* (f 1 2 3)
 
@@ -181,7 +181,7 @@ Run ~sift explain assoc-ref-outputs~ at the command line, or ~M-x sift-explain-a
 
 A lambda applied in place, where a ~let~ would say the same thing once
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* (let ((x (g))) (f x))
 
@@ -289,7 +289,7 @@ Run ~sift explain checkdoc-style-verb~ at the command line, or ~M-x sift-explain
 
 A ~cond~ or ~case~ clause written with the other kind of bracket
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* warning
 - *Fix:* (cond [(= x 1) 'one]
       [else 'other])
@@ -335,7 +335,7 @@ Run ~sift explain comment-semicolons~ at the command line, or ~M-x sift-explain-
 
 A lambda whose body is one call around another, where ~compose~ names the pipeline
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* info
 - *Fix:* (compose f g)
 
@@ -355,7 +355,7 @@ Run ~sift explain composition~ at the command line, or ~M-x sift-explain-at-poin
 
 A ~cond~ clause after ~else~, which can never run
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (cond ((a) 1) ((b) 3) (else 2))
 
@@ -651,7 +651,7 @@ Run ~sift explain duplicate-binding~ at the command line, or ~M-x sift-explain-a
 
 A ~case~ datum matched by an earlier clause
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (case x ((a) 1) ((b) 2))
 
@@ -731,7 +731,7 @@ Run ~sift explain empty-body~ at the command line, or ~M-x sift-explain-at-point
 
 ~()~ used where a value is expected
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* warning
 - *Fix:* no automatic fix; write ~'()~ or the value the form should return
 
@@ -751,7 +751,7 @@ Run ~sift explain empty-form~ at the command line, or ~M-x sift-explain-at-point
 
 ~eq?~ or ~equal?~ against ~nil~, where ~null~ asks the question
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (null? x)
 
@@ -771,7 +771,7 @@ Run ~sift explain eq-nil~ at the command line, or ~M-x sift-explain-at-point~ in
 
 ~eq~/~eq?~ of a literal that identity cannot decide, where the value predicate can
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (eqv? x 1)
 
@@ -791,7 +791,7 @@ Run ~sift explain eq-non-symbol~ at the command line, or ~M-x sift-explain-at-po
 
 ~eq?~ asked about a number or a string, where identity is not the question
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (eqv? (length items) 3)
 
@@ -811,7 +811,7 @@ Run ~sift explain eq-on-literal~ at the command line, or ~M-x sift-explain-at-po
 
 A lambda that only passes its argument on, where the procedure itself would do
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* info
 - *Fix:* f
 
@@ -871,7 +871,7 @@ Run ~sift explain gexp-quoted~ at the command line, or ~M-x sift-explain-at-poin
 
 ~if~ with no else branch, where ~when~ expresses the intent
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* warning
 - *Fix:* (when (ready?) (go))
 
@@ -959,7 +959,7 @@ Run ~sift explain interactive-without-docstring~ at the command line, or ~M-x si
 
 ~define~ inside a procedure body, after the first expression
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* warning
 - *Fix:* no automatic fix; use ~let' for a local binding
 
@@ -1001,7 +1001,7 @@ Run ~sift explain keyword-arguments~ at the command line, or ~M-x sift-explain-a
 
 A ~let~ initializer that refers to a name the same ~let~ binds
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (let* ((a (f)) (b (g a))) b)
 
@@ -1061,7 +1061,7 @@ Run ~sift explain letrec-init-reference~ at the command line, or ~M-x sift-expla
 
 ~letrec~ with a single binding that does not need recursive scope
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* info
 - *Fix:* no automatic fix; ~let~ expresses the same thing
 
@@ -1203,7 +1203,7 @@ Run ~sift explain naming-convention~ at the command line, or ~M-x sift-explain-a
 
 A ~let*~ none of whose initializers depends on an earlier binding
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* (let ((a (f)) (b (g))) (+ a b))
 
@@ -1265,7 +1265,7 @@ Run ~sift explain nesting-depth~ at the command line, or ~M-x sift-explain-at-po
 
 A string passed to an operator whose arguments are numbers
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (+ 1 2)
 
@@ -1408,7 +1408,7 @@ Run ~sift explain provide-missing~ at the command line, or ~M-x sift-explain-at-
 
 A ~(key . ,value)~ pair inside a quasiquote, which is the same as ~(key unquote value)~
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* warning
 - *Fix:* ~((key unquote value))
 
@@ -1428,7 +1428,7 @@ Run ~sift explain quasiquote-dotted-unquote~ at the command line, or ~M-x sift-e
 
 ~(quasiquote (unquote constant))~ can be simplified
 
-- *Dialects:* scheme
+- *Dialects:* scheme, racket
 - *Severity:* info
 - *Fix:* no automatic fix; write the constant directly
 
@@ -1448,7 +1448,7 @@ Run ~sift explain quasiquote-unquote-constant~ at the command line, or ~M-x sift
 
 A quote around a datum that already evaluates to itself
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* 5
 
@@ -1649,7 +1649,7 @@ Run ~sift explain string-append-file-append~ at the command line, or ~M-x sift-e
 
 A number or boolean passed where the operator's convention says a string
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* (string-append "a" "1")
 
@@ -1750,7 +1750,7 @@ Run ~sift explain tabs~ at the command line, or ~M-x sift-explain-at-point~ in E
 
 A parameter list long enough that a call site has to be looked up
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* info
 - *Fix:* (define (place x y area colour) ...)
 
@@ -1836,7 +1836,7 @@ Run ~sift explain ungexp-outside-gexp~ at the command line, or ~M-x sift-explain
 
 ~unless~ form with no body
 
-- *Dialects:* scheme, cl
+- *Dialects:* scheme, racket, cl
 - *Severity:* warning
 - *Fix:* no automatic fix; add the body or drop the form
 
@@ -1897,7 +1897,7 @@ Run ~sift explain unused-argument~ at the command line, or ~M-x sift-explain-at-
 
 A binding whose name is never referenced in the form that binds it
 
-- *Dialects:* scheme, elisp, cl
+- *Dialects:* scheme, racket, elisp, cl
 - *Severity:* warning
 - *Fix:* no automatic fix; remove the binding or use it
 
@@ -2008,7 +2008,7 @@ Run ~sift explain use-modules-in-gexp~ at the command line, or ~M-x sift-explain
 
 ~when~ form with no body
 
-- *Dialects:* scheme, cl
+- *Dialects:* scheme, racket, cl
 - *Severity:* warning
 - *Fix:* no automatic fix; add the body or drop the form
 

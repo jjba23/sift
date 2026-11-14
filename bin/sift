@@ -1,6 +1,6 @@
 #!/bin/sh
-# sift --- a dialect-aware formatter and linter for Scheme, Emacs Lisp and
-# Common Lisp.
+# sift --- a dialect-aware formatter and linter for Scheme, Racket, Emacs Lisp
+# and Common Lisp.
 #
 # SPDX-License-Identifier: MIT
 # Copyright © Josep Bigorra <jjbigorra@gmail.com>

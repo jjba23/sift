@@ -39,8 +39,8 @@
             patterns->string))
 
 (define lisp-extensions
-  '(".scm" ".ss" ".sld" ".sls" ".sps" ".el" ".lisp" ".cl" ".asd" ".lsp"
-    ".system"))
+  '(".scm" ".ss" ".sld" ".sls" ".sps" ".rkt" ".rktd" ".rktl" ".scrbl" ".el"
+    ".lisp" ".cl" ".asd" ".lsp" ".system"))
 
 (define (compressed-path? path)
   "Return @code{#t} when @var{path} names a gzip file."

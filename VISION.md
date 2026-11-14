@@ -4,7 +4,7 @@ sift reads a Lisp source file as a tree of forms that carry source positions,
 reports what is ill-formed in it, and prints the tree back with the whitespace
 moved. Formatting is a total function on text and a fixed point, and every
 fixture in the suite asserts both. This document says what that premise should
-eventually buy — in three dialects, five editors, a pipeline and a browser tab —
+eventually buy — in four dialects, five editors, a pipeline and a browser tab —
 and which refusals are worth keeping.
 
 ## Where sift is today
@@ -18,10 +18,11 @@ fix that replaces exactly one range, a diff whose hunks are the change.
 
 What exists and is tested:
 
-- **Three dialects, each by its own report.** A square bracket is a vector in
+- **Four dialects, each by its own report.** A square bracket is a vector in
   Emacs Lisp and a `cond` clause in Scheme, `#{…}#` is a symbol only Guile
-  reads, and an ambiguous file is never guessed at.
-- **92 rules**, each a record with a name, a stable code (`SIFT012`), a
+  reads, a `#lang` line is the header of a Racket module and an ambiguous file
+  is never guessed at.
+- **93 rules**, each a record with a name, a stable code (`SIFT012`), a
   sentence, its dialects, a severity and an example. `sift explain` reads the
   reasoning out of the program; `doc/rules.org` is generated from the records.
 - **A linter whose fixes refuse to guess.** A fix replaces one range, and a
@@ -86,10 +87,13 @@ into an immutable snapshot rather than waited for.
 - **Pull diagnostics (`textDocument/diagnostic`).** Refused; findings are pushed
   after every change. The hard part is holding one diagnosis in two models
   without the lint driver becoming two code paths that drift.
-- **A fourth dialect.** The README says the list of Lisps that deserve a better
-  reader is long. The hard part is not the reader — it is that every rule, every
-  layout convention and every fixture has to be re-argued for a language whose
-  community has its own answers.
+- **A Racket standard library.** The fourth dialect was added the way the entry
+  here said it would have to be: the reader, the formatter and each rule
+  re-argued, and the rules whose premise is another dialect's left out. What it
+  does not have is a library index, because asking `racket/base` what it exports
+  means shipping a Racket program sift would have to maintain the way it
+  maintains the Guile, Emacs Lisp and SBCL ones; a Racket buffer is answered for
+  by the buffer and the project alone.
 - **Linting a change rather than a tree.** A pipeline wants findings on the lines
   a diff touched. The hard part is the failing decision: whether a job fails on a
   new finding only.
@@ -149,7 +153,7 @@ The others do three things sift should reach for: a macro configuration a
 project can check in (clj-kondo), answers from a real analysis of the program
 rather than from names (SLIME, SLY), and the authority that comes from being the
 one canonical tool of a language (rustfmt, gofmt). None carries a browser build
-of the same code, and none treats three dialects in one executable as the
+of the same code, and none treats four dialects in one executable as the
 premise.
 
 Where sift is ahead, and should stay ahead: the fixed point, asserted over every
@@ -169,9 +173,10 @@ never compiled anything.
 - **One analysis, four consumers.** Findings, fixes, hover and inlay hints are
   four renderings of one walk. Keeping them so is what lets a new output format
   or a new client be an afternoon's work.
-- **A fourth dialect, and a fifth.** Each is evidence that the reader, the
-  formatter and the rule records are the general part and the dialect the
-  detail.
+- **A fifth dialect.** Racket was the fourth, and adding it cost what this
+  document predicted: a table, a dozen rules re-argued, a corpus of its own.
+  Each one after it is more evidence that the reader, the formatter and the rule
+  records are the general part and the dialect the detail.
 
 ## Closing
 

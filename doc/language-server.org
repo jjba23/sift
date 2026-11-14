@@ -38,7 +38,7 @@ server.
 | ~codeAction/resolve~                                 | no      | an action is computed from the buffer the editor sent, so there is nothing to fill in later |
 | ~textDocument/formatting~                            | yes     | one edit for the buffer, or a message saying why it refuses                       |
 | ~textDocument/hover~                                 | yes     | a symbol's definition and docstring, or what the implementation says about a builtin; a finding's rule otherwise |
-| ~textDocument/definition~                            | yes     | Scheme, Emacs Lisp and Common Lisp: scope first, then the file, then the project, then the standard library |
+| ~textDocument/definition~                            | yes     | Scheme, Racket, Emacs Lisp and Common Lisp: scope first, then the file, then the project, then the standard library |
 | ~textDocument/references~                            | yes     | every mention in the project, by name, within one dialect; a binding's mentions are the ones inside the form that binds it |
 | ~textDocument/documentHighlight~                     | yes     | the mentions in this buffer, the declaration marked apart from the uses           |
 | ~textDocument/documentSymbol~                        | yes     | the outline, a definition nested inside the one that holds it                     |
@@ -177,6 +177,14 @@ and asked the same question a project's files are, so `(srfi srfi-1)'s `fold`
 lands on the `define` that defines it, a third-party package lands on the
 source that package installed, and the hover is the hover of any other
 definition.
+
+Racket is the dialect the index does not cover, and the reason is a decision
+rather than an oversight: asking ~racket/base~ what it exports means shipping a
+Racket program that sift would have to maintain the way it maintains the Guile,
+Emacs Lisp and SBCL ones.  A Racket buffer is answered for by the buffer, the
+project and the rules -- which is every answer that does not need a library --
+and a name that lives in ~racket/base~ is reported as a name no file defines,
+which is exactly what it is from here.
 
 A source may be *compressed*: most Emacs installations ship ~foo.el.gz~, and
 a project that vendors one has the same shape.  It is read through ~gzip~ as

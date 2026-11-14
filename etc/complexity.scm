@@ -49,8 +49,8 @@
 ;;; a Lisp this is not the same list as the one a brace language would have:
 ;;; `(let ((x 1)) ...)' is a scope, not a branch, but every `let' clause in a
 ;;; `cond' is, and `and' short-circuits.  The list below is the union of the
-;;; three dialects, because one report over a mixed tree is more useful than
-;;; three reports.
+;;; four dialects, because one report over a mixed tree is more useful than
+;;; four reports.
 (define decision-heads
   '(if when unless cond case case-lambda and or
      let let* letrec letrec* let-values let*-values

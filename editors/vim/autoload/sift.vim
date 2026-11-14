@@ -13,6 +13,8 @@ let s:sift = get(g:, 'sift_executable', 'sift')
 function! s:dialect() abort
   if &filetype ==# 'scheme'
     return 'scheme'
+  elseif &filetype ==# 'racket'
+    return 'racket'
   elseif &filetype ==# 'elisp'
     return 'elisp'
   elseif &filetype ==# 'lisp'

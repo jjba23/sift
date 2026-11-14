@@ -935,7 +935,7 @@ an improper pair with @code{0} in its tail -- and `all' is every argument."
 (define string-literal-argument-checker
   (checker 'string-literal-argument
            "A number or boolean passed where the operator's convention says a string"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            string-literal-argument-warnings
            #:severity 'warning
            #:example '((input . "(string-append \"a\" 1)")
@@ -944,7 +944,7 @@ an improper pair with @code{0} in its tail -- and `all' is every argument."
 (define number-literal-argument-checker
   (checker 'number-literal-argument
            "A string passed to an operator whose arguments are numbers"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            number-literal-argument-warnings
            #:severity 'warning
            #:example '((input . "(+ 1 \"2\")")
@@ -953,7 +953,7 @@ an improper pair with @code{0} in its tail -- and `all' is every argument."
 (define eq-non-symbol-checker
   (checker 'eq-non-symbol
            "`eq`/`eq?` of a literal that identity cannot decide, where the value predicate can"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            eq-non-symbol-warnings
            #:severity 'warning
            #:example '((input . "(eq? x 1)")

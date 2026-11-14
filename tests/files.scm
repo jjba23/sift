@@ -46,6 +46,14 @@
                #:name (format #f "~a is a Lisp file" extension)))
            '(".scm" ".ss" ".sld" ".sls" ".sps" ".el" ".lisp" ".cl" ".asd")))
 
+    (test "the Racket extensions are sift's files too"
+      ;; a Racket project is four extensions: a module, a data module, a
+      ;; library the test runner loads, and a Scribble document
+      (map (lambda (extension)
+             (assert-true (lisp-path? (string-append "file" extension))
+               #:name (format #f "~a is a Lisp file" extension)))
+           '(".rkt" ".rktd" ".rktl" ".scrbl")))
+
     (test "a file sift has no extension for is not one of its files"
       (assert-equal #:expect #f #:got (lisp-path? "notes.txt")))
 

@@ -18,10 +18,14 @@
 ;; is not shadowed.  A simplification rule that is wrong once is a rule the
 ;; author turns off and never turns back on.
 ;;
-;; The readers of the three dialects are the same here, the writers are not:
+;; The readers of the four dialects are the same here, the writers are not:
 ;; `(lambda (x) (f x))' is a function in Scheme and in Emacs Lisp but not in
 ;; Common Lisp, where a function is written `#'f' and a bare lambda is not
 ;; even read; and `compose' is Guile's, so it is suggested in Scheme only.
+;; Racket is in between: the rewrite holds there, but `compose' comes from
+;; `racket/function', so the fix names a binding the file may not require --
+;; which is the same caveat Guile's own `compose' carries, and why the rule
+;; suggests rather than rewrites.
 
 (define-module (sift checkers simplify)
   #:declarative? #t
@@ -48,6 +52,16 @@
      begin do delay delay-force force make-promise parameterize guard
      quote quasiquote unquote unquote-splicing set! syntax-rules syntax-case
      named-lambda lambda*
+     ;; Racket's macros, and the ones Scheme reaches for from a library: a
+     ;; lambda whose body calls one of these is not passing a procedure on,
+     ;; because the operator is not a procedure.
+     λ match match* match-lambda match-lambda* match-let match-let*
+     syntax syntax-parse quasisyntax unsyntax
+     unsyntax-splicing syntax-quote quote-syntax for for/list for*/list
+     for/vector for*/vector for/hash for/and for/or for/first for/last
+     for/sum for/product for/set for/fold for*/fold with-handlers
+     with-handlers* struct define/contract define/match module module*
+     module+ let/cc let/ec
      defun defmacro defsubst defvar defconst defcustom defparameter
      defclass defmethod defgeneric defstruct declare function
      let-over-lambda the the-future future))
@@ -114,7 +128,7 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 
 (define (eta-reduction-warnings ast source dialect)
   (let ((warnings '()))
-    (when (eq? dialect 'scheme)
+    (when (memq dialect '(scheme racket))
       (walk-forms
        (lambda (node ancestors)
          (when (eq? (call-head-name node) 'lambda)
@@ -183,7 +197,7 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 
 (define (composition-warnings ast source dialect)
   (let ((warnings '()))
-    (when (eq? dialect 'scheme)
+    (when (memq dialect '(scheme racket))
       (for-each-form
        (lambda (node)
          (when (and (eq? (call-head-name node) 'lambda)
@@ -290,7 +304,7 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define eta-reduction-checker
   (checker 'eta-reduction
            "A lambda that only passes its argument on, where the procedure itself would do"
-           '(scheme)
+           '(scheme racket)
            eta-reduction-warnings
            #:severity 'info
            #:example '((input . "(lambda (x) (f x))")
@@ -299,7 +313,7 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define beta-reduction-checker
   (checker 'beta-reduction
            "A lambda applied in place, where a `let` would say the same thing once"
-           '(scheme elisp cl)
+           '(scheme racket elisp cl)
            beta-reduction-warnings
            #:severity 'info
            #:example '((input . "((lambda (x) (f x)) (g))")
@@ -308,7 +322,7 @@ sift knows by name is a call to a procedure, and a procedure is a value."
 (define composition-checker
   (checker 'composition
            "A lambda whose body is one call around another, where `compose` names the pipeline"
-           '(scheme)
+           '(scheme racket)
            composition-warnings
            #:severity 'info
            #:example '((input . "(lambda (x) (f (g x)))")

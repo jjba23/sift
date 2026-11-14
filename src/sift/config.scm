@@ -116,7 +116,7 @@ one entry per key and `config-ref' always answers with the winning layer."
      (type . dialect)
      (default . #f)
      (flag . "--dialect")
-     (description . "Dialect to read the file as: scheme, elisp or cl."))
+     (description . "Dialect to read the file as: scheme, racket, elisp or cl."))
     (style
      (type . style)
      (default . community)
@@ -362,7 +362,7 @@ would be the wrong thing to say to a user who typed `--checker=a'."
                        [(symbol? value) value]
                        [(string? value) (string->dialect value)]
                        [else #f])))
-    (if (or (not value) dialect) dialect (bad "scheme, elisp or cl"))))
+    (if (or (not value) dialect) dialect (bad "scheme, racket, elisp or cl"))))
 
 (define (style-setting value bad)
   (let ((style (cond [(symbol? value) value]

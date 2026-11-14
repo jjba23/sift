@@ -150,7 +150,7 @@
 (define when-without-body-checker
   (checker 'when-without-body
            "`when` form with no body"
-           '(scheme cl)
+           '(scheme racket cl)
            (without-body-warnings 'when-without-body 'when)
            #:severity 'warning
            #:example '((input . "(when (ready?))")
@@ -159,7 +159,7 @@
 (define unless-without-body-checker
   (checker 'unless-without-body
            "`unless` form with no body"
-           '(scheme cl)
+           '(scheme racket cl)
            (without-body-warnings 'unless-without-body 'unless)
            #:severity 'warning
            #:example '((input . "(unless (ready?))")
@@ -222,9 +222,9 @@
 ;; one: the rule is about `()` in *value* position, and an empty formal list
 ;; is not a value, it is how a procedure that takes no argument says so.
 (define parameter-list-heads
-  '(lambda lambda* define define* define-public let let* letrec letrec*
+  '(lambda λ lambda* define define* define-public let let* letrec letrec*
      let-values let*-values case-lambda do guard parameterize
-     with-exception-handler))
+     with-exception-handler define-values))
 
 ;; Forms whose arguments are literals, patterns and templates rather than
 ;; expressions.  `()` is the empty literals list in `(syntax-rules () ...)`
@@ -238,6 +238,9 @@
     (walk-with-ancestors
      (lambda (node ancestors)
        (when (and (node-list? node)
+               ;; an empty vector `#()' is a value Racket and Scheme both
+               ;; read, and it is not an empty form
+               (not (node-vector? node))
                (null? (node-elements node))
                (not (quoted-context? ancestors))
                (pair? ancestors))
@@ -251,7 +254,7 @@
                    (not (memq (node-head-name parent) data-argument-heads)))
              (set! warnings
                    (cons (make-lint-warning 'empty-form 'warning
-                                            "`()` is not a value here; Scheme's empty list needs quoting"
+                                            "`()` is not a value here; the empty list needs quoting"
                                             (node-start node))
                          warnings))))))
      ast)
@@ -260,7 +263,7 @@
 (define empty-form-checker
   (checker 'empty-form
            "`()` used where a value is expected"
-           '(scheme)
+           '(scheme racket)
            empty-form-warnings
            #:severity 'warning
            #:example '((input . "(define (f) (list ()))")
