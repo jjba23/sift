@@ -235,7 +235,9 @@ dead server rather than as a finding." ;; one bytevector, one write: a header an
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
-        (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
+        (cons 'max-definition-depth (config-ref config 'max-definition-depth))
+        (cons 'max-cognitive-complexity (config-ref config 'max-cognitive-complexity))
+        (cons 'max-cyclomatic-complexity (config-ref config 'max-cyclomatic-complexity))))
 
 (define* (all-warnings config text #:key (dialect 'scheme) (uri #f) (exclude '()))
   "Return every warning @var{text} earns, leaving out @var{exclude}."

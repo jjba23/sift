@@ -187,4 +187,12 @@ A project that has settled a convention should not have to fight its
 formatter, and a formatter that has settled one should not have to argue;
 this is why these values are data in ~sift.yaml~ and not opinions in the code.
 
+Three thresholds are configuration only, because they move with the kind of
+program rather than with a house style: ~max-definition-depth~, which is how
+deep a chain of conditionals ~nesting-depth~ accepts (6),
+~max-cognitive-complexity~ (15) and ~max-cyclomatic-complexity~ (10), which
+are what ~cognitive-complexity~ and ~cyclomatic-complexity~ report above.  A
+tree that is all of one shape sets them once and stops arguing with the
+linter.
+
 Back to the [[file:../README.org][README]].

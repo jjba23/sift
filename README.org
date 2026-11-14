@@ -16,7 +16,7 @@
 
 *an idempotent formatter, a rule-based linter and a language server for Scheme, Racket, Emacs Lisp and Common Lisp*
 
-[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.29.2-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-93-2f6f4f.svg]]
+[[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.29.2-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-95-2f6f4f.svg]]
 
 sift reads a Lisp source file, reports what is ill-formed in it, and rewrites
 its whitespace.  The rewrite is a total function on text and a fixed point:
@@ -108,7 +108,7 @@ can be silenced without editing the code it objects to.
   by design: ~format~ prints, ~--write~ writes, ~lint~ reports, ~lint --fix~
   fixes, and ~ci~ asks the formatting question and the lint question in one
   pass without touching the tree.
-- *Ninety-three rules, each with its rationale.*  Every rule has a name, a
+- *Ninety-five rules, each with its rationale.*  Every rule has a name, a
   stable code (~SIFT012~), a sentence, the dialects it applies to, an example
   and its own test file.  ~sift explain RULE~ reads the reasoning out of the
   program, and [[file:doc/rules.org][doc/rules.org]] is generated from the rule records, so the
@@ -260,7 +260,7 @@ $ sift doctor
 sift 1.29.2
   guile       3.0.11
   library     /home/joe/Hacking/sift/src
-  rules       93
+  rules       95
   dialects    scheme, racket, elisp, cl
 
 Compilers
@@ -579,7 +579,7 @@ every dialect's read syntax, and the four things it will not do.
 A rule is a record: a name, a code, a description, the dialects it applies to,
 a severity, a procedure and an example.  The driver runs those the dialect
 selects, adds the reader's own findings, applies the suppression comments, and
-emits the result in source order.  The catalogue holds 93 of them, listed one by
+emits the result in source order.  The catalogue holds 95 of them, listed one by
 one in [[file:doc/rules.org][doc/rules.org]].  [[file:doc/linting.org][doc/linting.org]] covers the rest: what a fix may
 touch, why a fix is discarded rather than guessed at, and how a rule is silenced
 for a line or for a form.
@@ -644,7 +644,7 @@ parse.
 
 [[file:web/README.org][web/]] is the two jobs that are a function of a string — formatting and
 linting — compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], with an editor page
-around it.  The same reader, the same formatter and all 93 rules run in the tab,
+around it.  The same reader, the same formatter and all 95 rules run in the tab,
 and no input leaves it, because there is nowhere for it to go.
 
 It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
@@ -724,7 +724,7 @@ root.
 :CUSTOM_ID: web-cost
 :END:
 
-The module is 2.3 MB, which is a formatter, a linter and 93 rules on a
+The module is 3.4 MB, which is a formatter, a linter and 95 rules on a
 Wasm GC — a large page by the standards of a web page and a small one by the
 standards of an editor.  Speed is the part of the experiment with numbers
 attached:
@@ -748,7 +748,7 @@ a ~checkers~ list, which is how a page asks for less work.
 :END:
 
 Two questions were being asked.  Whether a Scheme program of real size — not a
-toy, but a formatter with a reader of its own and 93 rules — can be compiled
+toy, but a formatter with a reader of its own and 95 rules — can be compiled
 into something a tab runs: it can, with the caveats above, and the porting work
 amounted to one compatibility directory rather than a rewrite.  Whether the seam
 survives contact: it does, and the test that establishes it runs under Guile in

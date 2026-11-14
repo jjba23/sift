@@ -12,7 +12,7 @@ and the test suite fails when it falls behind.  What each rule is
 *for* -- the reasoning, and the style the rules belong to -- is in
 [[file:style.org][style.org]].
 
-There are 93 rules in sift 1.29.2.
+There are 95 rules in sift 1.29.2.
 
 * Summary
 
@@ -27,9 +27,11 @@ There are 93 rules in sift 1.29.2.
 | case-literal-datum | SIFT069 | scheme, cl | warning | A ~case~ datum that ~eqv?~ cannot decide, such as a string |
 | checkdoc-style-verb | SIFT022 | elisp | info | Docstring first sentence uses the third person instead of the imperative |
 | clause-brackets | SIFT036 | scheme, racket | warning | A ~cond~ or ~case~ clause written with the other kind of bracket |
+| cognitive-complexity | SIFT094 | all | info | A definition whose cognitive complexity is over the configured budget |
 | comment-semicolons | SIFT051 | all | info | A comment's semicolon level does not say where it belongs |
 | composition | SIFT047 | scheme, racket | info | A lambda whose body is one call around another, where ~compose~ names the pipeline |
 | cond-else-not-last | SIFT056 | scheme, racket, elisp, cl | warning | A ~cond~ clause after ~else~, which can never run |
+| cyclomatic-complexity | SIFT095 | all | info | A definition with more paths than the configured budget |
 | dangling-paren | SIFT027 | cl | warning | Closing parenthesis on its own line |
 | declare-indent | SIFT024 | elisp | info | ~declare~ not indented two columns from the enclosing ~defun~ |
 | defcustom-without-type | SIFT059 | elisp | warning | A ~defcustom~ whose value Customize cannot render for lack of ~:type~ |
@@ -304,6 +306,27 @@ Run ~sift explain clause-brackets~ at the command line, or ~M-x sift-explain-at-
 #+end_quote
 
 
+** SIFT094 cognitive-complexity
+:PROPERTIES:
+:CUSTOM_ID: cognitive-complexity
+:END:
+
+A definition whose cognitive complexity is over the configured budget
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* no automatic fix; extract the innermost branch into a procedure
+
+#+begin_src scheme
+(define (f x)
+  (if (a) (if (b) (if (c) (if (d) (if (e) 1 2))))))
+#+end_src
+
+#+begin_quote
+Run ~sift explain cognitive-complexity~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
 ** SIFT051 comment-semicolons
 :PROPERTIES:
 :CUSTOM_ID: comment-semicolons
@@ -365,6 +388,27 @@ A ~cond~ clause after ~else~, which can never run
 
 #+begin_quote
 Run ~sift explain cond-else-not-last~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
+#+end_quote
+
+
+** SIFT095 cyclomatic-complexity
+:PROPERTIES:
+:CUSTOM_ID: cyclomatic-complexity
+:END:
+
+A definition with more paths than the configured budget
+
+- *Dialects:* all
+- *Severity:* info
+- *Fix:* no automatic fix; a path is a test to write, so name it in a procedure
+
+#+begin_src scheme
+(define (f x)
+  (if (a) 1 (if (b) 2 (if (c) 3 (if (d) 4 5)))))
+#+end_src
+
+#+begin_quote
+Run ~sift explain cyclomatic-complexity~ at the command line, or ~M-x sift-explain-at-point~ in Emacs with the cursor on a finding.
 #+end_quote
 
 

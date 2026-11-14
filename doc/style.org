@@ -775,6 +775,8 @@ grouped by dialect, with the case for each one.
 | SIFT067 | eq-nil                  | warning  | a comparison with `nil` where `null` asks the question     |
 | SIFT068 | append-nothing          | info     | an `append` with the empty list among its arguments        |
 | SIFT069 | case-literal-datum      | warning  | a `case` datum `eqv?` cannot decide, such as a string      |
+| SIFT094 | cognitive-complexity    | info     | a definition costs more to read than the budget             |
+| SIFT095 | cyclomatic-complexity   | info     | a definition has more paths than the budget                |
 
 These rules are cross-dialect because they read the *text* (whitespace, length,
 delimiters) or a form all four dialects share (`if`, `when`, `progn`, `let`).
@@ -802,6 +804,19 @@ the body of a definition is already a sequence.
 line in the middle of a body, and a variable whose name is one letter.  All
 three are `info`: they are about how a file reads rather than about what it
 means, and a project that has decided otherwise excludes them by name.
+
+*The case for SIFT094 and SIFT095:* `nesting-depth` says how deep one chain of
+conditionals goes; these two say what the whole definition costs.  Cognitive
+complexity charges one for every branch and one more for each branch inside
+it, because that is what a reader holds in mind at once; cyclomatic complexity
+counts the paths a test would have to cover, which is one plus the branches.  A
+`cond` is one branch here rather than one per clause: sift reports the choice,
+not its cases.  The numbers are the ones `maak complexity` ranks, so a finding
+and the report cannot disagree, and both budgets are settings -- fifteen and
+ten -- because a program that spawns processes for a living may nest more than
+one that formats a buffer.  Both rules are `info`: a budget says when the
+question is worth asking, not that the answer is wrong, and a project that
+wants them in its build raises the threshold, not the severity.
 
 ** Scheme rules
 

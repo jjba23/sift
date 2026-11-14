@@ -162,6 +162,16 @@ one entry per key and `config-ref' always answers with the winning layer."
      (default . 6)
      (flag . #f)
      (description . "Conditionals deep at which nesting-depth warns. Config-only."))
+    (max-cognitive-complexity
+     (type . integer)
+     (default . 15)
+     (flag . #f)
+     (description . "Cognitive complexity at which cognitive-complexity warns. Config-only."))
+    (max-cyclomatic-complexity
+     (type . integer)
+     (default . 10)
+     (flag . #f)
+     (description . "Paths at which cyclomatic-complexity warns. Config-only."))
     (max-positional
      (type . integer)
      (default . 5)
@@ -863,4 +873,6 @@ expect."
         (cons 'max-depth (config-ref config 'max-depth))
         (cons 'max-elements (config-ref config 'max-elements))
         (cons 'max-positional (config-ref config 'max-positional))
-        (cons 'max-definition-depth (config-ref config 'max-definition-depth))))
+        (cons 'max-definition-depth (config-ref config 'max-definition-depth))
+        (cons 'max-cognitive-complexity (config-ref config 'max-cognitive-complexity))
+        (cons 'max-cyclomatic-complexity (config-ref config 'max-cyclomatic-complexity))))

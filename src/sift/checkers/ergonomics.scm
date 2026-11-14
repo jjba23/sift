@@ -5,12 +5,13 @@
 
 ;;; Commentary:
 ;;
-;; Two suggestions about the *shape* of a call rather than about its
-;; correctness.  Lisp has two ways of keeping a form readable: bind the part
-;; that got long, and name the arguments that stopped fitting.  These
-;; checkers say when one of those moments has arrived; neither has an
-;; automatic fix, because choosing the name and the split is the author's
-;; work.
+;; Suggestions about the *shape* of a form rather than about its correctness.
+;; Lisp has two ways of keeping a form readable: bind the part that got long,
+;; and name the arguments that stopped fitting.  Two checkers say when one of
+;; those moments has arrived; neither has an automatic fix, because choosing
+;; the name and the split is the author's work.  The other three are about how
+;; much a definition asks of a reader: how deep its conditionals chain, how
+;; much the whole definition costs, and how many paths it hides.
 
 (define-module (sift checkers ergonomics)
   #:declarative? #t
@@ -20,9 +21,12 @@
   #:use-module (sift records)
   #:use-module (sift format)
   #:use-module (sift check base)
+  #:use-module (sift complexity)
   #:export (ergonomics-checkers
             wrap-in-let-checker
-            keyword-arguments-checker))
+            keyword-arguments-checker
+            cognitive-complexity-checker
+            cyclomatic-complexity-checker))
 
 ;;; ===== wrap-in-let =====
 
@@ -228,6 +232,68 @@ their own; a parameter written `(name default)' contributes `name'."
            #:example '((input . "(define (f x)\n  (if (a) (if (b) (if (c)\n    (if (d) (if (e) 1 2))))))")
                        (fix . "no automatic fix; extract the inner form into its own procedure"))))
 
+;;; ===== cognitive-complexity and cyclomatic-complexity =====
+
+;; `nesting-depth` says how deep one chain of conditionals goes; these two say
+;; what the whole definition costs.  The measurement is `(sift complexity)'s,
+;; which is the one `maak complexity' ranks, so a finding and the report cannot
+;; disagree about the same function.  The budgets are settings because a
+;; program that spawns processes for a living may nest more than one that
+;; formats a buffer.
+
+(define (complexity-value measure key)
+  (case key
+    [(score) (complexity-score measure)]
+    [(cycles) (complexity-cycles measure)]
+    [else 0]))
+
+(define (over-budget-warnings name ast key budget message)
+  "Return a finding for every definition in @var{ast} whose @var{key} is over @var{budget}."
+  (let ((warnings '()))
+    (for-each-form
+     (lambda (node)
+       (when (complexity-definition? node)
+         (let* ((measure (complexity-of node))
+                (value (complexity-value measure key)))
+           (when (> value budget)
+             (set! warnings
+                   (cons (diagnose name 'info (message value budget) node)
+                         warnings))))))
+     ast)
+    (reverse warnings)))
+
+(define (cognitive-complexity-warnings ast source dialect)
+  (over-budget-warnings
+   'cognitive-complexity ast 'score (option 'max-cognitive-complexity 15)
+   (lambda (value budget)
+     (format #f "this definition's cognitive complexity is ~a, over the budget of ~a; split it"
+             value budget))))
+
+(define cognitive-complexity-checker
+  (checker 'cognitive-complexity
+           "A definition whose cognitive complexity is over the configured budget"
+           'all
+           cognitive-complexity-warnings
+           #:severity 'info
+           #:example '((input . "(define (f x)\n  (if (a) (if (b) (if (c) (if (d) (if (e) 1 2))))))")
+                       (fix . "no automatic fix; extract the innermost branch into a procedure"))))
+
+(define (cyclomatic-complexity-warnings ast source dialect)
+  (over-budget-warnings
+   'cyclomatic-complexity ast 'cycles (option 'max-cyclomatic-complexity 10)
+   (lambda (value budget)
+     (format #f "this definition has ~a paths, over the budget of ~a; split it"
+             value budget))))
+
+(define cyclomatic-complexity-checker
+  (checker 'cyclomatic-complexity
+           "A definition with more paths than the configured budget"
+           'all
+           cyclomatic-complexity-warnings
+           #:severity 'info
+           #:example '((input . "(define (f x)\n  (if (a) 1 (if (b) 2 (if (c) 3 (if (d) 4 5)))))")
+                       (fix . "no automatic fix; a path is a test to write, so name it in a procedure"))))
+
 ;;; ===== keyword-arguments =====
 
 ;; Calls that are meant to take as many arguments as you like.  Reporting
@@ -339,4 +405,6 @@ dialect spells one, because that is the word the author would have to type."
   (list wrap-in-let-checker
         keyword-arguments-checker
         unused-argument-checker
-        nesting-depth-checker))
+        nesting-depth-checker
+        cognitive-complexity-checker
+        cyclomatic-complexity-checker))

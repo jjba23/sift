@@ -22,7 +22,7 @@ What exists and is tested:
   Emacs Lisp and a `cond` clause in Scheme, `#{…}#` is a symbol only Guile
   reads, a `#lang` line is the header of a Racket module and an ambiguous file
   is never guessed at.
-- **93 rules**, each a record with a name, a stable code (`SIFT012`), a
+- **95 rules**, each a record with a name, a stable code (`SIFT012`), a
   sentence, its dialects, a severity and an example. `sift explain` reads the
   reasoning out of the program; `doc/rules.org` is generated from the records.
 - **A linter whose fixes refuse to guess.** A fix replaces one range, and a
@@ -106,11 +106,6 @@ into an immutable snapshot rather than waited for.
   and a severity policy for new versus existing ones — what a large codebase
   needs before it can adopt a linter at all; and an **`--explain`** on `sift
   fix` that names the rule and range behind each applied fix.
-- **A complexity gate.** `etc/complexity.scm` already reports cognitive and
-  cyclomatic complexity and nesting per definition with sift's own reader, and
-  notes that a budget is only worth adding if one is wanted. Wiring it into `ci`
-  would make refactoring measurable.
-
 ## Contributions that would move the needle
 
 1. **A rule.** The path is written down and short: one record, one test file,
