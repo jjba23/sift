@@ -178,13 +178,14 @@ lands on the `define` that defines it, a third-party package lands on the
 source that package installed, and the hover is the hover of any other
 definition.
 
-Racket is the dialect the index does not cover, and the reason is a decision
-rather than an oversight: asking ~racket/base~ what it exports means shipping a
-Racket program that sift would have to maintain the way it maintains the Guile,
-Emacs Lisp and SBCL ones.  A Racket buffer is answered for by the buffer, the
-project and the rules -- which is every answer that does not need a library --
-and a name that lives in ~racket/base~ is reported as a name no file defines,
-which is exactly what it is from here.
+Racket's are the ~collects~ and ~pkgs~ directories of the installation the
+~racket~ on the path belongs to, the version trees a user-scope package went
+into under the data directory, and whatever ~PLTCOLLECTS~ names -- the variable
+Racket itself reads.  Racket is the one dialect whose index is all source and
+no second half: there is no Racket program shipped to describe ~racket/base~,
+because the files that define it are already there.  What that leaves out is
+the name only the compiled ~#%kernel~ defines, which is answered as no file
+defining it rather than as a guess.
 
 A source may be *compressed*: most Emacs installations ship ~foo.el.gz~, and
 a project that vendors one has the same shape.  It is read through ~gzip~ as

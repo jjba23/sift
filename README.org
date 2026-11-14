@@ -131,9 +131,10 @@ can be silenced without editing the code it objects to.
   that name a call's arguments, a hover that describes a symbol or the rule
   under it, import organization, a file rename that keeps its module in step,
   and a second opinion from the dialect's own compiler when a buffer is saved.
-  The standard library sift can index is the one of Scheme, Emacs Lisp and
-  Common Lisp: no Racket program describes ~racket/base~ for it yet, so a
-  Racket buffer gets everything a buffer can answer for itself.
+  The standard library sift can index is the one of Scheme, Racket, Emacs Lisp
+  and Common Lisp: Racket ships ~collects~ and ~pkgs~ as source, so its library
+  is read like a project's, and a name that only the compiled ~#%kernel~
+  defines is the one it cannot answer.
 - *Output for humans, editors and pipelines.*  The compile-style line that
   ~:make~ and ~compilation-mode~ parse, JSON for editors that want structure,
   SARIF 2.1.0 for code scanning, GitHub annotations for a pull request, and

@@ -108,7 +108,7 @@
     (variable . (defvar defvar-local defcustom defparameter defface))
     (constant . (defconst defconstant))
     (class . (defclass define-class))
-    (struct . (defstruct cl-defstruct define-record-type))
+    (struct . (defstruct cl-defstruct define-record-type struct))
     (type . (deftype define-condition))
     (package . (defpackage define-package))
     (module . (define-module))

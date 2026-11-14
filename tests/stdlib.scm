@@ -13,10 +13,10 @@
 ;; against text and directories a test writes down: the *builtins*, a file of
 ;; one entry per name an implementation documents about itself, and the
 ;; *sources*, the files of the library read the way the project's own files
-;; are.  Neither needs Guile, Emacs or SBCL to be installed to be tested,
-;; which is the point of keeping the parsing away from the discovery: the half
-;; that reads a format is the half that can be wrong, and it is testable with
-;; a string.
+;; are.  Neither needs Guile, Emacs, SBCL or Racket to be installed to be
+;; tested, which is the point of keeping the parsing away from the discovery:
+;; the half that reads a format is the half that can be wrong, and it is
+;; testable with a string.
 
 (define-module (tests stdlib)
   #:declarative? #t
@@ -55,6 +55,13 @@
 
 (define (names-of library)
   (map car (stdlib-names library)))
+
+(define (root-ending roots suffix)
+  "Return the root of @var{roots} that ends in @var{suffix}, or @code{#f}.
+
+A temporary directory is a symlink on some systems, so a root is matched by the
+path it ends in rather than by the string the test wrote down."
+  (find (lambda (root) (string-suffix? suffix root)) roots))
 
 ;;; ===== The generated index =====
 
@@ -240,6 +247,75 @@
                  (if previous
                    (setenv "HOME" previous)
                    (unsetenv "HOME")))))))))
+
+    ;; ===== Racket, which ships its library as source =====
+
+    (test "a Racket library is read from the sources the installation ships"
+      ;; there is no Racket program to ask, so the files are the whole answer:
+      ;; what a `#lang' module defines is what the index holds.
+      (with-temp-directory
+       (lambda (directory)
+         (spit (string-append directory "/base.rkt")
+               (string-append "#lang racket/base\n(provide make-widget)\n\n"
+                              "(define (make-widget size) (* size 2))\n\n"
+                              "(struct posn (x y) #:transparent)\n"))
+         (let ((library (index-standard-library #:dialect 'racket
+                                                #:roots (list directory)
+                                                #:builtins-text "")))
+           (assert-equal #:expect (list "make-widget" "posn")
+             #:got (sort (names-of library) string<?)
+             #:name "the names the module defines, and not its `#lang' line")
+           (assert-equal #:expect 'function
+             #:got (definition-kind
+                    (caddr (car (stdlib-definitions library "make-widget")))))
+           (assert-equal #:expect 'struct
+             #:got (definition-kind
+                    (caddr (car (stdlib-definitions library "posn")))))))))
+
+    (test "a Racket installation's own sources are the roots, and are not asked for"
+      (with-temp-directory
+       (lambda (directory)
+         (let ((prefix (string-append directory "/prefix"))
+               (home (string-append directory "/home"))
+               (collects (string-append directory "/extra-collects")))
+           (make-directories (string-append prefix "/bin"))
+           (make-directories (string-append prefix "/share/racket/collects"))
+           (make-directories (string-append prefix "/share/racket/pkgs"))
+           (make-directories (string-append home "/.local/share/racket/8.12/collects"))
+           (make-directories collects)
+           (spit (string-append prefix "/bin/racket") "#!/bin/sh\n")
+           (let ((previous-path (getenv "PATH"))
+                 (previous-home (getenv "HOME"))
+                 (previous-collects (getenv "PLTCOLLECTS")))
+             (dynamic-wind
+               (lambda ()
+                 (setenv "PATH" (string-append prefix "/bin:" previous-path))
+                 (setenv "HOME" home)
+                 (setenv "PLTCOLLECTS" collects))
+               (lambda ()
+                 (let ((roots ((module-ref (resolve-module '(sift stdlib))
+                                           'racket-roots))))
+                   (assert-true
+                     (and (root-ending roots "prefix/share/racket/collects") #t)
+                     #:name "the collects the installation ships")
+                   (assert-true
+                     (and (root-ending roots "prefix/share/racket/pkgs") #t)
+                     #:name "the pkgs installed beside it")
+                   (assert-true
+                     (and (root-ending roots
+                                       "home/.local/share/racket/8.12/collects")
+                       #t)
+                     #:name "a user-scope package tree")
+                   (assert-true (and (root-ending roots "extra-collects") #t)
+                     #:name "and a directory `PLTCOLLECTS' names")))
+               (lambda ()
+                 (setenv "PATH" previous-path)
+                 (if previous-home
+                   (setenv "HOME" previous-home)
+                   (unsetenv "HOME"))
+                 (if previous-collects
+                   (setenv "PLTCOLLECTS" previous-collects)
+                   (unsetenv "PLTCOLLECTS")))))))))
 
     ;; ===== the builtins =====
 
