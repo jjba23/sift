@@ -8,7 +8,8 @@
 #+language: en
 
 What the formatter changes, the three rules it indents by, the read syntax of
-each dialect, and the four refusals it makes.
+each dialect, the one reordering it makes only when asked for, and the four
+refusals it makes.
 
 * Formatting
 :PROPERTIES:
@@ -297,6 +298,52 @@ seeing:
 | ~#+~, ~#-~ feature conditional       | CL           | Scheme, Elisp, Racket |
 | ~#(...)~ vector, ~#<...>~ object     | all four     | —               |
 | ~#1=~ datum label                    | CL, Elisp, R7RS | —            |
+
+** Sorting top-level definitions
+:PROPERTIES:
+:CUSTOM_ID: sorting
+:END:
+
+~sift format --write --sort~ puts the file's top-level definitions in
+alphabetical order, which is what ~guix style --alphabetical-sort
+--whole-file~ does for a Guix file:
+
+#+begin_src scheme
+;; before
+(define (zeta) 1)
+
+(define-public alpha 2)
+#+end_src
+
+#+begin_src scheme
+;; after: sift format --write --sort
+(define-public alpha 2)
+
+(define (zeta) 1)
+#+end_src
+
+Three rules keep the move honest:
+
+- Only a top-level ~define~, ~define-public~ or ~define*~ moves, and only when
+  its second element names what it defines.
+- A form that is not one of those stays where it was read and ends the run, so
+  no definition is moved across it.  A ~define-module~ above the definitions is
+  the usual case.
+- The comments that head a definition move with it, and so does the docstring
+  inside it.  A comment above a form names that form, so leaving it behind
+  would make it name the form's neighbour instead.  The inline comment on a
+  definition's last line travels with it for the same reason.
+
+Sorting is stable and idempotent, so formatting a sorted file again changes
+nothing.  A definition is sorted by the name it binds: sift does not read a
+Guix package's ~name~ and ~version~ fields, which is how ~guix style~ puts two
+packages that share a name in descending version order.  Definitions that bind
+the same name therefore keep the order they were written in.
+
+~--sort~ is a ~format~ option and not a lint rule, and it needs ~--write~: it
+changes text a reader did not point at, which is not something a check should
+report or a fix should apply behind the author's back.  ~--alphabetical-sort~
+is the same option under the name ~guix style~ gives it.
 
 ** What it does not do
 :PROPERTIES:

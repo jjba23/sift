@@ -76,6 +76,24 @@ has exactly one of, which is a question `assert-contains' cannot ask."
                #:expect "(define (f x)\n  (+ x 1))\n"
                #:got (slurp path)))))))
 
+     (test "format --write --sort puts the definitions in order"
+       (with-temp-directory
+        (lambda (directory)
+          (let ((path (string-append directory "/out-of-order.scm")))
+            (spit path "(define (zeta) 1)\n\n(define (alpha) 2)\n")
+            (let ((result (run-sift (list "format" "--write"
+                                          "--alphabetical-sort" path))))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text
+               #:expect "(define (alpha) 2)\n\n(define (zeta) 1)\n"
+               #:got (slurp path)))))))
+
+     (test "--sort without --write is a usage error"
+       (let ((result (run-sift '("format" "--sort"
+                                 "tests/fixtures/lint/clean.scm"))))
+         (assert-status #:expect 2 #:got result)
+         (assert-contains #:expect (caddr result) #:got "needs --write")))
+
      (test "lint reports findings with status 1"
        (let ((result (run-sift '("lint" "tests/fixtures/lint/dirty.scm"))))
          (assert-status #:expect 1 #:got result)

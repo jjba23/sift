@@ -85,6 +85,8 @@ Run `sift COMMAND --help' for the options of a command.
   (list
    (option '(#\w "write") #f #f
            (lambda (opt name arg state) (acons 'write #t state)))
+   (option '("sort" "alphabetical-sort") #f #f
+           (lambda (opt name arg state) (acons 'sort #t state)))
    (option '(#\c "check") #f #f
            (lambda (opt name arg state) (acons 'check #t state)))
    (option '("stdin") #f #f
@@ -545,22 +547,24 @@ delimiter goes, and sift does not guess."
 
 ;;; ===== format =====
 
-(define* (format-with config dialect path source)
+(define* (format-with config dialect path source #:key (sort? #f))
   "Return @code{(values text errors)} for @var{source} under @var{config}.
 
 One place decides which settings of the configuration the formatter is given,
 so that `format', `check' and `ci' cannot disagree about what the formatted
-text means."
+text means.  @var{sort?} is not one of those settings: it comes from the
+command line, and only a run that writes its result to a file passes it."
   (format-source source #:dialect dialect #:file path
                  #:style (config-ref config 'style)
                  #:indent (config-ref config 'indent)
                  #:comment-align (config-ref config 'comment-align)
                  #:brackets (config-ref config 'brackets)
                  #:blank-lines (config-ref config 'blank-lines)
-                 #:indent-rules (config-ref config 'indent-rules)))
+                 #:indent-rules (config-ref config 'indent-rules)
+                 #:sort sort?))
 
 (define* (format-one config path source #:key (write? #f) (check? #f)
-                     (label #f) (diff? #f))
+                     (label #f) (diff? #f) (sort? #f))
   "Format one source, returning the exit status for it.
 
 @var{path} is @code{#f} for standard input.  Nothing is written unless
@@ -573,7 +577,7 @@ text means."
       (if denied
         denied
         (call-with-values
-          (lambda () (format-with config dialect path source))
+          (lambda () (format-with config dialect path source #:sort? sort?))
           (lambda (formatted errors)
             (cond
               [check?
@@ -627,6 +631,8 @@ text means."
       (exit 0))
     (when (and (assq 'write state) (assq 'stdout state))
       (usage-error "--write and --stdout cannot be used together"))
+    (when (and (assq 'sort state) (not (assq 'write state)))
+      (usage-error "--sort moves a file's forms; it needs --write"))
     (let ((overrides (build-overrides state)))
       (with-config-and-files overrides state
                              (lambda (config files)
@@ -725,7 +731,8 @@ reads asks for."
        (if (assq 'write state)
          (if (null? files)
            (usage-error "--write with --stdin needs a real file path to write")
-           (format-one config (car files) source #:write? #t))
+           (format-one config (car files) source #:write? #t
+                       #:sort? (and (assq 'sort state) #t)))
          (format-one config #f source #:label label
                      #:diff? (and (assq 'diff state) #t))))]
     [(null? files)
@@ -733,6 +740,7 @@ reads asks for."
      (format-one config #f (get-string-all (current-input-port)))]
     [else
       (let ((write? (and (assq 'write state) #t))
+            (sort? (and (assq 'sort state) #t))
             (diff? (and (assq 'diff state) #t)))
         (run-files files
                    (lambda (path)
@@ -741,7 +749,8 @@ reads asks for."
                          (if failure
                            failure
                            (format-one config path source
-                                       #:write? write? #:diff? diff?)))))
+                                       #:write? write? #:sort? sort?
+                                       #:diff? diff?)))))
                    #:parallel? (not write?)))]))
 
 ;;; ===== check =====

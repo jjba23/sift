@@ -859,6 +859,179 @@ aligned one column past the longest line of code in it."
        (loop (cdr rest) (cons (car rest) group) out)]
       [else (loop (cdr rest) (list (car rest)) (flush group out))])))
 
+;;; ===== Sorting top-level definitions =====
+;;;
+;;; `guix style --alphabetical-sort --whole-file' puts a file's definitions in
+;;; order.  sift does the same when the caller asks for it, and never
+;;; otherwise: the formatted text of a file is a file the author pointed at,
+;;; and moving a form around in it is a change they did not ask for.
+;;;
+;;; Three rules keep the move honest.  A definition is a top-level `define',
+;;; `define-public' or `define*' that names what it defines, and only those
+;;; move.  A form that is not one stays where it was read and ends the run, so
+;;; no definition is moved across it.  And the comments that head a definition
+;;; -- and the docstring inside it -- go where the definition goes, because a
+;;; comment that names a definition would otherwise name its neighbour.
+
+(define definition-heads '(define define-public define*))
+
+(define (definition-name node)
+  "Return the name a top-level @var{node} defines, or @code{#f}.
+
+`(define (f x) ...)', `(define-public f ...)' and
+`(define* (f #:optional x) ...)' all name `f'.  A form that defines nothing
+-- a call, a `define-syntax', an `export' -- answers @code{#f} and does not
+move."
+  (and (node-list? node)
+    (memq (node-head-name node) definition-heads)
+    (let ((elements (node-elements node)))
+      (and (pair? (cdr elements))
+        (let ((named (cadr elements)))
+          (cond
+            [(and (node-atom? named) (eq? (node-atom-type named) 'symbol))
+             (node-value named)]
+            [(and (node-list? named) (node-head-name named))
+             (symbol->string (node-head-name named))]
+            [else #f]))))))
+
+(define (top-level-items ast)
+  "Split @var{ast} into @code{(values head items)}.
+
+@var{items} holds one @code{(datum . after)} pair per top-level datum, in the
+order they were read, where @var{after} is the trivia that follows the datum --
+for the last one, the rest of the file.  @var{head} is the trivia before the
+first datum."
+  (let loop ((rest ast) (head '()) (items '()) (current #f) (after '()))
+    (cond
+      [(null? rest)
+       (values head
+               (reverse (if current
+                          (cons (cons current after) items)
+                          items)))]
+      [(node-data? (car rest))
+       (if current
+         (loop (cdr rest) head (cons (cons current after) items)
+               (car rest) '())
+         (loop (cdr rest) head items (car rest) '()))]
+      [(not current)
+       (loop (cdr rest) (append head (list (car rest))) items current after)]
+      [else
+        (loop (cdr rest) head items current
+              (append after (list (car rest))))])))
+
+(define (split-heading trivia)
+  "Split the trivia before a datum into @code{(values separator heading)}.
+
+The heading is the run of `;' comments written directly above the form, with
+the one newline that separates each from the next: those lines say what the
+form is, so they move with it.  A blank line ends the run, and so does an
+inline comment (that one trails the form above) and a block comment.  What is
+left is the separator, which stays in the slot it was read in."
+  (let loop ((rest (reverse trivia)) (heading '()) (comment? #f))
+    (cond
+      [(null? rest)
+       (if comment? (values '() heading) (values trivia '()))]
+      [(and (node-comment? (car rest)) (not (node-inline? (car rest))))
+       (loop (cdr rest) (cons (car rest) heading) #t)]
+      [(and (node-whitespace? (car rest))
+         (< (node-newlines (car rest)) 2))
+       (loop (cdr rest) (cons (car rest) heading) comment?)]
+      [else (values (reverse rest) heading)])))
+
+(define (split-trailing trivia)
+  "Split @var{trivia} into @code{(values trailing rest)}.
+
+@var{trailing} is the inline comment that trails the form above, with the
+spaces that separate the two: it moves with that form.  Everything else is
+@var{rest}, the separator and the heading of the form below."
+  (let loop ((rest trivia) (trailing '()))
+    (cond
+      [(and (pair? rest) (node-comment? (car rest)) (node-inline? (car rest)))
+       (loop (cdr rest) (cons (car rest) trailing))]
+      [(and (pair? rest) (node-whitespace? (car rest))
+         (zero? (node-newlines (car rest)))
+         (pair? (cdr rest))
+         (node-comment? (cadr rest)) (node-inline? (cadr rest)))
+       (loop (cddr rest) (cons (cadr rest) (cons (car rest) trailing)))]
+      [else (values (reverse trailing) rest)])))
+
+(define (top-level-units ast)
+  "Return @code{(values units seps)} for the top-level nodes @var{ast}.
+
+Each unit is @code{(heading datum trailing)}: the comments written above the
+datum, the datum, and the inline comment that trails it.  @var{seps} holds the
+@code{n + 1} trivia lists that stay where they were read -- the file's head,
+the separator before each unit after the first, and the tail."
+  (call-with-values (lambda () (top-level-items ast))
+    (lambda (head items)
+      (if (null? items)
+        (values '() (list head))
+        (let* ((splits (map (lambda (item)
+                              (call-with-values
+                                (lambda () (split-trailing (cdr item)))
+                                cons))
+                            items))
+               (head-split (call-with-values (lambda () (split-heading head))
+                             cons))
+               ;; one (separator . heading) per boundary between two units
+               (boundaries (map (lambda (split)
+                                  (call-with-values
+                                    (lambda () (split-heading (cdr split)))
+                                    cons))
+                                (drop-right splits 1)))
+               (headings (cons (cdr head-split) (map cdr boundaries)))
+               (units (map (lambda (item split heading)
+                             (list heading (car item) (car split)))
+                           items splits headings)))
+          (values units
+                  (append (list (car head-split))
+                          (map car boundaries)
+                          (list (cdr (last splits))))))))))
+
+(define (sort-definition-runs units)
+  "Sort each contiguous run of definition units by the name it defines.
+
+A unit that names nothing is left where it is and ends the run.  The sort is
+stable, so two definitions with the same name keep the order they were written
+in, and formatting the output again is a no-op."
+  (define (sorted run)
+    (stable-sort (reverse run)
+                 (lambda (a b)
+                   (string<? (definition-name (cadr a))
+                             (definition-name (cadr b))))))
+  (let loop ((rest units) (run '()) (out '()))
+    (cond
+      [(null? rest) (append out (sorted run))]
+      [(definition-name (cadr (car rest)))
+       (loop (cdr rest) (cons (car rest) run) out)]
+      [else
+        (loop (cdr rest) '() (append out (sorted run) (list (car rest))))])))
+
+(define (join-top-level units seps)
+  "Return the flat top-level node list, with @var{units} in their new order.
+
+Every list in @var{seps} stays in the slot it was read in, and each unit
+carries its own heading comments and its trailing inline comment."
+  (if (null? units)
+    (car seps)
+    (let loop ((units units) (seps (cdr seps)) (out (car seps)))
+      (if (null? units)
+        out
+        (let ((unit (car units)))
+          (loop (cdr units) (cdr seps)
+                (append out (car unit) (list (cadr unit))
+                        (caddr unit) (car seps))))))))
+
+(define (sort-top-level ast)
+  "Return @var{ast} with each run of top-level definitions sorted by name.
+
+The run is the unit `guix style --alphabetical-sort --whole-file' sorts, and
+the two boundaries are the same: only `define', `define-public' and `define*'
+move, and a form that is not one stays where it is."
+  (call-with-values (lambda () (top-level-units ast))
+    (lambda (units seps)
+      (join-top-level (sort-definition-runs units) seps))))
+
 ;;; ===== Whole-document rendering =====
 
 (define (render-document ast ctx)
@@ -873,12 +1046,17 @@ aligned one column past the longest line of code in it."
 
 (define* (format-ast ast #:key (dialect 'scheme) (style 'community)
                      (indent-width 2) (comment-align #f) (brackets #f)
-                     (indent-rules '()) (blank-lines 'preserve))
+                     (indent-rules '()) (blank-lines 'preserve) (sort #f))
   "Render @var{ast} as source text.
+
+@var{sort} puts the file's top-level definitions in alphabetical order first;
+it is off by default and the caller has to ask, because it changes text a
+reader did not point at.
 
 The result is deterministic: nothing here depends on a hash table's order or
 on any state outside the arguments."
-  (let* ((base (make-ctx #:dialect dialect #:style style
+  (let* ((ast (if sort (sort-top-level ast) ast))
+         (base (make-ctx #:dialect dialect #:style style
                          #:indent-width indent-width #:brackets brackets
                          #:rules indent-rules #:blank-lines blank-lines)))
     (if comment-align
@@ -900,7 +1078,7 @@ on any state outside the arguments."
 (define* (format-source source #:key (dialect 'scheme) (file #f)
                         (style 'community) (indent #f) (comment-align #f)
                         (line-length #f) (force #f) (brackets #f)
-                        (indent-rules '()) (blank-lines 'preserve))
+                        (indent-rules '()) (blank-lines 'preserve) (sort #f))
   "Format @var{source}, returning two values: the text and the parse errors.
 
 No file is read from or written to here, and no error is swallowed: the
@@ -913,12 +1091,13 @@ caller decides whether an error is fatal (see @code{format/file})."
                           #:comment-align comment-align
                           #:brackets brackets
                           #:indent-rules indent-rules
-                          #:blank-lines blank-lines)
+                          #:blank-lines blank-lines
+                          #:sort sort)
               errors))))
 
 (define* (format-string source #:key (dialect 'scheme) (style 'community)
                         (indent 2) (comment-align #f) (brackets #f)
-                        (indent-rules '()) (blank-lines 'preserve))
+                        (indent-rules '()) (blank-lines 'preserve) (sort #f))
   "Format @var{source} and return just the text."
   (call-with-values
     (lambda () (read-source #:source source #:dialect dialect))
@@ -926,11 +1105,11 @@ caller decides whether an error is fatal (see @code{format/file})."
       (format-ast ast #:dialect dialect #:style style
                   #:indent-width indent #:comment-align comment-align
                   #:brackets brackets #:indent-rules indent-rules
-                  #:blank-lines blank-lines))))
+                  #:blank-lines blank-lines #:sort sort))))
 
 (define* (format/file path #:key (dialect #f) (style 'community) (indent 2)
                       (comment-align #f) (force #f) (brackets #f)
-                      (indent-rules '()) (blank-lines 'preserve))
+                      (indent-rules '()) (blank-lines 'preserve) (sort #f))
   "Format the file at @var{path}, returning the text and the parse errors.
 
 The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
@@ -941,7 +1120,7 @@ The dialect is detected from @var{path} when @var{dialect} is @code{#f}."
     (format-source source #:dialect dialect* #:file path #:style style
                    #:indent indent #:comment-align comment-align
                    #:force force #:brackets brackets #:indent-rules indent-rules
-                   #:blank-lines blank-lines)))
+                   #:blank-lines blank-lines #:sort sort)))
 
 (define* (format-check source #:key (dialect 'scheme) (style 'community)
                        (indent 2) (comment-align #f) (brackets #f)

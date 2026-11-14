@@ -255,4 +255,47 @@
 
     (test "a file without a final newline keeps that shape"
       (assert-same-text #:expect "(a b)"
-                        #:got (format-string "(a  b)")))))
+                        #:got (format-string "(a  b)")))
+
+    (test "asking for a sort puts the definitions in alphabetical order"
+      (assert-same-text
+       #:expect "(define (alpha) 1)\n\n(define-public beta 2)\n\n(define* (gamma) 3)\n"
+       #:got (format-string
+              "(define* (gamma) 3)\n\n(define (alpha) 1)\n\n(define-public beta 2)\n"
+              #:sort #t)))
+
+    (test "a definition keeps the comment that heads it, docstring and all"
+      (assert-same-text
+       #:expect ";; about alpha\n(define (alpha) 1)\n\n;; about zeta\n(define (zeta)\n  \"Zeta's docstring.\"\n  2)\n"
+       #:got (format-string
+              ";; about zeta\n(define (zeta)\n  \"Zeta's docstring.\"\n  2)\n\n;; about alpha\n(define (alpha) 1)\n"
+              #:sort #t)))
+
+    (test "a definition keeps the inline comment that trails it"
+      (assert-same-text
+       #:expect "(define (alpha) 1) ; the first\n\n(define (zeta) 2) ; the last\n"
+       #:got (format-string
+              "(define (zeta) 2) ; the last\n\n(define (alpha) 1) ; the first\n"
+              #:sort #t)))
+
+    (test "a form that is not a definition keeps its place"
+      ;; `export' is not one of the three heads, so it ends the run: each side
+      ;; is sorted on its own, and neither definition is moved across it.
+      (assert-same-text
+       #:expect "(define (beta) 2)\n(define (zeta) 1)\n(export zeta)\n(define (alpha) 4)\n(define (delta) 3)\n"
+       #:got (format-string
+              "(define (zeta) 1)\n(define (beta) 2)\n(export zeta)\n(define (delta) 3)\n(define (alpha) 4)\n"
+              #:sort #t)))
+
+    (test "sorting is a fixed point"
+      (let ((once (format-string
+                   ";; about zeta\n(define (zeta) 2)\n\n(define (alpha) 1)\n"
+                   #:sort #t)))
+        (assert-same-text #:expect once
+                          #:got (format-string once #:sort #t)
+                          #:name "the sorted file is the same when sorted again")))
+
+    (test "without the option the definitions stay where they were written"
+      (assert-same-text
+       #:expect "(define (zeta) 1)\n\n(define (alpha) 2)\n"
+       #:got (format-string "(define (zeta) 1)\n\n(define (alpha) 2)\n")))))
