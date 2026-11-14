@@ -36,6 +36,22 @@
       (assert-warnings #:source "(case x ((1) 'one)\n  ((2) 'two))\n"
                        #:checker 'clause-brackets #:expect '((1 9) (2 3))))
 
+    (test "a `case` key is an expression, not a clause"
+      ;; bracketing `(f x)' here would change the program, so the key is left
+      ;; alone and only the clauses are read
+      (assert-warnings #:source "(case (f x) ((1) 'one) (else 'two))\n"
+                       #:checker 'clause-brackets #:expect '((1 13) (1 24)))
+      (assert-warnings #:source "(case (f x) [(1) 'one] [else 'two])\n"
+                       #:checker 'clause-brackets #:expect '()))
+
+    (test "a `match` subject is an expression, not a pattern clause"
+      (assert-warnings #:source "(match (f x) [(_ ) 1])\n"
+                       #:checker 'clause-brackets #:expect '())
+      (assert-warnings #:source "(match (f x) ((_) 1))\n"
+                       #:checker 'clause-brackets #:expect '((1 14)))
+      (assert-warnings #:source "(match* ((f x) (g y)) [(_ _) 1])\n"
+                       #:checker 'clause-brackets #:expect '()))
+
     (test "follows a project that writes parentheses"
       (assert-warnings #:source "(cond [(= x 1) 'one])\n" #:checker 'clause-brackets
                        #:options '((brackets . parens)) #:expect '((1 7))))

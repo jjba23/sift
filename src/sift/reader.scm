@@ -254,13 +254,13 @@ dialect's business.  The differences are not academic:
   R7RS reader agrees -- while Emacs Lisp and Common Lisp end the symbol there.
 - Emacs Lisp ends a symbol at a `#' as well; Common Lisp does not, and its
   symbols may hold a `[' or a `#' in the middle (`A#B', `A[B').
-- Nothing ends an atom at a brace in any of the four: `a{b' is one name in
-  Guile, in Emacs Lisp and in Common Lisp, and so is `{a'.  Racket writes a
-  name with a delimiter in it as `|a b|', and its backslash is not an escape
-  inside a name either."
+- Racket reads `{...}' as another spelling of `(...)', so a brace ends an
+  atom there.  In Guile, Emacs Lisp and Common Lisp it does not: `a{b' and
+  `{a' are names, and Racket writes a name with a delimiter in it as `|a b|'."
   (case dialect
     [(elisp) '(#\( #\) #\[ #\] #\" #\; #\' #\` #\, #\#)]
     [(cl) '(#\( #\) #\" #\; #\' #\` #\,)]
+    [(racket) '(#\( #\) #\[ #\] #\{ #\} #\" #\;)]
     [else '(#\( #\) #\[ #\] #\" #\;)]))
 
 (define (atom-delimiter? r c)
@@ -399,7 +399,9 @@ s-expressions, which is a rule for the checkers and the formatter, not for
 the reader: the reader reads it as a bracketed datum whose opener is the
 whole token, and every element inside it is read exactly as it would be
 anywhere else."
-  (unless (scheme-family? (reader-dialect r))
+  ;; `#u8(...)' is Guile's and R7RS's spelling and `#vu8(...)' is R6RS's;
+  ;; Racket has neither -- it writes a byte string as `#"..."'.
+  (unless (eq? (reader-dialect r) 'scheme)
     (record-error! r (reader-index r) 'warning
                    (format #f "bytevectors are not ~a syntax"
                            (dialect-name (reader-dialect r)))))
@@ -409,6 +411,7 @@ anywhere else."
   (case open
     [(#\() #\)]
     [(#\[) #\]]
+    [(#\{) #\}]
     [else #\)]))
 
 (define (bracket-fields r open-text close)
@@ -608,12 +611,11 @@ everything between the two markers is kept exactly as written."
 (define (symbol-escape? r)
   "Return @code{#t} when a backslash quotes the next character of a symbol.
 
-Emacs Lisp and Common Lisp both use a single escape inside a symbol, so `\\('
-is the symbol `(' and `\\#' is the symbol `#' -- neither opens a list nor
+Emacs Lisp, Common Lisp and Racket all use a single escape inside a symbol, so
+`\\(' is the symbol `(' and `\\#' is the symbol `#' -- neither opens a list nor
 starts a reader directive.  Scheme has no such escape: a backslash in a symbol
-is a stray character there, and Guile does not read one; Racket quotes a name
-with `|...|' instead, so it has none either."
-  (memq (reader-dialect r) '(elisp cl)))
+is a stray character there, and Guile does not read one."
+  (memq (reader-dialect r) '(elisp cl racket)))
 
 (define (read-atom r)
   "Read an atom, honouring whatever the dialect makes of an escape.
@@ -651,11 +653,21 @@ get right and what a symbol named `\\(' depends on."
                  [(and (eq? (reader-dialect r) 'racket)
                     (string-prefix? "#:" text))
                   'keyword]
-                 [(and (> (string-length text) 1)
+                 ;; Emacs Lisp and Common Lisp write a keyword with one
+                 ;; colon, and so does the Scheme sift reads; in Racket
+                 ;; `:height' is an ordinary identifier.
+                 [(and (not (eq? (reader-dialect r) 'racket))
+                    (> (string-length text) 1)
                     (char=? (string-ref text 0) #\:))
                   'keyword]
                  [else 'symbol]))
-         (marker (and (eq? type 'symbol) (package-marker-of text))))
+         ;; a package prefix is Common Lisp's; Scheme keeps the same field for
+         ;; Guile's `#:keyword' spelling, which the checkers read as the name
+         ;; without its `#:'.  In Racket `:height' and `foo:bar' are ordinary
+         ;; identifiers, so nothing is a marker there.
+         (marker (and (eq? type 'symbol)
+                   (not (eq? (reader-dialect r) 'racket))
+                   (package-marker-of text))))
     (make-node 'atom text
                (index->location r start)
                (index->location r end)
@@ -1009,6 +1021,23 @@ and `#~(modify-phases ...)' is the shape its author chose."
       [(eqv? second #\$) (read-prefix r "#$")]
       [else (read-prefix r "#+")])))
 
+(define (language-line-start? r start)
+  "Return @code{#t} when a `#lang' at @var{start} is where a header may open.
+
+A Racket module starts with its `#lang' line, and the only thing allowed in
+front of one is the shebang line that says which program runs the file --
+`#!/usr/bin/env racket' above `#lang racket' is a module the operating system
+can execute.  Anything else before it means this is not the header."
+  (let ((before (substring (reader-source r) 0 start)))
+    (cond
+      [(string-null? (string-trim-both before)) #t]
+      [(string-prefix? "#!" before)
+       (let ((newline (string-index before #\newline)))
+         (and newline
+           (string-null? (string-trim-both
+                          (substring before (+ newline 1))))))]
+      [else #f])))
+
 (define (read-hash r)
   (let ((start (reader-index r))
         (c (peek-at r 1)))
@@ -1018,7 +1047,8 @@ and `#~(modify-phases ...)' is the shape its author chose."
       ;; A Racket module opens with `#lang <language>', and the line is the
       ;; module's header: only at the start of the file, and only with the
       ;; space that separates the two words.
-      [(and (zero? start) (looking-at? r "#lang ")) (read-language-line r)]
+      [(and (language-line-start? r start) (looking-at? r "#lang "))
+       (read-language-line r)]
       [(eqv? c #\|) (read-block-comment r)]
       [(eqv? c #\;) (read-datum-comment r)]
       [(eqv? c #\') (read-prefix r "#'")]
@@ -1068,6 +1098,7 @@ here -- the braces are atoms and the text is copied -- but they do not get
 bracket-aware formatting."
   (case dialect
     [(cl) '((#\( . #\)))]
+    [(racket) '((#\( . #\)) (#\[ . #\]) (#\{ . #\}))]
     [else '((#\( . #\)) (#\[ . #\]))]))
 
 (define (dialect-closers dialect)
@@ -1179,25 +1210,53 @@ of `foo.el'."
         (and (or (not slash) (> dot slash))
           (string-downcase (substring path dot)))))))
 
+(define (directive-line? line directive)
+  "Return @code{#t} when @var{line} begins with @var{directive}.
+
+A marker is a directive written at the start of a form, not a phrase that
+happens to appear in a comment or a string: a Scheme file with the comment
+`;; Racket uses #lang racket' has told us what it is not."
+  (let ((trimmed (string-trim-both line)))
+    (and (not (string-prefix? ";" trimmed))
+      (not (string-prefix? "#!" trimmed))
+      (string-prefix? directive trimmed))))
+
+(define (marker-lines source)
+  (take (source-lines source)
+        (min 200 (length (source-lines source)))))
+
 (define (dialect-marker source)
   "Return the dialect named by a marker inside @var{source}, or @code{#f}.
 
 The first 200 lines are searched, because a library's `define-module' or
-`in-package' appears before any code it describes, and a file that names
-its dialect that early has already told us what it is.  A `#lang' line comes
-first among the markers because nothing else writes one: it is the whole of
-what a Racket module says about itself."
-  (let* ((head (string-join (take (source-lines source) (min 200
-                                                             (length (source-lines source))))
-                            "\n"))
-         (trimmed (string-trim-both head)))
+`in-package' appears before any code it describes, and a file that names its
+dialect that early has already told us what it is.  Only a directive counts,
+and only where one can be written -- at the start of a line, not in a comment
+and not inside a string.  A `#lang' line is a header rather than a marker: it
+is the first thing in the file, and nothing else writes one."
+  (let ((lines (marker-lines source)))
     (cond
-      [(string-find trimmed "#lang ") 'racket]
-      [(string-find head "lexical-binding: t") 'elisp]
-      [(or (string-find trimmed "(in-package")
-         (string-find trimmed "(defpackage")) 'cl]
-      [(or (string-find trimmed "(define-module")
-         (string-find trimmed "(use-modules")) 'scheme]
+      [(let loop ((rest lines))
+         (cond
+           [(null? rest) #f]
+           [(string-null? (string-trim-both (car rest))) (loop (cdr rest))]
+           [(string-prefix? "#!" (string-trim-both (car rest))) (loop (cdr rest))]
+           [else (string-prefix? "#lang " (string-trim-both (car rest)))]))
+       'racket]
+      [(any (lambda (line)
+              (string-contains line "lexical-binding: t"))
+            (take lines (min 2 (length lines))))
+       'elisp]
+      [(any (lambda (line)
+              (or (directive-line? line "(in-package")
+                (directive-line? line "(defpackage")))
+            lines)
+       'cl]
+      [(any (lambda (line)
+              (or (directive-line? line "(define-module")
+                (directive-line? line "(use-modules")))
+            lines)
+       'scheme]
       [else #f])))
 
 (define* (detect-dialect #:key file source)
@@ -1221,9 +1280,10 @@ that gets @code{#f} must ask for `--dialect' rather than guess."
       ;; every one of them.
       [(and ext (member ext '(".scm" ".ss" ".sld" ".sls" ".sps"))) 'scheme]
       ;; `.rktd' is a Racket data module and `.rktl' a library the test
-      ;; runner loads; `.scrbl' is Scribble, which is Racket with another
-      ;; reader in front.
-      [(and ext (member ext '(".rkt" ".rktd" ".rktl" ".scrbl"))) 'racket]
+      ;; runner loads.  `.scrbl' is Scribble, which has an at-expression
+      ;; reader of its own -- `@verbatim{a  b}' keeps its spacing, and this
+      ;; reader would collapse it -- so it is not claimed as Racket.
+      [(and ext (member ext '(".rkt" ".rktd" ".rktl"))) 'racket]
       [(and ext (string=? ext ".el")) 'elisp]
       [(and ext (member ext '(".lisp" ".cl" ".asd" ".lsp" ".system"))) 'cl]
       [else #f])))

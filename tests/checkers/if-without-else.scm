@@ -35,6 +35,36 @@
                        #:checker 'if-without-else
                        #:expect '()))
 
+    (test "a `match` pattern is data, and its evaluated parts are not"
+      ;; a pattern names a shape; rewriting the `if` inside it would change the
+      ;; macro's pattern rather than the program's control flow
+      (assert-warnings #:source "(match x [(_ (if a b)) 1])\n"
+                       #:checker 'if-without-else #:expect '())
+      (assert-warnings #:source "(match-lambda [(_ (if a b)) 1])\n"
+                       #:checker 'if-without-else #:expect '())
+      (assert-warnings #:source "(syntax-case stx ()\n  [(_ (if a b)) 1])\n"
+                       #:checker 'if-without-else #:expect '())
+      ;; `?` and `app` evaluate their first argument, so code comes back
+      (assert-warnings #:source "(match x [(? (lambda (v) (if v 1)) y) 1])\n"
+                       #:checker 'if-without-else #:expect '((1 27)))
+      (assert-warnings #:source "(match x [(app (lambda (v) (if v 1)) y) 1])\n"
+                       #:checker 'if-without-else #:expect '((1 29)))
+      ;; `#:when` guards and `case` keys are ordinary expressions
+      (assert-warnings #:source "(match x [y #:when (if y 1) 3])\n"
+                       #:checker 'if-without-else #:expect '((1 21)))
+      (assert-warnings #:source "(case (if a b) ((1) 2))\n"
+                       #:checker 'if-without-else #:expect '((1 8))))
+
+    (test "the subjects of a `match*` are code, and its clauses are patterns"
+      (assert-warnings #:source "(match* ((if a b) (g)) [(_ _) 1])\n"
+                       #:checker 'if-without-else #:expect '((1 11)))
+      (assert-warnings #:source "(match* ((f) (g)) [((if a b) _) 1])\n"
+                       #:checker 'if-without-else #:expect '()))
+
+    (test "a `case` datum is data all the way down"
+      (assert-warnings #:source "(case x ((a (if b c)) 1) (else 2))\n"
+                       #:checker 'if-without-else #:expect '()))
+
     (test "a quasiquoted or quasisyntaxed template is data"
       (assert-warnings #:source "(define x `(a (if b c)))\n"
                        #:checker 'if-without-else

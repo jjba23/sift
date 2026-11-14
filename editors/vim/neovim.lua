@@ -20,7 +20,7 @@ local sift = { "sift", "lsp" }
 -- once, at whichever of these it matches first.
 local filetypes = { "scheme", "scheme.guile", "racket", "elisp", "emacs-lisp",
   "lisp" }
-local extensions = { "scm", "ss", "sld", "sls", "rkt", "rktd", "rktl", "scrbl",
+local extensions = { "scm", "ss", "sld", "sls", "rkt", "rktd", "rktl",
   "el", "lisp", "cl", "asd" }
 
 local function matches(pattern)
@@ -89,7 +89,7 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 vim.api.nvim_create_autocmd("BufWritePre", {
   group = group,
   pattern = { "*.scm", "*.ss", "*.sld", "*.sls", "*.rkt", "*.rktd", "*.rktl",
-    "*.scrbl", "*.el", "*.lisp", "*.cl", "*.asd" },
+    "*.el", "*.lisp", "*.cl", "*.asd" },
   callback = function()
     vim.lsp.buf.format({ async = false })
   end,

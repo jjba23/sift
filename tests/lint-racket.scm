@@ -21,7 +21,9 @@
 ;;   `negated-if` repairs `(if (not x) a)' into `(unless x a)', which loses the
 ;;   else branch of an `if` that Racket requires to have two;
 ;;   `docstring-texinfo`, `redundant-progn` and `case-literal-datum` name forms
-;;   and conventions Racket does not have.
+;;   and conventions Racket does not have; and `internal-define` is Scheme's,
+;;   because Racket allows a definition interleaved with expressions in a
+;;   body.
 ;;
 ;; The corpus file is the other half of the claim: what an idiomatic Racket
 ;; module of this project's own style looks like reports nothing.
@@ -58,7 +60,7 @@
         (for-each (lambda (name)
                     (assert-equal #:expect #t #:got (and (memq name names) #t)
                       #:name (symbol->string name)))
-                  '(if-without-else empty-form internal-define eta-reduction
+                  '(if-without-else empty-form eta-reduction
                                     cond-else-not-last let-sibling apply-of-list
                                     quasiquote-dotted-unquote unused-binding
                                     composition beta-reduction let-simplification

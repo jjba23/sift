@@ -57,7 +57,7 @@ function minimalEdit(original, updated) {
 function dialectFor(fileName, fallback) {
   const dialects = {
     scm: 'scheme', ss: 'scheme', sld: 'scheme', sls: 'scheme',
-    rkt: 'racket', rktd: 'racket', rktl: 'racket', scrbl: 'racket',
+    rkt: 'racket', rktd: 'racket', rktl: 'racket',
     el: 'elisp',
     lisp: 'cl', cl: 'cl', asd: 'cl',
   };

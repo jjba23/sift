@@ -42,6 +42,13 @@
       (assert-warnings #:source "(define (f)\n  (let ((y 1)) y))\n"
                        #:checker 'internal-define #:expect '()))
 
+    (test "a Racket body may define after an expression, and is not reported"
+      ;; Racket permits definitions interleaved with expressions in an
+      ;; internal-definition context, so the rule is Scheme's alone
+      (assert-warnings #:source "(define (f)\n  (displayln 1)\n  (define y 1)\n  y)\n"
+                       #:dialect 'racket #:checker 'internal-define
+                       #:expect '()))
+
     (test "accepts top-level definitions"
       (assert-warnings #:source "(define x 1)\n(define (f) x)\n"
                        #:checker 'internal-define #:expect '()))))

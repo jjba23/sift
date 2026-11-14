@@ -39,6 +39,7 @@
   #:use-module (ice-9 match)
   #:use-module (ice-9 textual-ports)
   #:use-module (sift records)
+  #:use-module (sift check base)
   #:use-module (sift reader)
   #:export (format-source
             format-string
@@ -435,13 +436,21 @@ argue for: two blank lines mean the same as one, at twice the cost."
 
 ;;; ===== The sequence renderer =====
 
-(define* (render-sequence nodes indent out ctx #:optional (clause-style #f))
+(define* (render-sequence nodes indent out ctx #:optional (clause-style #f)
+                          (clause-leading 0))
   "Render @var{nodes} at one nesting level.
 
 Whitespace between nodes is not copied: it becomes one space when the nodes
 share a line, and a newline plus @var{indent} when the author broke the line.
-A comment is never moved to another line than the one it was on."
-  (let loop ((rest nodes) (pending 0) (seen #f) (last #f))
+A comment is never moved to another line than the one it was on.
+
+@var{clause-style} is how the node's clauses are written, and
+@var{clause-leading} says how many of its arguments are not clauses at all:
+a `match' scrutinee, a `case' key, the expression and literals list of
+`syntax-case'.  Those keep their own delimiters and their own alignment, so
+`(match (build-value a b) [pattern result])' brackets the clause and not the
+call around the subject."
+  (let loop ((rest nodes) (pending 0) (seen #f) (last #f) (position 0))
     (match rest
       (()
        (when (and seen (> pending 0) (ctx-top? ctx))
@@ -452,7 +461,7 @@ A comment is never moved to another line than the one it was on."
       ((node . tail)
        (cond
          [(node-whitespace? node)
-          (loop tail (+ pending (node-newlines node)) seen last)]
+          (loop tail (+ pending (node-newlines node)) seen last position)]
 
          [(node-comment? node)
           (cond
@@ -470,7 +479,7 @@ A comment is never moved to another line than the one it was on."
                                     (out-line out)
                                     (out-column out)))
              (emit! out (node-value node))
-             (loop tail 0 #t node)]
+             (loop tail 0 #t node position)]
             [else
               (let ((separate? (separate-top-level? ctx seen last)))
                 (cond
@@ -485,13 +494,13 @@ A comment is never moved to another line than the one it was on."
                     (emit-newlines! out (if separate? 2 1))
                     (emit-spaces! out indent)]))
               (emit! out (node-value node))
-              (loop tail 0 #t node)])]
+              (loop tail 0 #t node position)])]
 
          [(node-stray-delimiter? node)
           ;; An unmatched closer is preserved next to whatever preceded it,
           ;; because it is an error the author has to see, not a form.
           (emit! out (node-value node))
-          (loop tail 0 #t node)]
+          (loop tail 0 #t node position)]
 
          [else
            ;; `blank-lines: one' is the one thing a formatter is allowed to
@@ -507,8 +516,11 @@ A comment is never moved to another line than the one it was on."
                 (emit-spaces! out indent)]
                [separate? (emit-newlines! out 2)]
                [seen (emit-spaces! out 1)]))
-           (render-node node out ctx clause-style)
-           (loop tail 0 #t node)])))))
+           (render-node node out ctx
+                        (and clause-style
+                          (>= position (+ clause-leading 1))
+                          clause-style))
+           (loop tail 0 #t node (+ position 1))])))))
 
 (define* (render-node node out ctx #:optional (clause-style #f))
   (cond
@@ -586,9 +598,22 @@ zero rather than pushed through it."
     (emit! out open)
     (let ((indent (list-indent node open-column ctx (and clause-style #t))))
       (render-sequence children indent out (ctx-inside ctx)
-                       (clause-style-for node ctx)))
+                       (clause-style-for node ctx)
+                       (clause-leading-of node ctx)))
     (when close
       (emit-close node open-column open-line close out ctx clause-style))))
+
+(define (clause-leading-of node ctx)
+  "Return how many arguments of @var{node} are not clauses.
+
+A `match' has a subject before its clauses, a `case' has a key, and
+`syntax-case' has an expression and a literals list.  The table is
+@code{check base}'s, so the formatter and the rules agree about which
+argument a clause is."
+  (let ((head (node-head-name node)))
+    (if (and head (memq head (clause-taking-forms (ctx-dialect ctx))))
+      (clause-leading-arguments head)
+      0)))
 
 (define (delimiters-for node clause-style ctx)
   "Return the @code{(open . close)} pair @var{node} is written with.

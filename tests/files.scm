@@ -52,7 +52,7 @@
       (map (lambda (extension)
              (assert-true (lisp-path? (string-append "file" extension))
                #:name (format #f "~a is a Lisp file" extension)))
-           '(".rkt" ".rktd" ".rktl" ".scrbl")))
+           '(".rkt" ".rktd" ".rktl")))
 
     (test "a file sift has no extension for is not one of its files"
       (assert-equal #:expect #f #:got (lisp-path? "notes.txt")))

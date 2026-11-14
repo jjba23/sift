@@ -66,6 +66,18 @@
        #:expect "(match value\n  [(list a b) (+ a b)]\n  [_ #f])\n"
        #:got (fmt "(match value\n((list a b) (+ a b))\n(_ #f))\n")))
 
+    (test "a `match` subject is an argument, and keeps its own delimiters"
+      ;; the clause style belongs to the clauses, not to the call around the
+      ;; subject: bracketing it would change the program
+      (assert-same-text
+       #:expect "(match (build-value a\n                    b)\n  [(list a b) (+ a b)])\n"
+       #:got (fmt "(match (build-value a\n b)\n((list a b) (+ a b)))\n")))
+
+    (test "a `syntax-case` literals list is not a clause"
+      (assert-same-text
+       #:expect "(syntax-case stx (a b)\n  [(_ x) #'x])\n"
+       #:got (fmt "(syntax-case stx (a b)\n((_ x) #'x))\n")))
+
     (test "a project that writes parentheses keeps them"
       (assert-same-text
        #:expect "(cond\n  ((empty? xs) #f)\n  (else 1))\n"

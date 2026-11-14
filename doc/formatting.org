@@ -198,9 +198,9 @@ Gambit, MIT — and of the other three dialects sift formats.
 #+begin_src racket
 #lang racket                            ; the module's first line, kept whole
 (define table #(one two three))         ; a vector
-(define bytes #u8(1 2 3))               ; a bytevector
+(define bytes #"sift")                  ; a byte string
 (struct posn (x y) #:transparent)        ; a keyword, not a symbol
-(printf #rx"^[a-z]+$" "sift")           ; a regexp literal
+(regexp-match? #rx"^[a-z]+$" "sift")     ; a regexp literal
 #'(define made by a macro)               ; syntax, and the same three prefixes
 #+end_src
 
@@ -287,7 +287,7 @@ seeing:
 |--------------------------------------+--------------+-----------------|
 | ~#lang~ module header                | Racket       | Scheme, Elisp, CL |
 | ~#{ ... }#~ extended symbol          | Scheme       | Emacs Lisp, CL, Racket |
-| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme, Racket | Emacs Lisp, CL |
+| ~#u8(...)~, ~#vu8(...)~ bytevector   | Scheme       | Emacs Lisp, CL, Racket |
 | ~#`~, ~#,~, ~#,@~ syntax-case        | Scheme, Racket | Emacs Lisp, CL |
 | ~#;~ datum comment                   | Scheme, Racket | Emacs Lisp, CL |
 | ~#\a~ character literal              | Scheme, Racket, CL | Emacs Lisp |

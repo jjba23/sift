@@ -36,7 +36,9 @@
             in-formals?
             in-vector?
             code-position?
-            case-datum?
+            pattern-context?
+            clause-argument?
+            clause-leading-arguments
             case-form-heads
             declaration-heads
             declaration-form?
@@ -316,6 +318,103 @@ look like a call of its first parameter."
 (define quote-closing-heads
   '(unquote unquote-splicing unsyntax unsyntax-splicing))
 
+;;; --- what a clause makes data -----------------------------------------
+;;;
+;;; Forms whose arguments are clauses, and where a clause's first element is a
+;;; pattern or a datum rather than code.  In `(case x ((a b) ...))' the list
+;;; `(a b)' is a list of *values* to match, not a call; a `match' pattern is
+;;; the same kind of thing one level further: `(list a b)' in
+;;; `(match x [(list a b) ...])' names a shape, and a rule that read it as a
+;;; call to `list' would report code that is not there.
+;;;
+;;; A pattern is not entirely data, though.  `(? pred pat)' and `(app f pat)'
+;;; evaluate their first argument, and `(== expr)' evaluates all of it, so
+;;; those children are read as code again -- which is why the walk carries a
+;;; state rather than a flag.
+(define case-form-heads
+  '(case ecase ccase typecase etypecase ctypecase
+     cl-case cl-ecase cl-typecase cl-etypecase
+     pcase condition-case handler-case restart-case
+     match match* match-lambda match-lambda* syntax-case syntax-parse))
+
+(define (clause-leading-arguments head)
+  "Return how many arguments of @var{head} are read before its clauses start."
+  (case head
+    [(condition-case syntax-case) 2]
+    [(case ecase ccase typecase etypecase ctypecase
+       cl-case cl-ecase cl-typecase cl-etypecase
+       pcase handler-case restart-case
+       match match* syntax-parse) 1]
+    [else 0]))
+
+(define (clause-argument? head position)
+  "Return @code{#t} when argument @var{position} of @var{head} is a clause."
+  (or (memq head '(match-lambda match-lambda*))
+    (and (memq head case-form-heads)
+      (>= position (clause-leading-arguments head)))))
+
+(define (literals-argument? head position)
+  "Return @code{#t} for the literals list of `(syntax-case expr literals ...)'."
+  (and (eq? head 'syntax-case) (= position 1)))
+
+(define (next-state parent position state)
+  "Return how the argument at @var{position} of @var{parent} is read.
+
+@var{position} counts every element of @var{parent}, the operator included,
+which is how the walker visits them; the tables here count a form's
+*arguments*, so the operator is subtracted once.  @var{state} says how
+@var{parent} itself is read: @code{#f} for code, `pattern' for the datum part
+of a clause, or `clause' for a clause.  The answer is the state of the child,
+and the three cases are what keeps a pattern a pattern: a clause's first
+element is its pattern and the rest of it is code, a pattern's children are
+patterns, and only the operators that evaluate a sub-expression let code back
+in."
+  (cond
+    ;; a prefix or a conditional is a parent like any other, and does not
+    ;; change the context its datum is read in
+    [(not (node-list? parent)) (and (eq? state 'pattern) 'pattern)]
+    [else
+      (let ((head (node-head-name parent)))
+        (cond
+          [(eq? state 'clause) (if (zero? position) 'pattern #f)]
+          [(eq? state 'pattern)
+           (cond
+             [(and (memq head '(? app)) (= position 1)) #f]
+             [(eq? head '==) #f]
+             [else 'pattern])]
+          [else
+            ;; a form's element 0 is its operator, so the tables here -- which
+            ;; count arguments -- see the element one place earlier
+            (let ((argument (max 0 (- position 1))))
+              (cond
+                [(literals-argument? head argument) 'pattern]
+                [(clause-argument? head argument) 'clause]
+                [else #f]))]))]))
+
+(define (pattern-context? node ancestors)
+  "Return @code{#t} when @var{node} is a pattern or a clause datum.
+
+The ancestors are read from the outermost in, because whether a `(? pred)'
+form's first argument is code depends on whether the `?' is a pattern
+operator at all: in the pattern of a `match' clause it is, and in an ordinary
+call it is not."
+  (let ((path (reverse (cons node ancestors)))) ; outermost first, node last
+    (let loop ((rest path) (state #f))
+      (if (null? (cdr rest))
+        (eq? state 'pattern)
+        (loop (cdr rest)
+              (next-state (car rest)
+                          (position-of (car rest) (cadr rest))
+                          state))))))
+
+(define (position-of parent child)
+  "Return the index of @var{child} among the datum children of @var{parent}."
+  (let loop ((elements (node-elements parent)) (position 0))
+    (cond
+      [(null? elements) position]
+      [(eq? (car elements) child) position]
+      [else (loop (cdr elements) (+ position 1))])))
+
 (define* (walk-forms proc ast #:key (ancestors? #t))
   "Call @var{proc} on every node in a position where code is evaluated.
 
@@ -323,17 +422,12 @@ look like a call of its first parameter."
 that enclose it, nearest first.
 
 Whether a node is code is decided while descending -- from three flags that
-say whether the walk is inside a quotation, a vector or a parameter list,
-and from the two nearest forms, whose names are carried down with them --
-so a whole tree is walked once rather than once per level of nesting.
-
-The `case` test needs the head of the node's parent and the name of its
-grandparent, so those are carried beside the flags: @var{parent-head} is the
-first datum of the node's parent, @var{parent-head-name} the name of that
-parent, and @var{gp-is-case?} says whether the grandparent is one of the forms
-whose clauses begin with a datum."
-  (define (walk node quoted? in-vector? in-formals?
-                gp-is-case? parent-head parent-head-name ancestors)
+say whether the walk is inside a quotation, a vector or a parameter list, and
+from a state that says whether the node is a pattern or a clause -- so a
+whole tree is walked once rather than once per level of nesting.  A `case`
+datum and a `match' pattern are data, and so is everything inside them
+except what `?', `app' and `==' go on to evaluate."
+  (define (walk node quoted? in-vector? in-formals? state ancestors)
     (unless (node-commented-out? node)
       (when (and (not (node-trivia? node))
               (not (node-vector? node))
@@ -341,7 +435,10 @@ whose clauses begin with a datum."
               (not quoted?)
               (not in-vector?)
               (not in-formals?)
-              (not (and gp-is-case? (eq? parent-head node))))
+              ;; a pattern is data, but a clause is a form -- rules read the
+              ;; `else' of a `cond' and the `_' of a `match' -- and only its
+              ;; first element is the pattern
+              (not (eq? state 'pattern)))
         (proc node (if ancestors? ancestors '())))
       (cond
         [(node-list? node)
@@ -354,42 +451,33 @@ whose clauses begin with a datum."
                 (data-children? (or (node-vector? node) (node-bytevector? node)))
                 (container? (and head (assq-ref formals-positions head) #t))
                 (formals (and container? (formals-of-form node)))
-                ;; what the children of this node see: their parent is this
-                ;; node, whose own name and parent are exactly what the `case`
-                ;; test of a child needs
-                (child-gp-is-case? (and parent-head-name
-                                     (memq parent-head-name case-form-heads)
-                                     #t))
-                (child-parent-head (node-head node))
-                (child-parent-head-name head)
                 (child-ancestors (and ancestors? (cons node ancestors))))
-           (for-each
-            (lambda (child)
-              (walk child
-                    quoted-next
-                    ;; a vector literal is data, and so is everything in it
-                    (if data-children? #t vector-next)
-                    (if container?
-                      (and formals
-                        (<= (node-index formals) (node-index child))
-                        (<= (node-end-index child) (node-end-index formals)))
-                      in-formals?)
-                    child-gp-is-case? child-parent-head child-parent-head-name
-                    child-ancestors))
-            (node-children node)))]
+           (let loop ((elements (node-elements node)) (position 0))
+             (unless (null? elements)
+               (let ((child (car elements)))
+                 (walk child
+                       quoted-next
+                       ;; a vector literal is data, and so is everything in it
+                       (if data-children? #t vector-next)
+                       (if container?
+                         (and formals
+                           (<= (node-index formals) (node-index child))
+                           (<= (node-end-index child) (node-end-index formals)))
+                         in-formals?)
+                       (next-state node position state)
+                       child-ancestors)
+                 (loop (cdr elements) (+ position 1))))))]
         [(node-prefix? node)
-         (let ((token (node-token node))
-               (child (node-child node)))
+         (let ((child (node-child node)))
            (when (and child (not (node-datum-comment? node)))
              (walk child
-                   (cond [(member token quote-opening-tokens) #t]
-                         [(member token quote-closing-tokens) #f]
+                   (cond [(member (node-token node) quote-opening-tokens) #t]
+                         [(member (node-token node) quote-closing-tokens) #f]
                          [else quoted?])
-                   (if (member token quote-closing-tokens) #f in-vector?)
+                   (if (member (node-token node) quote-closing-tokens)
+                     #f in-vector?)
                    in-formals?
-                   ;; a prefix is a parent like any other, and not a list, so
-                   ;; nothing below it can be the datum of a `case` clause
-                   #f #f #f
+                   (next-state node 0 state)
                    (if ancestors? (cons node ancestors) '()))))]
         ;; a conditional is not an ancestor: `#+foo (if a b)' is an `if' in
         ;; the same place the reader found it
@@ -397,15 +485,13 @@ whose clauses begin with a datum."
          (let ((feature (node-feature node))
                (guarded (node-guarded-form node)))
            (when feature
-             (walk feature quoted? in-vector? in-formals?
-                   gp-is-case? parent-head parent-head-name ancestors))
+             (walk feature quoted? in-vector? in-formals? state ancestors))
            (when guarded
-             (walk guarded quoted? in-vector? in-formals?
-                   gp-is-case? parent-head parent-head-name ancestors)))]
+             (walk guarded quoted? in-vector? in-formals? state ancestors)))]
         [else #f])))
   (for-each (lambda (node)
               (when (node-data? node)
-                (walk node #f #f #f #f #f #f '())))
+                (walk node #f #f #f #f '())))
             ast))
 
 ;;; ===== Reading a form =====
@@ -418,10 +504,6 @@ whose clauses begin with a datum."
 ;; as a call to `list' -- which is what `apply-of-list` and `let-sibling' would
 ;; do -- would report code that is not there.  Scheme has `match' too, through
 ;; `(ice-9 match)'; the pattern position is the same one.
-(define case-form-heads
-  '(case ecase ccase typecase etypecase ctypecase
-     match match* match-lambda match-lambda* syntax-case syntax-parse))
-
 ;;; --- declarations, definitions and calls ------------------------------
 ;;;
 ;;; A rule about calls -- how many arguments are too many, whether an argument
@@ -517,20 +599,6 @@ what it has to say about it."
     (not (declaration-form? node))
     (not (definition-form? node))))
 
-(define (case-datum? node ancestors)
-  "Return @code{#t} when @var{node} is the datum head of a `case` clause.
-
-The walk reaches `(cond)' in `(case x [(cond) ...])' as if it were a `cond`
-form; it is a datum, and no rule should treat it as code."
-  (and (pair? ancestors)
-    (pair? (cdr ancestors))
-    (let ((clause (car ancestors))
-          (form (cadr ancestors)))
-      (and (node-list? clause)
-        (node-list? form)
-        (memq (node-head-name form) case-form-heads)
-        (eq? (node-head clause) node)))))
-
 (define (quoted-context? ancestors)
   "Return @code{#t} when the innermost quoted form is still in effect.
 
@@ -610,14 +678,14 @@ syntax-case spellings -- ends the data again, exactly as it does in
 (define (code-position? node ancestors)
   "Return @code{#t} when a rule may read @var{node} as a form.
 
-Four places are data rather than code: anything inside a quote, the datum of
-a `case` clause, a parameter list, and a vector literal.  A vector literal is
+Four places are data rather than code: anything inside a quote, a pattern or
+a clause datum, a parameter list, and a vector literal.  A vector literal is
 not a form itself, and nothing inside one is, so `#(if a b)' is left alone.
 Every rule that asks about the shape of a form asks this first."
   (not (or (node-vector? node)
          (node-bytevector? node)
          (quoted-context? ancestors)
-         (case-datum? node ancestors)
+         (pattern-context? node ancestors)
          (in-formals? node ancestors)
          (in-vector? ancestors))))
 

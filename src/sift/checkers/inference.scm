@@ -694,6 +694,7 @@ definition the wrong answer, and no answer is better than a wrong one."
     (define (note node ancestors)
       (when (and (node-list? node) (call-form? node)
               (not (quoted-context? ancestors))
+              (not (pattern-context? node ancestors))
               (not (in-formals? node ancestors)))
         (let* ((name (called-name node))
                (arity (and name

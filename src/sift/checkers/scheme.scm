@@ -103,7 +103,7 @@ first expression, where it silently gets the wrong scope."
 (define internal-define-checker
   (checker 'internal-define
            "`define` inside a procedure body, after the first expression"
-           '(scheme racket)
+           '(scheme)
            internal-define-warnings
            #:severity 'warning
            #:example '((input . "(define (f)\n  (define y 1)\n  (if y 2 3))")
@@ -423,8 +423,14 @@ first expression, where it silently gets the wrong scope."
                  (memq (node-head-name node)
                        '(cond case match match* match-lambda
                               match-lambda*)))
-           ;; the clauses are the children of the form, not the form itself
-           (for-each check (form-arguments node))))
+           ;; The clauses are the arguments after the ones that are not
+           ;; clauses: a `case' key and a `match' subject are expressions,
+           ;; and bracketing one would change the program.
+           (for-each check
+                     (drop (form-arguments node)
+                           (min (length (form-arguments node))
+                                (clause-leading-arguments
+                                 (node-head-name node)))))))
        ast))
     (reverse warnings)))
 
