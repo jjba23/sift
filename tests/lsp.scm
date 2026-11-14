@@ -2004,13 +2004,13 @@ together and the test gets whatever had already come in."
               (assert-contains
                 #:expect (json-ref (vector-ref locations 0) "uri")
                 #:got "lib.scm"
-                #:name "in the file that defines it"))))))
+                #:name "in the file that defines it")))))))
 
-      (test "workspace/symbol searches the buffers the editor has open"
-        (let* ((result (session (list (initialize-request 1)
-                                      (open-at lib-uri lib-source)
-                                      (workspace-symbol-request 2 "squ"))))
-               (symbols (json-ref (answer-to (cdr result) 2) "result")))
-          (assert-equal #:expect 1 #:got (vector-length symbols))
-          (assert-equal #:expect "square"
-            #:got (json-ref (vector-ref symbols 0) "name")))))))
+    (test "workspace/symbol searches the buffers the editor has open"
+      (let* ((result (session (list (initialize-request 1)
+                                    (open-at lib-uri lib-source)
+                                    (workspace-symbol-request 2 "squ"))))
+             (symbols (json-ref (answer-to (cdr result) 2) "result")))
+        (assert-equal #:expect 1 #:got (vector-length symbols))
+        (assert-equal #:expect "square"
+          #:got (json-ref (vector-ref symbols 0) "name"))))))
