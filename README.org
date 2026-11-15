@@ -471,10 +471,10 @@ nix build .#docker               # a loadable image, on Linux
 #+end_src
 
 The flake builds on Linux *and* on macOS (~x86_64-darwin~, ~aarch64-darwin~),
-because the closure is Guile and Scheme and nothing else: on a Mac, ~nix run
-github:jjba23/sift~ is the shortest route to a formatter that runs.  The image
-is the one output that is Linux only, and on Darwin it is absent rather than
-broken.
+because the closure is Guile and Scheme and nothing else: on a Mac it is the
+route for a machine that already has Nix, and [[#install-homebrew][the tap]] is
+the shorter one for a machine that does not.  The image is the one output that
+is Linux only, and on Darwin it is absent rather than broken.
 
 The [[https://github.com/jjba23/nix-jointhefreeworld][nix-jointhefreeworld]] flake carries the same package, built from this
 repository's own ~default.nix~:
