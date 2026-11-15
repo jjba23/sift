@@ -23,7 +23,8 @@
   #:use-module (veritas veritas)
   #:export (test-files
             test-modules
-            run-all!))
+            run-all!
+            run-named!))
 
 ;;; ===== Discovery =====
 
@@ -78,14 +79,13 @@ total."
          (spec (module-ref module 'spec)))
     (spec-tasks spec)))
 
-(define (run-all!)
-  "Run every suite; return the exit status Veritas would exit with.
+(define (tasks-of paths)
+  "Return the tasks the suites at @var{paths} ask for, and the files that failed.
 
-A file that fails to load is reported as a failure rather than being skipped:
-a suite that cannot be read has not passed."
-  (let* ((files (test-files))
-         (tasks '())
-         (broken '()))
+A file that cannot be read is reported as a failure rather than skipped: a
+suite that cannot be loaded has not passed."
+  (let ((tasks '())
+        (broken '()))
     (for-each
      (lambda (path)
        (format (current-error-port) "loading ~a~%" path)
@@ -93,21 +93,39 @@ a suite that cannot be read has not passed."
               (lambda () (set! tasks (append tasks (load-suites path))))
               (lambda (key . args)
                 (set! broken (cons (format #f "~a: ~a ~s" path key args) broken)))))
-     files)
+     paths)
     (for-each (lambda (message)
                 (format (current-error-port) "sift: could not load ~a~%" message))
               (reverse broken))
-    (cond
-      [(null? tasks)
-       (format (current-error-port) "sift: no test suites were found~%")
-       1]
-      ;; A suite is a procedure, so a list where a suite should be means a
-      ;; suite was never unwrapped: Veritas would then run nothing and report
-      ;; success, which is the one outcome a test runner must never give.
-      [(any list? tasks)
-       (format (current-error-port)
-               "sift: a suite was passed to the runner without being unwrapped~%")
-       1]
-      [else
-        (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
-        (if (null? broken) 0 1)])))
+    (values tasks broken)))
+
+(define (report! tasks broken)
+  "Run @var{tasks} and return the exit status; @var{broken} lists files that did not load."
+  (cond
+    [(null? tasks)
+     (format (current-error-port) "sift: no test suites were found~%")
+     1]
+    ;; A suite is a procedure, so a list where a suite should be means a
+    ;; suite was never unwrapped: Veritas would then run nothing and report
+    ;; success, which is the one outcome a test runner must never give.
+    [(any list? tasks)
+     (format (current-error-port)
+             "sift: a suite was passed to the runner without being unwrapped~%")
+     1]
+    [else
+      (apply veritas-run #:shuffle? #f #:concurrent? #f tasks)
+      (if (null? broken) 0 1)]))
+
+(define (run-all!)
+  "Run every suite; return the exit status Veritas would exit with."
+  (call-with-values (lambda () (tasks-of (test-files))) report!))
+
+(define (run-named! paths)
+  "Run the suites for @var{paths}, and answer what `run-all!' would.
+
+A path is what a contributor has open -- tests/checkers/tabs.scm -- and the
+module name is derived from it, so the file that is edited is the file that is
+run.  `maak test-suite' is how that is typed, and `maak test' remains the gate:
+a run of one suite says the rule still does what its own tests say, and says
+nothing about the other ninety-four."
+  (call-with-values (lambda () (tasks-of paths)) report!))

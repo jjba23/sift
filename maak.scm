@@ -39,6 +39,7 @@
             version
             default
             test
+            test-suite
             bench
             check
             fixture-check
@@ -153,6 +154,22 @@ VERITAS_DIR (~/Hacking/veritas by default) so that the checkout under test is
 the checkout that is being developed, and the load path is passed here rather
 than exported by the caller, so `maak test' works from a clean checkout."
   (run-guile "(begin (use-modules (tests run)) (exit (run-all!)))"))
+
+(define (test-suite . paths)
+  "Run one suite, or the ones the paths name, instead of the whole tree.
+
+`maak test' is the gate and it takes three minutes; someone editing one rule
+wants that rule's suite in a second, and the difference between the two is the
+difference between running the tests and avoiding them.  A path is the file a
+person has open -- `tests/checkers/tabs.scm' -- and the runner derives the
+module name from it, so the file that is edited is the file that is run.
+
+It says nothing about the other rules, which is why the release
+still runs `maak test'."
+  (when (null? paths)
+    (task-error "test-suite needs a suite file, like tests/checkers/tabs.scm"))
+  (run-guile (~ "(begin (use-modules (tests run)) (exit (run-named! '~s)))"
+                paths)))
 
 (define (bench . args)
   "Time sift's own work, and say what each part costs.
