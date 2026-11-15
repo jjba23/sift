@@ -141,13 +141,34 @@ gh release create v1.28.0 --title "sift 1.28.0 — ..."   # the release notes
 
 The number is stated once, as ~sift-version~ in ~src/sift/records.scm~, and
 quoted in the Emacs package, the README badge, the pre-commit hooks, the
-action's sample, the reusable workflow and the VS Code extension; ~maak
-version~ lists every one of them, and ~maak release~ rewrites the number inside
-the shapes it knows and touches nothing else.  The gates run before the commit
-rather than after it, so a release that would have been broken is a tree with a
-new number in it and a message saying which check said no -- never a tag that
-has to be taken back.  A tag is published when it is pushed with the commit it
-names, and the notes are the GitHub release for that tag.
+action's sample, the reusable workflow, the VS Code extension and the Homebrew
+formula; ~maak version~ lists every one of them, and ~maak release~ rewrites
+the number inside the shapes it knows and touches nothing else.
+
+The formula is the one quotation whose checksum cannot be written before the
+tag exists, so it is written after the tag is pushed, from the archive the
+formula now names -- the one in its ~url~:
+
+#+begin_src shell
+curl -sL "$(grep -o 'https://github.com/jjba23/sift/archive[^"]*' Formula/sift.rb)" | sha256sum
+#+end_src
+
+What that prints is the number the formula's ~sha256~ should hold, so the two
+can be checked against each other before the tap is asked to install it.
+
+That line is ~sha256sum~ on Linux and ~shasum -a 256~ on macOS.  The tap is the
+test of it, reading the formula the way a user's machine does:
+
+#+begin_src shell
+brew audit --strict --online jjba23/sift/sift
+brew test jjba23/sift/sift
+#+end_src
+
+The gates run before the commit rather than after it, so a release that would
+have been broken is a tree with a new number in it and a message saying which
+check said no -- never a tag that has to be taken back.  A tag is published
+when it is pushed with the commit it names, and the notes are the GitHub
+release for that tag.
 
 * How it is built
 :PROPERTIES:

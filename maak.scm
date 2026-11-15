@@ -442,6 +442,10 @@ behind is a build directory the next deploy might copy."
 ;; Each entry is a file and the shape the number takes in it.
 (define version-quotations
   '(("emacs/sift.el" . "Version: ~a")
+    ;; The Homebrew formula names the release it downloads.  Its `sha256' is
+    ;; not a version and cannot be: it is written from the published archive
+    ;; once the tag exists, which is the step after `maak release'.
+    ("Formula/sift.rb" . "v~a")
     ("README.org" . "v~a")
     ;; The release badge is the version as a reader sees it first, and the one
     ;; quotation nobody remembers to bump: the shield URL spells it

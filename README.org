@@ -35,11 +35,12 @@ it rather than from the extension of the file it is in.
 
 [[file:assets/sift-lint-format.gif]]
 
-Install it with ~guix install sift~ or ~nix run~, or [[#quick-start][clone the
-repository]] and run ~./bin/sift version~.  The implementation is Guile 3.0 and
-the standard library, with no C dependency and no build step, because a Scheme
-program has none; ~sift doctor~ reports the interpreter it runs on, the library
-it loaded and the rules it found.
+Install it with ~guix install sift~, ~nix run~, Homebrew ([[#install-homebrew][a tap in this
+repository]]), or [[#quick-start][clone the repository]] and run ~./bin/sift
+version~.  The implementation is Guile 3.0 and the standard library, with no C
+dependency and no build step, because a Scheme program has none; ~sift doctor~
+reports the interpreter it runs on, the library it loaded and the rules it
+found.
 
 The same program is a language server (~sift lsp~).  The findings, the fixes and
 the formatting are computed once and delivered either as text on standard
@@ -345,7 +346,7 @@ and only for the editor half.
 | `gzip`                                           | reading a compressed source in navigation | any     |
 | `curl`, `tar`                                    | fetching a source archive named in `stdlib` | any   |
 | Emacs                                            | the Emacs package in ~emacs/sift.el~      | 28.1+   |
-| Guix or Nix                                      | installing as the distribution does      | any     |
+| Guix, Nix or Homebrew                            | installing as the distribution does       | any     |
 | Vim and Node                                     | running the Vim and VS Code tests only    | any     |
 | [[https://codeberg.org/jjba23/veritas][Veritas]] | running the test suite only               | dev     |
 
@@ -394,6 +395,32 @@ On the first run Guile compiles the library and prints a few
 ~;;; note: ...~ lines to standard error while it does.  That is Guile's
 auto-compilation, not sift: it stops once the cache is warm, and
 ~GUILE_AUTO_COMPILE=0~ suppresses it.
+
+** With Homebrew
+:PROPERTIES:
+:CUSTOM_ID: install-homebrew
+:END:
+
+This repository is a tap, so macOS gets sift from the formula it carries:
+
+#+begin_src shell
+brew tap jjba23/sift https://github.com/jjba23/sift
+brew install jjba23/sift/sift
+#+end_src
+
+The URL is spelled out because the one-argument form looks for a repository
+named ~homebrew-sift~, and the formula lives in this one instead.
+
+Guile is the formula's only dependency, and Homebrew installs it.  The
+launcher is pointed at that interpreter rather than at whichever Guile a
+~PATH~ happens to hold, which is the substitution the Nix and Guix packages
+make as well.  There is nothing to build: the formula installs the launcher
+and the library in the relation a checkout has them, so installing is copying.
+
+~brew upgrade sift~ follows a release, and ~brew uninstall sift~ removes what
+the formula installed.  A release rewrites the tag in the formula's ~url~, and
+the ~sha256~ of the new archive is written afterwards, from the published tag;
+[[file:doc/development.org][development.org]] has that step.
 
 ** With Guix
 :PROPERTIES:
