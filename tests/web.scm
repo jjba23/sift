@@ -234,6 +234,39 @@ name when a core module starts importing one that is neither."
           (loop (match:end match 0) (cons (match:substring match 0) found))
           (reverse found))))))
 
+(define (captures pattern text group)
+  "Return group @var{group} of every match of @var{pattern} in @var{text}."
+  (let ((regexp (make-regexp pattern)))
+    (let loop ((start 0) (found '()))
+      (let ((match (regexp-exec regexp text start)))
+        (if match
+          (loop (match:end match 0)
+                (cons (or (match:substring match group) "") found))
+          (reverse (filter (lambda (value) (not (string-null? value))) found)))))))
+
+(define (facade-operations)
+  "Return the operations @code{(sift web)} dispatches, read from its source.
+
+Two shapes, because the facade answers two kinds of question: the operations
+with a body of their own are a `(string=? op \"name\")' clause each, and the
+buffer questions are the `question-ops' list."
+  (let* ((text (slurp (string-append (test-root) "/web/sift/web.scm")))
+         (direct (captures "\\(string=\\? op \"([A-Za-z]+)\"\\)" text 1))
+         (questions (captures "\"([A-Za-z]+)\""
+                              (or (text-between text "(define question-ops" ")")
+                                "")
+                              1)))
+    (sort (delete-duplicates (append direct questions) string=?) string<?)))
+
+(define (probed-operations)
+  "Return the operations @code{web/probe.scm} asks the facade for."
+  (sort (delete-duplicates
+         (captures "\\(cons \"op\" \"([A-Za-z]+)\"\\)"
+                   (slurp (string-append (test-root) "/web/probe.scm"))
+                   1)
+         string=?)
+        string<?))
+
 (define (declared-variables selector)
   "Return the variables @var{selector} declares in the stylesheet, once each.
 
@@ -818,6 +851,23 @@ exactly the bug that would reach a tab and no test."
           #:name "the module's own URL is where sift.wasm is found")
         (assert-equal #:expect #f #:got (string-contains text "\"./sift.wasm\"")
           #:name "and not a path from wherever the page happens to be served")))
+
+    (test "the probe asks every operation the facade answers"
+      ;; `web/probe.scm' is what `maak web-check' runs in Hoot's own virtual
+      ;; machine, and it is the only thing here that checks the browser build
+      ;; *runs*: the module compiles either way, and a pass that miscompiles it
+      ;; shows up as a trap on the first request that reaches the bad code.  An
+      ;; operation added to the facade and not to the probe is an operation
+      ;; nobody checks runs at all, which is why the two lists are compared --
+      ;; with `checkers' excused, because the probe says why it cannot afford
+      ;; to serialise the whole catalogue in an interpreter.
+      (let ((probed (probed-operations))
+            (answered (remove (lambda (op) (string=? op "checkers"))
+                              (facade-operations))))
+        (assert-true (> (length probed) 10)
+          #:name "the probe asks more than a few operations")
+        (assert-equal #:expect answered #:got probed
+          #:name "every operation the facade answers is one the probe asks")))
 
     (test "the dialect selector offers dialects the facade answers"
       ;; The selector is the one place the page names a language, and the

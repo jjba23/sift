@@ -14,26 +14,10 @@
 #
 # One command is the point.  Hoot is not a library sift ships; it is the
 # compiler that turns sift's Scheme into WebAssembly, and it is needed once,
-# here, and never at run time.  Finding it is the only hard part of this
-# script, and it is hard in one specific way worth writing down:
-#
-#   Hoot's compiled modules are bytecode, and bytecode belongs to the Guile
-#   that compiled it.  `guix shell guile guile-hoot' puts Guile 3.0.9 beside a
-#   Hoot built for Guile 3.0.10, and the failure is not "Hoot is missing" --
-#   it is `Unbound variable: default-debug-level', from inside Hoot, half way
-#   through a compile.  A toolchain is therefore not "a guile and a guild on
-#   PATH"; it is a guile and a guild that can compile this one line of Scheme.
-#
-# So the script asks that question instead (`compiles' below), and when the
-# answer is no it asks Guix for a toolchain that can.  The three variables are
-# the escapes for a machine Guix is not on:
-#
-#   SIFT_HOOT_GUILE, SIFT_HOOT_GUILD   the toolchain to use, trusted as given
-#   SIFT_HOOT_SHELL                    the Guix packages to ask for, default
-#                                      "guile-next guile-hoot"
-#
-# and `SIFT_BUILD_IN_SHELL' is this script's own marker, so that the copy
-# Guix starts does not ask Guix again.
+# here, and never at run time.  Finding it lives in web/toolchain.sh, which
+# `web/check.sh' sources too: the two scripts need the same toolchain, and the
+# difference between a build that works and one that half works is a question
+# only that file knows how to ask.
 
 set -eu
 
@@ -41,59 +25,9 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(CDPATH= cd -- "$here/.." && pwd)
 dist=${1:-"$here/dist"}
 
-guile=${SIFT_HOOT_GUILE:-guile}
-guild=${SIFT_HOOT_GUILD:-guild}
-shell_packages=${SIFT_HOOT_SHELL:-"guile-next guile-hoot"}
-
-note() { echo "sift: $*" >&2; }
-die() { echo "sift: $*" >&2; exit 1; }
-
 # ---------------------------------------------------------------- the toolchain
 
-# The one question that matters: can this pair compile a program?  A Hoot that
-# answers `#f' is a Hoot whose bytecode belongs to another Guile, or a Hoot
-# that is not there at all, and neither is something to build with.  The probe
-# is a whole program of two lines, because a compile that gets as far as
-# writing a file is a compile that works, and a compile that does not is the
-# failure this script is here to avoid.
-probe_log=$(mktemp -t sift-hoot-probe.XXXXXX)
-probe_dir=$(mktemp -d -t sift-hoot-probe.XXXXXX)
-trap 'rm -rf "$probe_log" "$probe_dir"' EXIT INT TERM
-
-compiles() {
-    command -v "$guile" >/dev/null 2>&1 || return 1
-    command -v "$guild" >/dev/null 2>&1 || return 1
-    printf '(import (scheme base) (scheme write))\n(display "ok")\n' \
-        > "$probe_dir/main.scm"
-    rm -f "$probe_dir/probe.wasm"
-    "$guild" compile-wasm -o "$probe_dir/probe.wasm" "$probe_dir/main.scm" \
-        > "$probe_log" 2>&1 || return 1
-    [ -s "$probe_dir/probe.wasm" ]
-}
-
-if [ -n "${SIFT_HOOT_GUILE:-}" ] || [ -n "${SIFT_HOOT_GUILD:-}" ]; then
-    # Named by the caller, and trusted as named: a machine with its own Hoot
-    # knows better than this script does which Guile it was built for.
-    note "using the toolchain named by the environment: $guile, $guild"
-elif compiles; then
-    note "using $("$guile" --version | head -n 1) from PATH"
-elif command -v guix >/dev/null 2>&1 && [ -z "${SIFT_BUILD_IN_SHELL:-}" ]; then
-    note "the Hoot on PATH cannot compile; asking Guix for $shell_packages"
-    note "(this is the first build on a machine; it takes a while and only once)"
-    exec guix shell $shell_packages -- env SIFT_BUILD_IN_SHELL=1 "$0" "$@"
-elif [ -n "${SIFT_BUILD_IN_SHELL:-}" ]; then
-    echo "sift: $shell_packages did not give a working Hoot; it said:" >&2
-    sed 's/^/sift:   /' "$probe_log" >&2
-    die "set SIFT_HOOT_GUILE and SIFT_HOOT_GUILD to a Guile and guild built for it"
-else
-    echo "sift: no working Hoot, and no Guix to ask for one." >&2
-    echo "sift: Hoot is the compiler that makes sift.wasm; it is needed here and" >&2
-    echo "sift: nowhere else.  Install it and put its Guile on PATH:" >&2
-    echo "sift:   guix shell guile-next guile-hoot -- ./web/build.sh" >&2
-    echo "sift: or name a toolchain you already have:" >&2
-    echo "sift:   SIFT_HOOT_GUILE=... SIFT_HOOT_GUILD=... ./web/build.sh" >&2
-    die "see web/README.org, 'Building it'"
-fi
+. "$here/toolchain.sh"
 
 # ---------------------------------------------------------------- the build
 
@@ -121,13 +55,14 @@ mkdir -p "$dist"
 # stand-in rather than failing to resolve; then web/, which is where
 # `(sift web)' lives; then src/, the core, which knows nothing about any of
 # this.
-# `-Ono-contify' because that one pass of `-O2' miscompiles this program: the
-# module compiles, and then `lint', `fix', `hover', `symbols' and `inlayHints'
-# die with `WASM runtime error: invalid cast' -- a `ref.cast' of the fixnum 1
-# to a struct type, which is the pass sharing a continuation between branches
-# that do not have the same type.  Every other pass stays on, so the module is
-# the speed it was; `web/probe.scm' and `maak web-check' are what say so, and
-# they are what will say when this line can go.
+#
+# `-Ono-contify' because the `contify' pass of `-O2' miscompiles this program:
+# the module compiles, and then `lint', `hover', `symbols' and `inlayHints' die
+# with `WASM runtime error: invalid cast' -- a `ref.cast' of the fixnum 1 to a
+# struct type, which is the pass sharing a continuation between branches that
+# do not have the same type.  Every other pass stays on, so the module is the
+# size and the speed it was; `web/probe.scm' and `maak web-check' are what say
+# so, and they are what will say when the line can go.
 "$guild" compile-wasm \
     -O2 \
     -Ono-contify \

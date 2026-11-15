@@ -31,6 +31,7 @@ maak test-suite    # one suite, by the file you have open
 maak check         # compile every module, so a syntax error fails the build
 maak self-check    # sift's own sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips, byte for byte
+maak web-check     # the browser build runs every operation, not only compiles
 maak docs          # regenerate doc/rules.org from the rules
 maak bench         # time the reader, the formatter and every checker
 #+end_src
@@ -124,14 +125,24 @@ the Guile that builds a branch is the Guile the branch is developed against.
 Two jobs, because a gate and a deployment are two different questions:
 
 - *gates* asks whether the tree is worth merging: ~maak test~, ~maak check~,
-  ~maak self-check~, ~maak fixture-check~, ~maak emacs-check~ and
-  ~maak emacs-test~.  That is what ~maak release~ runs, minus ~docs~ -- the
-  suite already fails when ~doc/rules.org~ is not what the rules produce.  It
-  runs on a push to ~trunk~, on a pull request against it, and on a dispatch,
-  so a branch is judged before it lands rather than after it fails.  A pull
-  request from a fork is skipped, because the daemon clones the repository the
-  run belongs to and a branch that exists only in the fork is not there; the
-  push that follows the merge is the run that judges that tree.
+  ~maak self-check~, ~maak fixture-check~, ~maak web-check~,
+  ~maak emacs-check~ and ~maak emacs-test~, and it compiles the browser build
+  with ~maak web~ on the way.  That is what ~maak release~ runs, minus ~docs~ --
+  the suite already fails when ~doc/rules.org~ is not what the rules produce.
+  It runs on a push to ~trunk~, on a pull request against it, and on a
+  dispatch, so a branch is judged before it lands rather than after it fails.
+  A pull request from a fork is skipped, because the daemon clones the
+  repository the run belongs to and a branch that exists only in the fork is
+  not there; the push that follows the merge is the run that judges that tree.
+
+  ~maak web~ and ~maak web-check~ are the two questions about the browser
+  build, and they are two because a module that compiles is not a module that
+  runs: an optimization pass that miscompiles it produces something that
+  loads and then dies on the first request that reaches the bad code.
+  ~maak web-check~ compiles ~web/probe.scm~ with the build's own flags, runs
+  it in Hoot's own virtual machine, and asks the facade every operation the
+  protocol has.  It is a gate rather than a Veritas suite because it needs a
+  toolchain that is not Guile's.
 - *deploy* publishes the browser build, and it needs ~gates~ to have passed:
   ~maak web-deploy~ copies what ~maak web~ built into the directory the server
   serves.  That is a deployment and not a check, so it runs for a push to

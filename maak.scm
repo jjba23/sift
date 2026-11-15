@@ -50,6 +50,7 @@
             emacs-test
             emacs-check
             web
+            web-check
             web-serve
             web-deploy
             fmt
@@ -325,6 +326,20 @@ one, compiles web/main.scm to sift.wasm, stamps the page with the version and
 the commit, and says what it laid out."
   (run (list "sh" "web/build.sh") #:verbose? #t))
 
+(define (web-check)
+  "Check that the browser build runs, and not only that it compiles.
+
+`maak web' answers the first question and cannot answer the second, which is
+the difference that let a miscompiled module ship: it compiles, it loads, and
+then it dies on the first request that reaches the bad code.  `web/check.sh'
+compiles web/probe.scm with the build's own flags and runs it in Hoot's virtual
+machine -- no browser and no JavaScript engine -- and the probe asks the facade
+every operation the protocol has and says which one broke.
+
+It is a gate and not a test suite: `maak test' is Veritas and runs under Guile,
+and this needs a toolchain that is not Guile's."
+  (run (list "sh" "web/check.sh") #:verbose? #t))
+
 (define* (web-serve #:optional (port "8080"))
   "Serve web/dist on localhost, to look at the page before publishing it.
 
@@ -562,6 +577,7 @@ half a file behind."
               ("check" . ,check)
               ("self-check" . ,self-check)
               ("fixture-check" . ,fixture-check)
+              ("web-check" . ,web-check)
               ("emacs-check" . ,emacs-check)
               ("emacs-test" . ,emacs-test))))
 

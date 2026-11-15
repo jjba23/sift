@@ -37,6 +37,20 @@ first build on a machine takes a while, because ~guix shell guile-next
 guile-hoot~ may have to fetch those two; every build after it is seconds.
 ~maak web~ is the same command, run through the task runner.
 
+A build is not a check, and the difference is not academic here: a module
+miscompiled by an optimization pass compiles, loads, and only then dies on the
+first request that reaches the bad code.  ~maak web-check~ is the other half --
+it compiles ~web/probe.scm~ with the build's own flags, runs it in Hoot's own
+virtual machine, and asks the facade every operation this page documents:
+
+#+begin_src shell
+maak web-check      # the build runs, operation by operation
+#+end_src
+
+It needs no browser and no JavaScript engine, it is under a minute, and it runs
+in CI next to ~maak web~ and in every release.  What it cannot see is what a
+browser does with the answers -- see [[#checking][Checking that it still works]].
+
 Hoot is the compiler, and it is needed once, at build time; nothing it produces
 needs it at run time.  The Wasm module wants a browser with the GC and
 exception-handling proposals -- Firefox 121+, Chrome 119+, Safari 26+ -- and the
@@ -51,7 +65,9 @@ variable: default-debug-level~, from inside Hoot, half way through a compile.  S
 the script does not look for ~guild~ and hope.  It compiles a two-line program,
 which is a question only a working toolchain answers, and when the answer is no
 it asks Guix for ~guile-next guile-hoot~ -- the pair ~guile-hoot~ is built
-against -- and builds there.
+against -- and builds there.  That question is asked in ~web/toolchain.sh~,
+which ~build.sh~ and ~check.sh~ both source: they need the same toolchain, and
+the finding is the hard part.
 
 That writes ~web/dist/~, which is a directory a static file server can serve:
 
@@ -422,12 +438,46 @@ in a screenshot: the dialect selector is compared with the dialects the facade
 reads (and each of those with the example it opens on), and the light theme is
 compared with the dark one variable by variable -- a colour the light block
 forgets is dark text on a dark background, which is not a failure until someone
-turns the light on.
+turns the light on.  A third reads ~web/probe.scm~ against the facade's own
+dispatch, so an operation added without the probe fails a test rather than
+becoming the one thing nobody checks runs.
 
-The other half is the Wasm build itself, which needs Hoot and a browser.  The
-way to check it is to serve ~web/dist/~, open it, and use it -- which is what
-was done, in headless Chrome driven over the DevTools protocol: load the page,
-wait for the status bar to name a version, then click ~Format~ on
+** Does the module run?
+
+The build compiles the module and cannot run it, and the gap between those two
+is where a miscompilation lives: it compiles, it loads, and only then does it
+die on the first request that reaches the bad code.  That is not hypothetical.
+The default optimization level, ~-O2~, miscompiles this program -- the
+~contify~ pass shares a continuation between branches that do not have the same
+type, and ~lint~, ~fix~, ~hover~, ~symbols~ and ~inlayHints~ answer
+~WASM runtime error: invalid cast~, a ~ref.cast~ of the fixnum ~1~ to a struct,
+while ~format~ and ~definition~ keep working.  ~web/build.sh~ therefore passes
+~-O2 -Ono-contify~, which keeps every other pass and their speed, and says so
+where the flags are.
+
+The check that would have caught it is a program, not a script:
+
+#+begin_src shell
+maak web-check
+#+end_src
+
+It compiles ~web/probe.scm~ with the build's own flags and runs it in Hoot's
+own virtual machine -- no browser, no JavaScript engine -- and the probe asks
+the facade every operation this page documents, one request each, asserting the
+fact the operation is for: the rule that fires, the name that is found, the two
+arguments that are named.  It answers one line, ~ok~ or the first operation
+that failed, and ~maak release~ and CI both run it next to ~maak web~.
+
+One operation is deliberately absent: ~checkers~ builds and serialises the whole
+catalogue, which is minutes in an interpreter rather than the fifty milliseconds
+a browser takes.  ~tests/web.scm~ asserts that answer in full, under Guile.
+
+** And does a browser?
+
+What the check cannot see is what a browser does with the answers.  That is a
+person, serving ~web/dist/~ and using the page -- which is what was done, in
+headless Chrome driven over the DevTools protocol: load the page, wait for the
+status bar to name a version, then click ~Format~ on
 ~(define (square x)\n(* x x))~, click ~Fix~ on ~(define (f) (let ((x 1)) x))~,
 switch the dialect to Emacs Lisp and format a ~defun~, open ~Rules~, and click a
 finding to see the cursor move.

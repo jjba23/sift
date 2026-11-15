@@ -686,7 +686,10 @@ parse.
 [[file:web/README.org][web/]] is the two jobs that are a function of a string — formatting and
 linting — compiled to WebAssembly with [[https://spritely.institute/hoot/][Guile Hoot]], with an editor page
 around it.  The same reader, the same formatter and all 95 rules run in the tab,
-and no input leaves it, because there is nowhere for it to go.
+and no input leaves it, because there is nowhere for it to go.  `maak web` asks
+whether it compiles and `maak web-check` whether it runs — the second runs the
+module in Hoot's own virtual machine and asks every operation — because a
+module miscompiled by an optimizer compiles, loads, and dies later.
 
 It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
 the dialect, the style and the severity as controls, the findings in a panel that

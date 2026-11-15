@@ -46,10 +46,16 @@ The gates are the ones a release runs, and any of them can be run alone:
 | ~maak emacs-test~  | the Emacs package's ERT suite                                 |
 | ~maak editors-check~ | Vim in batch, Node over the VS Code logic                   |
 | ~maak web~         | the browser build compiles                                    |
+| ~maak web-check~   | the browser build runs every operation, in Hoot's own machine |
 
 ~maak test-suite~ is the one worth knowing on the first day: the whole run is
 three minutes and a single rule's suite is a second, so a change is iterated on
 with the second and finished with the first.
+
+~maak web~ and ~maak web-check~ are two questions because a module that
+compiles is not a module that runs: an optimization pass that miscompiles it
+produces something that loads and then dies on the first request that reaches
+the bad code, which is why both are gates and neither is a test suite.
 
 * Adding a rule
 :PROPERTIES:
