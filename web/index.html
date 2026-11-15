@@ -11,10 +11,26 @@
          cache and a URL that does not change is a deploy nobody sees.
          `__SIFT_BUILD__' is replaced by web/build.sh; editor.js reads the same
          stamp out of its own URL and puts it on sift.wasm. -->
-    <link rel="stylesheet" href="editor.css?v=__SIFT_BUILD__">
-    <!-- The icon the project already has, so that a server's log does not carry
-         a 404 for a site with no favicon. -->
     <link rel="icon" type="image/png" href="favicon.png?v=__SIFT_BUILD__">
+    <!-- The theme, before the first paint.  `editor.js' is a module, and a
+         module runs after the document is parsed, which would be a white flash
+         for a reader whose system says dark.  The same three answers
+         `preferredTheme' gives, in the same order: the link, the choice
+         remembered, the system.  A stylesheet is a paint and this must beat it,
+         so it is inline and it is first. -->
+    <script>
+      (function () {
+        var remembered = null;
+        try { remembered = localStorage.getItem("sift-theme"); } catch (error) { remembered = null; }
+        var named = new URLSearchParams(location.search).get("theme");
+        var light = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        var theme = named === "light" || named === "dark" ? named
+          : remembered === "light" || remembered === "dark" ? remembered
+            : light ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+    <link rel="stylesheet" href="editor.css?v=__SIFT_BUILD__">
     <!-- Hoot's reflection runtime: it is what turns a WebAssembly instance into
          Scheme values JavaScript can hold.  It must be loaded before editor.js,
          and it looks for reflect.wasm beside this page. -->
@@ -33,13 +49,15 @@
       <section class="toolbar" aria-label="actions">
         <label class="field">
           <span>dialect</span>
-          <select id="dialect">
+          <select id="dialect" title="switching the dialect opens that dialect's example">
             <option value="scheme">Scheme</option>
             <option value="racket">Racket</option>
             <option value="elisp">Emacs Lisp</option>
             <option value="cl">Common Lisp</option>
           </select>
         </label>
+        <button id="example" type="button"
+                title="Put this dialect's example back in the buffer">Example</button>
         <label class="field">
           <span>style</span>
           <select id="style">
@@ -59,6 +77,10 @@
         <button id="fix" type="button" title="Apply every safe fix (M-x sift-fix-buffer)">Fix</button>
         <button id="outline" type="button" aria-expanded="false">Outline</button>
         <button id="rules" type="button" aria-expanded="false">Rules</button>
+        <span class="spacer"></span>
+        <button id="theme" type="button" aria-pressed="false"
+                aria-label="switch to the light theme"
+                title="switch to the light theme">☀</button>
       </section>
 
       <section class="workspace">

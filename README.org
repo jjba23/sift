@@ -680,7 +680,10 @@ It is live at [[https://jointhefreeworld.org/sift/]]: an editor on a page, with
 the dialect, the style and the severity as controls, the findings in a panel that
 links back to the source, an outline, a completion popup, inlay hints that name a
 call's arguments, and a rules browser built from the same catalogue the command
-line prints.
+line prints.  The buffer opens on an example of the dialect that is selected --
+Scheme, Racket, Emacs Lisp or Common Lisp -- so the page shows the language
+before it is asked anything, and the theme follows the system or the button,
+whichever came last.
 
 *** Why a compile, and not a port
 :PROPERTIES:

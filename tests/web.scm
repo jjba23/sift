@@ -208,6 +208,54 @@ name when a core module starts importing one that is neither."
   (let ((text (slurp (web-file "index.html"))))
     (append (attribute-values "src" text) (attribute-values "href" text))))
 
+(define (text-between text start-marker end-marker)
+  "Return what @var{text} holds between @var{start-marker} and @var{end-marker}."
+  (let* ((start (string-contains text start-marker))
+         (end (and start
+                (string-contains text end-marker
+                                 (+ start (string-length start-marker))))))
+    (and start end
+      (substring text (+ start (string-length start-marker)) end))))
+
+(define (page-dialects)
+  "Return the dialects the page's selector offers, in the order it offers them."
+  (attribute-values
+   "value"
+   (or (text-between (slurp (web-file "index.html"))
+                     "<select id=\"dialect\"" "</select>")
+     "")))
+
+(define (matches pattern text)
+  "Return every match of @var{pattern} in @var{text}, as strings."
+  (let ((regexp (make-regexp pattern)))
+    (let loop ((start 0) (found '()))
+      (let ((match (regexp-exec regexp text start)))
+        (if match
+          (loop (match:end match 0) (cons (match:substring match 0) found))
+          (reverse found))))))
+
+(define (declared-variables selector)
+  "Return the variables @var{selector} declares in the stylesheet, once each.
+
+A declaration is a name followed by a colon; a use is a name inside `var(...)'.
+Only the first is asked for, which is why the pattern carries the colon."
+  (let ((block (text-between (slurp (web-file "editor.css"))
+                             (string-append selector " {")
+                             "}")))
+    (if block
+      (delete-duplicates
+       (map (lambda (declaration) (string-drop-right declaration 1))
+            (matches "--[a-z0-9-]+:" block))
+       string=?)
+      '())))
+
+(define dialect-names '("scheme" "racket" "elisp" "cl"))
+
+(define (sample-of dialect)
+  "Return the example the facade opens on in @var{dialect}."
+  (field-of (result-of (asked (cons "op" "sample") (cons "dialect" dialect)))
+            "source"))
+
 (define (compat-load-path directory)
   "Return the load path that puts the browser's SRFI-13 in front, as flags.
 
@@ -628,6 +676,86 @@ exactly the bug that would reach a tab and no test."
         (assert-equal #:expect " width " #:got (field-of (car hints) "label")
           #:name "named by the formal list, with one space on each side")))
 
+    (test "the references name every mention of the symbol"
+      (let* ((result (result-of (asked (cons "op" "references")
+                                       (cons "source"
+                                             "(define (square x)\n  (* x x))\n(square 3)\n")
+                                       (cons "offset" 9))))
+             (places (vector->list (field-of result "references")))
+             (lines (map (lambda (place)
+                           (field-of (field-of place "range") "start"))
+                         places)))
+        (assert-equal #:expect 2 #:got (length places)
+          #:name "the declaration and the call")
+        (assert-equal #:expect '(0 2)
+          #:got (map (lambda (start) (field-of start "line")) lines)
+          #:name "on the lines they are written on")))
+
+    (test "an option named the way sift.yaml names it reaches the checker"
+      ;; `options' is the escape hatch: any member of a `sift.yaml' that has no
+      ;; request member of its own travels here, under its configuration name.
+      (let ((warnings (warnings-of
+                       (asked (cons "op" "lint")
+                              (cons "source" "(define (f) (a b))\n")
+                              (cons "options"
+                                    (json-object (cons "line-length" 10)))))))
+        (assert-equal #:expect "line-length"
+          #:got (field-of (car warnings) "rule")
+          #:name "a setting in \"options\" is a setting the checkers read")))
+
+    (test "excluding a rule leaves it out"
+      (let* ((source "(define (f)\n  (if a b))\n")
+             (rules-of
+              (lambda (request)
+                (map (lambda (warning) (field-of warning "rule"))
+                     (warnings-of request))))
+             (kept (rules-of (asked (cons "op" "lint") (cons "source" source))))
+             (excluded (rules-of (asked (cons "op" "lint") (cons "source" source)
+                                        (cons "excludeCheckers"
+                                              (list->vector
+                                               (list "if-without-else")))))))
+        (assert-equal #:expect '("if-without-else") #:got kept
+          #:name "the rule fires when nothing is excluded")
+        (assert-equal #:expect '() #:got excluded
+          #:name "and does not when it is")))
+
+    ;; --- the examples the page opens on -------------------------------
+    ;;
+    ;; The page opens on an example, and switching the dialect switches it, so
+    ;; that the buffer in front of a reader is written in the language they
+    ;; chose.  The examples live in the facade rather than in `editor.js'
+    ;; because this is the half of the page a test can read: what is asserted
+    ;; below is that each one is formatted, has something to say, and is its
+    ;; own dialect's.
+
+    (test "every dialect has an example, and it is already formatted"
+      (for-each
+       (lambda (dialect)
+         (assert-equal
+           #:expect json-false
+           #:got (field-of (result-of (asked (cons "op" "format")
+                                             (cons "source" (sample-of dialect))
+                                             (cons "dialect" dialect)))
+                           "changed")
+           #:name (format #f "the ~a example is a fixed point of format" dialect)))
+       dialect-names))
+
+    (test "every example has something to say"
+      (for-each
+       (lambda (dialect)
+         (assert-true
+           (> (length (warnings-of (asked (cons "op" "lint")
+                                          (cons "source" (sample-of dialect))
+                                          (cons "dialect" dialect))))
+              0)
+           #:name (format #f "the ~a example reports a finding" dialect)))
+       dialect-names))
+
+    (test "the four examples are four examples"
+      (assert-equal #:expect 4
+        #:got (length (delete-duplicates (map sample-of dialect-names) string=?))
+        #:name "an example borrowed from another dialect teaches nothing"))
+
     (test "a question without an offset is a usage error"
       (assert-refused #:request (asked (cons "op" "hover") (cons "source" "(a)"))
                       #:kind "usage" #:name "hover with no offset"))
@@ -690,6 +818,41 @@ exactly the bug that would reach a tab and no test."
           #:name "the module's own URL is where sift.wasm is found")
         (assert-equal #:expect #f #:got (string-contains text "\"./sift.wasm\"")
           #:name "and not a path from wherever the page happens to be served")))
+
+    (test "the dialect selector offers dialects the facade answers"
+      ;; The selector is the one place the page names a language, and the
+      ;; examples are the one place it shows one.  A page whose selector offers
+      ;; a dialect the facade does not read is a page that answers a usage error
+      ;; to a click, which is why the list is read out of the page rather than
+      ;; restated here.
+      (let ((offered (page-dialects)))
+        (assert-equal #:expect dialect-names #:got offered
+          #:name "the page offers the four dialects, in the order sift reads them")
+        (for-each
+         (lambda (dialect)
+           (assert-true (if (string->dialect dialect) #t #f)
+             #:name (format #f "~a is a dialect sift reads" dialect))
+           (assert-true (> (string-length (sample-of dialect)) 0)
+             #:name (format #f "~a opens on an example" dialect)))
+         offered)))
+
+    (test "the light theme declares every colour the dark one does"
+      ;; The light theme is the same stylesheet with a block of overrides, so a
+      ;; variable the dark block declares and the light block forgets is a
+      ;; colour left at its dark value -- unreadable text, and nothing that
+      ;; fails until a reader turns the light on.  Font metrics are the only
+      ;; things a theme does not own.
+      (let* ((dark (declared-variables ":root"))
+             (light (declared-variables ":root[data-theme=\"light\"]"))
+             (metrics '("--mono" "--size" "--leading")))
+        (assert-true (> (length dark) 0)
+          #:name "the stylesheet declares its colours up front")
+        (assert-equal #:expect '()
+          #:got (lset-difference string=? dark (append light metrics))
+          #:name "no colour is left to the dark theme alone")
+        (assert-equal #:expect '()
+          #:got (lset-difference string=? light dark)
+          #:name "and the light theme declares nothing the dark one does not")))
 
     ;; --- the compatibility layer --------------------------------------
 

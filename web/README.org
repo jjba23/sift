@@ -150,7 +150,22 @@ too high), and it compresses the module.  The one behaviour it has to be worked
 | ~F12~ or ~Ctrl~+click                | jump to the definition, in this buffer       |
 | ~Outline~                            | the buffer's definitions, click to go there  |
 | ~Rules~                              | every rule, with its example                 |
-| the dialect selector                 | Scheme, Racket, Emacs Lisp or Common Lisp    |
+| the dialect selector                 | Scheme, Racket, Emacs Lisp or Common Lisp, and the example the page opens on for each |
+| the theme button                     | light or dark, following the system until you choose |
+
+The buffer a reader lands on is an *example of the dialect they chose*, not
+Scheme whatever the selector says: switching the selector replaces the buffer
+only while the buffer is still an example, so nobody's work is thrown away by a
+click, and ~Example~ puts the current dialect's back.  The examples are
+answered by the facade -- ~{"op":"sample"}~ -- rather than kept in ~editor.js~,
+which is why ~tests/web.scm~ can assert of each one that it is a fixed point of
+the formatter and that it has a finding to show.  They are also what makes the
+two buttons honest: ~Format~ says "already formatted" because each example
+already is, and ~Fix~ repairs the finding the panel is pointing at.
+
+A link can carry both choices, which is how one example is shared with someone
+else: ~?dialect=racket~ opens the Racket example and ~?theme=dark~ opens the
+page in the dark, and an unknown value is ignored rather than refused.
 
 The four editor questions -- hover, definition, completion, outline -- are
 answered by *the language server's own code*, not by a second implementation:
@@ -259,6 +274,7 @@ which a tab reports rather than dies of).
 | ~fix~       | ~{"source":S'',"applied":N,"changed":B,"warnings":W}~                  |
 | ~extract~   | ~{"source":S',"title":T,"changed":B}~ -- the expression at ~offset~, bound |
 | ~checkers~  | ~{"version":V,"checkers":K}~ -- the rule catalogue, with examples      |
+| ~sample~    | ~{"dialect":D,"source":S}~ -- the example the page opens on, in that dialect |
 | ~version~   | ~{"version":V}~                                                       |
 | ~hover~     | ~{"hover":{contents,range}}~ or ~null~ -- what the symbol is           |
 | ~definition~| ~{"definitions":[{uri,range}]}~ -- in this buffer only                 |
@@ -401,6 +417,12 @@ maak test          # or: guile -L src -L tests -c '(use-modules (tests run)) (ru
 
 That covers the answers, the failures, the dialects, the styles and the
 catalogue, and it is the half of the job that catches a regression in a rule.
+It also reads the page itself, because two of the ways a page rots are invisible
+in a screenshot: the dialect selector is compared with the dialects the facade
+reads (and each of those with the example it opens on), and the light theme is
+compared with the dark one variable by variable -- a colour the light block
+forgets is dark text on a dark background, which is not a failure until someone
+turns the light on.
 
 The other half is the Wasm build itself, which needs Hoot and a browser.  The
 way to check it is to serve ~web/dist/~, open it, and use it -- which is what

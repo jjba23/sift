@@ -11,6 +11,8 @@
  */
 
 :root {
+  color-scheme: dark;
+
   --ink: #0e1512;
   --ink-2: #131f1a;
   --ink-3: #1a2a22;
@@ -22,9 +24,63 @@
   --error: #ff6b6b;
   --warning: #ffc857;
   --info: #7cc6ff;
+  /* The line numbers, the example text in a rule, the colour a selection and
+     a popup cast, and the one colour text takes on top of --green. */
+  --gutter: #3f5b4d;
+  --example: #a8c3b5;
+  --select: rgba(111, 215, 155, 0.22);
+  --on-green: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.45);
+  /* What the highlighter colours with.  They are variables for the same reason
+     the rest are: the light theme redefines them, and a token that forgot to
+     is a word nobody can read. */
+  --t-comment: #5d7a6b;
+  --t-string: #b8e986;
+  --t-char: #d3a4ff;
+  --t-number: #ffb86c;
+  --t-keyword: #ff79c6;
+  --t-symbol: #dbe6e0;
+  --t-paren: #8aa297;
+  --t-quote: #ffc857;
+
+  /* Metrics, which a theme does not own. */
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
   --size: 14px;
   --leading: 1.55;
+}
+
+/* The light theme is the same stylesheet with the colours declared again, and
+   one attribute on the root element decides which block applies.  Every colour
+   above appears below: `tests/web.scm' fails when one does not, because the
+   failure it would be -- dark text on a dark background, or a string in the
+   wrong green -- is invisible until a reader turns the light on. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ink: #f7faf8;
+  --ink-2: #eef3f0;
+  --ink-3: #e3ebe6;
+  --line: #cddcd4;
+  --fg: #16251e;
+  --dim: #55685f;
+  --green: #2f6f4f;
+  --bright: #1c6b45;
+  --error: #a5221b;
+  --warning: #7a5200;
+  --info: #0b5b96;
+  --gutter: #9db3a8;
+  --example: #2c4638;
+  --select: rgba(47, 111, 79, 0.18);
+  --on-green: #ffffff;
+  --shadow: rgba(16, 32, 24, 0.16);
+  --t-comment: #5f7269;
+  --t-string: #1d6b3c;
+  --t-char: #74359b;
+  --t-number: #94500b;
+  --t-keyword: #9c2268;
+  --t-symbol: #16251e;
+  --t-paren: #55685f;
+  --t-quote: #7a5200;
 }
 
 * { box-sizing: border-box; }
@@ -94,6 +150,9 @@ main {
 
 .field span { text-transform: uppercase; letter-spacing: 0.08em; }
 
+/* The theme toggle sits at the far end: it is about the page, not the buffer. */
+.toolbar .spacer { flex: 1; }
+
 select, button {
   font-family: inherit;
   font-size: 12px;
@@ -134,7 +193,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
   width: 4ch;
   padding: 14px 4px 14px 8px;
   text-align: right;
-  color: #3f5b4d;
+  color: var(--gutter);
   background: var(--ink-2);
   border-right: 1px solid var(--line);
   overflow: hidden;
@@ -181,18 +240,18 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
   outline: none;
 }
 
-.sheet textarea::selection { background: rgba(111, 215, 155, 0.22); color: transparent; }
+.sheet textarea::selection { background: var(--select); color: transparent; }
 
 /* ---- tokens ---- */
 
-.t-comment { color: #5d7a6b; font-style: italic; }
-.t-string  { color: #b8e986; }
-.t-char    { color: #d3a4ff; }
-.t-number  { color: #ffb86c; }
-.t-keyword { color: #ff79c6; }
-.t-symbol  { color: #dbe6e0; }
-.t-paren   { color: #8aa297; }
-.t-quote   { color: #ffc857; }
+.t-comment { color: var(--t-comment); font-style: italic; }
+.t-string  { color: var(--t-string); }
+.t-char    { color: var(--t-char); }
+.t-number  { color: var(--t-number); }
+.t-keyword { color: var(--t-keyword); }
+.t-symbol  { color: var(--t-symbol); }
+.t-paren   { color: var(--t-paren); }
+.t-quote   { color: var(--t-quote); }
 
 /* ---- the panel ---- */
 
@@ -270,7 +329,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
   border: 1px solid var(--line);
   border-radius: 3px;
   font-size: 11px;
-  color: #a8c3b5;
+  color: var(--example);
   white-space: pre;
   overflow-x: auto;
 }
@@ -331,7 +390,7 @@ footer kbd {
   background: var(--ink-2);
   border: 1px solid var(--green);
   border-radius: 3px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 .completions[hidden] { display: none; }
@@ -345,9 +404,9 @@ footer kbd {
   font-size: 12px;
 }
 
-.completions li.active { background: var(--green); color: #fff; }
+.completions li.active { background: var(--green); color: var(--on-green); }
 .completions li .kind { color: var(--dim); }
-.completions li.active .kind { color: #cfe9dc; }
+.completions li.active .kind { color: var(--on-green); }
 
 .outline { margin: 0; padding: 0; list-style: none; }
 .outline[hidden] { display: none; }

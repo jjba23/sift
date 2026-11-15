@@ -46,6 +46,7 @@
 ;;   {"op":"extract", "source":S,"offset":N,"to":T}
 ;;                                 {"ok":true,"result":{"source":S',"title":T,"changed":B}}
 ;;   {"op":"checkers"}              {"ok":true,"result":{"checkers":K,"version":V}}
+;;   {"op":"sample","dialect":D}    {"ok":true,"result":{"dialect":D,"source":S}}
 ;;   {"op":"version"}               {"ok":true,"result":{"version":V}}
 ;;
 ;; and, for all of them,
@@ -393,6 +394,82 @@ rather than on how it was written down."
             (field "checkers"
                    (list->vector (map checker->json (all-checkers)))))))
 
+;;; ===== The examples the page opens on =====
+;;;
+;;; A page that opens on Scheme code while the selector says Racket is a page
+;;; that shows a reader the wrong language, so the example a dialect opens on
+;;; is the dialect's own: square brackets in Scheme and Racket, a `defun' and
+;;; an `interactive' in Emacs Lisp, a LOOP in Common Lisp.
+;;;
+;;; They live here, in the facade, rather than in `editor.js', for the reason
+;;; everything else does: this is the half of the page a test can read, and
+;;; `tests/web.scm' asserts of every one of them that it is a fixed point of
+;;; the formatter and that it says something -- so an example cannot rot into a
+;;; buffer with a parse error in it, and the panel it opens beside is not empty.
+;;;
+;;; Each is also a demonstration of what the two buttons do.  They are already
+;;; formatted, so `Format' answers "already formatted" -- that is the fixed
+;;; point, stated as a demo -- and each carries a finding that `Fix' repairs.
+
+(define scheme-example
+  (string-append
+   "(define (classify n)\n"
+   "  (cond [(< n 0) 'negative]\n"
+   "        [(= n 0) 'zero]\n"
+   "        [else 'positive]))\n"
+   "\n"
+   "(define (report n)\n"
+   "  (if (ready?)\n"
+   "    (proceed)))\n"))
+
+(define racket-example
+  (string-append
+   "#lang racket\n"
+   "\n"
+   "(define (classify n)\n"
+   "  (cond [(< n 0) 'negative]\n"
+   "        [(= n 0) 'zero]\n"
+   "        [else 'positive]))\n"
+   "\n"
+   "(define (report n)\n"
+   "  (if (ready?)\n"
+   "      (proceed)))\n"))
+
+(define elisp-example
+  (string-append
+   ";;; hello.el --- an example for sift  -*- lexical-binding: t; -*-\n"
+   "\n"
+   "(defun sift-greet (name)\n"
+   "  (interactive \"sName: \")\n"
+   "  (if (not name)\n"
+   "    (setq name \"world\"))\n"
+   "  (message \"hello, %s\" name))\n"))
+
+(define cl-example
+  (string-append
+   "(defun sift-report (items)\n"
+   "  (if (not (null items))\n"
+   "    (format t \"~a~%\" (first items))))\n"
+   "\n"
+   "(defun sift-list (items)\n"
+   "  \"Return the non-empty items.\"\n"
+   "  (loop for item in items\n"
+   "        when item\n"
+   "        collect item))\n"))
+
+(define (dialect-example dialect)
+  "Return the example the page opens on in @var{dialect}."
+  (cond [(eq? dialect 'racket) racket-example]
+        [(eq? dialect 'elisp) elisp-example]
+        [(eq? dialect 'cl) cl-example]
+        [else scheme-example]))
+
+(define (request-sample request)
+  "Answer a request for the example a dialect opens on."
+  (let ((dialect (request-dialect request)))
+    (success (object (field "dialect" (dialect->string dialect))
+                     (field "source" (dialect-example dialect))))))
+
 ;;; ===== The questions an editor asks =====
 ;;;
 ;;; These are the language server's answers about a *buffer*: hover, jump,
@@ -591,6 +668,7 @@ finds nothing to extract says so instead of answering the buffer unchanged."
         [(string=? op "version")
          (success (object (field "version" (web-version))))]
         [(string=? op "checkers") (request-checkers request)]
+        [(string=? op "sample") (request-sample request)]
         [(string=? op "format")
          (request-format request (request-source request) (request-dialect request))]
         [(string=? op "check")
@@ -604,7 +682,7 @@ finds nothing to extract says so instead of answering the buffer unchanged."
         [(member op question-ops) (answer-question op request)]
         [else
           (usage-failure
-           "unknown op: ~a (format, check, lint, fix, extract, checkers, version, or one of ~a)"
+           "unknown op: ~a (format, check, lint, fix, extract, checkers, sample, version, or one of ~a)"
            op
            (string-join question-ops ", "))]))
     (usage-failure "a request is a JSON object")))

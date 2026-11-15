@@ -526,19 +526,111 @@ async function showRules() {
   button.setAttribute("aria-expanded", "true");
 }
 
+// ------------------------------------------------------- the example
+//
+// The page opens on an example, and the example is the dialect's: a buffer
+// written in Scheme beside a selector that says Racket teaches the wrong
+// language.  The text comes from sift -- `{"op":"sample"}' -- rather than from
+// a copy here, so there is one set of examples, and `tests/web.scm' is what
+// keeps each of them formatted and worth looking at.
+
+let example = "";
+
+/** Put the current dialect's example in the buffer. */
+function loadExample() {
+  if (!sift) return;
+  try {
+    example = askOrThrow({ op: "sample", dialect: dialect.value }).source;
+    source.value = example;
+    source.setSelectionRange(0, 0);
+    source.scrollTop = 0;
+    hideCompletions();
+    contextBar.hidden = true;
+    drawHighlight();
+    drawLines();
+    lint();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("bad");
+  }
+}
+
+/** True while the buffer still holds an example, or nothing at all. */
+function untouched() {
+  return source.value === example || source.value.trim() === "";
+}
+
+// ------------------------------------------------------- the theme
+//
+// Two themes, and three ways to choose one: `?theme=' in the URL, then the
+// choice a reader made last time, then what the system says.  The first wins,
+// because a link that names a theme is a link someone meant to send.  Every
+// colour is a variable in `editor.css', so a theme is one attribute on the root
+// element and the page is otherwise the same page.
+
+const THEME_KEY = "sift-theme";
+const themeButton = document.getElementById("theme");
+
+function systemTheme() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+}
+
+/** The remembered theme, or null when this tab cannot remember one. */
+function rememberedTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY);
+  } catch (error) {
+    return null;
+  }
+}
+
+function rememberTheme(theme) {
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch (error) {
+    // remembered for this tab only, which is what having no storage means
+  }
+}
+
+/** Make THEME the one on screen, and say which one the button switches to. */
+function showTheme(theme) {
+  const next = theme === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", theme);
+  themeButton.textContent = next === "light" ? "☀" : "☾";
+  themeButton.title = `switch to the ${next} theme`;
+  themeButton.setAttribute("aria-label", `switch to the ${next} theme`);
+  themeButton.setAttribute("aria-pressed", theme === "light" ? "true" : "false");
+}
+
+themeButton.addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "light" ? "dark" : "light";
+  showTheme(next);
+  rememberTheme(next);
+});
+
+/** The theme to open on: the link, the memory, the system, in that order. */
+function preferredTheme() {
+  const named = new URLSearchParams(location.search).get("theme");
+  if (named === "light" || named === "dark") return named;
+  const remembered = rememberedTheme();
+  if (remembered === "light" || remembered === "dark") return remembered;
+  return systemTheme();
+}
+
 // ------------------------------------------------------- wiring
 
-const sample = `(define (classify n)
-  (cond ((< n 0) 'negative)
-        ((= n 0) 'zero)
-        (else 'positive)))
+showTheme(preferredTheme());
 
-(define (report n)
-  (if (ready?)
-      (proceed)))
-`;
-
-source.value = sample;
+// A link can name a language as well as a theme, which is how one example is
+// shared with someone else: `?dialect=racket'.  One that names nothing sift
+// reads is ignored rather than refused -- the selector still works.
+const linkedDialect = new URLSearchParams(location.search).get("dialect");
+if (linkedDialect && Array.from(dialect.options).some((option) => option.value === linkedDialect)) {
+  dialect.value = linkedDialect;
+}
 
 source.addEventListener("input", () => {
   drawHighlight();
@@ -601,7 +693,11 @@ source.addEventListener("click", (event) => {
   if (event.ctrlKey || event.metaKey) jumpToDefinition();
 });
 
-for (const select of [dialect, style, severity]) select.addEventListener("change", lint);
+for (const select of [style, severity]) select.addEventListener("change", lint);
+// A dialect is a different language, so it is a different example -- unless the
+// buffer holds someone's work, which is never thrown away for a click.
+dialect.addEventListener("change", () => (untouched() ? loadExample() : lint()));
+document.getElementById("example").addEventListener("click", loadExample);
 document.getElementById("format").addEventListener("click", format);
 document.getElementById("fix").addEventListener("click", fix);
 document.getElementById("rules").addEventListener("click", () => showRules().catch((error) => {
@@ -672,9 +768,7 @@ const reflectDir = new URL(".", moduleUrl).href.replace(/\/$/, "");
     [sift] = await Scheme.load_main(wasmUrl, { reflect_wasm_dir: reflectDir });
     const version = askOrThrow({ op: "version" }).version;
     status.textContent = `sift ${version} — loaded in ${Math.round(performance.now() - started)} ms`;
-    drawHighlight();
-    drawLines();
-    lint();
+    loadExample();
   } catch (error) {
     status.textContent = `sift could not start: ${error.message}`;
     status.classList.add("bad");
