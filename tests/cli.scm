@@ -685,4 +685,74 @@ has exactly one of, which is a question `assert-contains' cannot ask."
           (spit (string-append directory "/sift.yaml") "inlay-hints: false\n")
           (let ((result (run-sift '("config" "show") #:directory directory)))
             (assert-status #:expect 0 #:got result)
-            (assert-contains #:expect (cadr result) #:got "inlay-hints: []"))))))))
+            (assert-contains #:expect (cadr result) #:got "inlay-hints: []")))))
+
+     ;; --- --watch -------------------------------------------------------
+     ;;
+     ;; A watch is a promise about a process that does not exit, so the test is
+     ;; a real one: start sift, read what it said, change the file it is
+     ;; watching, and read what it says next.  Waiting for the text rather than
+     ;; for a number of seconds is what keeps that from being a race.
+
+     (test "--watch is refused by a command that reads no files"
+       (let ((result (run-sift '("version" "--watch"))))
+         (assert-status #:expect 2 #:got result)
+         (assert-contains #:expect (caddr result)
+           #:got "--watch re-runs a command that reads files")))
+
+     (test "--watch and --stdin cannot be used together"
+       (let ((result (run-sift '("lint" "--watch" "--stdin") #:stdin "(a)\n")))
+         (assert-status #:expect 2 #:got result)
+         (assert-contains #:expect (caddr result)
+           #:got "--watch waits for files to change")))
+
+     (test "--watch needs something to watch"
+       (let ((result (run-sift '("lint" "--watch") #:stdin "")))
+         (assert-status #:expect 2 #:got result)
+         (assert-contains #:expect (caddr result)
+           #:got "--watch needs a file or a directory to watch")))
+
+     (test "lint --watch runs again when the file it is watching changes"
+       (with-temp-directory
+        (lambda (directory)
+          (let* ((path (string-append directory "/watched.scm"))
+                 (handle #f))
+            (spit path "(define (f) 1)\n")
+            (set! handle (start-sift '("lint" "--watch" "watched.scm")
+                                     #:directory directory))
+            (dynamic-wind
+              (lambda () #f)
+              (lambda ()
+                (assert-true
+                  (if (wait-for-text (cadr handle) "1 file checked") #t #f)
+                  #:name "the first run answers before anything changes")
+                (assert-contains #:expect (slurp (caddr handle))
+                  #:got "1 file watched; waiting for a change")
+                (spit path "(define (f)\n  (if a b))\n")
+                (assert-true
+                  (if (wait-for-text (cadr handle) "if-without-else") #t #f)
+                  #:name "the run after the edit reports the new finding")
+                (assert-contains #:expect (slurp (cadr handle))
+                  #:got "1 file checked, 0 warnings, 0 errors"))
+              (lambda () (stop-sift handle)))))))
+
+     (test "lint --watch notices a file that appears in the directory it watches"
+       (with-temp-directory
+        (lambda (directory)
+          (let ((handle #f))
+            (spit (string-append directory "/one.scm") "(define (f) 1)\n")
+            (set! handle (start-sift '("lint" "--watch" ".") #:directory directory))
+            (dynamic-wind
+              (lambda () #f)
+              (lambda ()
+                (assert-true
+                  (if (wait-for-text (caddr handle) "1 file watched") #t #f)
+                  #:name "it watches what the run read, not what it was given")
+                (spit (string-append directory "/two.scm")
+                      "(define (g)\n  (if a b))\n")
+                (assert-true
+                  (if (wait-for-text (cadr handle) "two.scm:2:4") #t #f)
+                  #:name "the file that appeared is read, without being named")
+                (assert-contains #:expect (slurp (caddr handle))
+                  #:got "2 files watched"))
+              (lambda () (stop-sift handle))))))))))

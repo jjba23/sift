@@ -43,6 +43,7 @@
   #:use-module (sift render)
   #:use-module (sift config)
   #:use-module (sift files)
+  #:use-module (sift watch)
   ;; `sift-version' lives in (sift records); re-exporting it is how the
   ;; executable and the library agree about which version this is
   #:re-export (sift-version)
@@ -69,7 +70,10 @@
 
 Options common to the commands: --dialect, --brackets, --blank-lines,
 --line-length, --style, --severity, --format, --color/--no-color,
---file-filter/-p, --verbose, --config.
+--file-filter/-p, --verbose, --config, --watch.
+
+`--watch' re-runs format, lint, check, fix or ci whenever the files the run
+read change, until the process is interrupted.
 
 Run `sift COMMAND --help' for the options of a command.
 ")
@@ -91,6 +95,8 @@ Run `sift COMMAND --help' for the options of a command.
            (lambda (opt name arg state) (acons 'check #t state)))
    (option '("stdin") #f #f
            (lambda (opt name arg state) (acons 'stdin #t state)))
+   (option '("watch") #f #f
+           (lambda (opt name arg state) (acons 'watch #t state)))
    (option '("stdout") #f #f
            (lambda (opt name arg state) (acons 'stdout #t state)))
    (option '("fix") #f #f
@@ -434,6 +440,37 @@ was given, because naming a file is the most specific thing anyone can say."
                          (and (eq? (car entry) 'operand) (cdr entry)))
                        state)))
 
+;;; ===== What `--watch' polls =====
+;;;
+;;; A watched run is the same run as an unwatched one: `dispatch' is called
+;;; again, so the command, the configuration, the dialect detection and the
+;;; file filter are the ones that ran rather than a second copy of them.
+;;;
+;;; What the watcher needs from that run is the list of files it read, and the
+;;; only place that knows how an operand becomes a list is
+;;; `expand-operands'.  So the run records its operands and the filter they were
+;;; expanded with, and the watcher re-expands them on every look -- which is
+;;; also how a file that did not exist at the first run is noticed.
+
+(define watched-run #f)
+
+(define (remember-run! operands filter)
+  "Remember what a run reads, so `--watch' can expand it again."
+  (set! watched-run (cons operands filter)))
+
+(define (next-watched-files)
+  "Return the files a run of the command being watched would read now."
+  (if watched-run
+    (expand-operands (car watched-run) (cdr watched-run))
+    '()))
+
+(define watched-commands '(format lint check fix ci))
+
+(define (asked-to-watch? args)
+  "Return the parsed options of @var{args} when it asks to watch, or #f."
+  (and (pair? args)
+    (assq 'watch (parse-options (cdr args)))))
+
 ;;; ===== Shared helpers =====
 
 (define* (emit-verbose config fmt . args)
@@ -665,11 +702,18 @@ only has to answer with the usage status."
 
 The files are expanded *after* the configuration is read, because
 `file-filter' lives there: a walk that decided before reading the project's
-own settings would be a filter nobody could set."
+own settings would be a filter nobody could set.
+
+The operands and the filter are also remembered, because `--watch' re-expands
+them on every look: what a watched command reads is decided here and nowhere
+else, and a watcher with its own idea of the file list is a watcher that
+watches something other than what ran."
   (with-config overrides state
                (lambda (config)
-                 (thunk config (expand-operands (operands state)
-                                                (config-ref config 'file-filter))))))
+                 (let ((operands (operands state))
+                       (filter (config-ref config 'file-filter)))
+                   (remember-run! operands filter)
+                   (thunk config (expand-operands operands filter))))))
 
 (define* (with-config overrides state thunk)
   "Run @var{thunk} on the effective configuration, or answer the status 2."
@@ -1397,13 +1441,61 @@ untrusted.  That is what this prints."
        [(help --help -h) (display usage-text) 0]
        [else (usage-error "unknown command `~a'" command)]))))
 
+(define (run-and-flush args)
+  "Run @var{args}, and flush what it wrote.
+
+A watched run does not exit, so nothing flushes its standard output: without
+this, a run's findings sit in a block buffer while the person who asked for
+them watches an empty terminal -- and a run piped into another program looks
+like it said nothing at all."
+  (let ((status (dispatch args)))
+    (force-output (current-output-port))
+    (force-output (current-error-port))
+    status))
+
+(define (dispatch-once-or-watch args)
+  "Run @var{args}, and run them again whenever what they read changes.
+
+A watcher is a run that repeats, so the first thing this does is the run the
+caller asked for: its findings are on the screen before the watch says what it
+is watching, and a tree that is already clean says so once rather than once per
+keystroke.
+
+A command with nothing to read is refused rather than watched -- `sift version
+--watch' would be a flag that silently did nothing -- and `--stdin' is refused
+for the same reason, since standard input is read once and a source that may
+change has a file to change in."
+  (cond
+    [(not (asked-to-watch? args)) (dispatch args)]
+    [(not (memq (string->symbol (car args)) watched-commands))
+     (usage-error
+      "--watch re-runs a command that reads files: format, lint, check, fix or ci")]
+    [(assq 'stdin (parse-options (cdr args)))
+     (usage-error
+      "--watch waits for files to change; --stdin is read once")]
+    [(null? (operands (parse-options (cdr args))))
+     (usage-error "--watch needs a file or a directory to watch")]
+    [else
+      (let ((status (run-and-flush args)))
+        ;; A run that never reached its file list -- a configuration that would
+        ;; not load, a usage error -- has nothing to watch, and waiting forever
+        ;; for a change would be a hang rather than a watch.
+        (if (not watched-run)
+          status
+          (begin
+            (watch-loop #:run (lambda () (run-and-flush args))
+                        #:files next-watched-files)
+            0)))]))
+
 (define* (sift-main args)
   "Run sift with @var{args} and return the exit status.
 
 The status is the contract: 0 clean, 1 findings or differences, 2 usage
-error, unreadable file, or a file that cannot be parsed."
+error, unreadable file, or a file that cannot be parsed.  A run with `--watch'
+does not return one, because it does not return: it repeats until the process
+is interrupted, and Ctrl-C is how an editor-style watch is meant to end."
   (catch 'sift-usage-error
-         (lambda () (dispatch args))
+         (lambda () (dispatch-once-or-watch args))
          (lambda (key message)
            (format (current-error-port) "sift: ~a~%" message)
            (format (current-error-port) "~a" usage-text)

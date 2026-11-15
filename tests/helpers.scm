@@ -52,6 +52,9 @@
             with-temp-directory
             in-temp-directory
             run-sift
+            start-sift
+            stop-sift
+            wait-for-text
             checker-names
             fixture-pairs
             style-of
@@ -405,6 +408,50 @@ list to keep in step."
      #:name (format #f "~a is already formatted" name))))
 
 ;;; ===== Running the executable =====
+
+(define* (start-sift arguments #:key (directory (test-root)))
+  "Start bin/sift in the background and return @code{(pid out-file err-file)}.
+
+A watch never exits, so the process is started by a shell and stopped by the
+test: what is asserted is what it wrote to the two files while it ran.  The two
+paths are the caller's to read -- @code{cadr} and @code{caddr} of the handle --
+and `stop-sift' removes them."
+  (let* ((command (string-join
+                   (append (list (string-append (test-root) "/bin/sift"))
+                           arguments)
+                   " "))
+         (out-file (unique-temp-path ".out"))
+         (err-file (string-append out-file ".err"))
+         (pid (let ((port (open-input-pipe
+                           (format #f "cd ~a && ~a > ~a 2> ~a & echo $!"
+                                   directory command out-file err-file))))
+                (let ((line (read-line port)))
+                  (close-pipe port)
+                  (string->number line)))))
+    (list pid out-file err-file)))
+
+(define (stop-sift handle)
+  "Stop the process @var{handle} started, and remove the files it wrote to."
+  (let ((pid (car handle)))
+    (when (and pid (integer? pid))
+      (system (format #f "kill ~a 2>/dev/null" pid))))
+  (for-each (lambda (path) (when (file-exists? path) (delete-file path)))
+            (cdr handle)))
+
+(define* (wait-for-text path needle #:key (timeout 20) (interval 1/20))
+  "Return the text of @var{path} once it contains @var{needle}, or #f.
+
+A watched run answers when the file system gets round to it, so a test waits
+for the answer rather than sleeping a fixed time and hoping: the loop asks
+again until the deadline, and the deadline exists so a stuck watcher fails a
+test instead of hanging a suite."
+  (let loop ((looks (inexact->exact (ceiling (/ timeout interval)))))
+    (let ((text (if (file-exists? path) (slurp path) "")))
+      (cond
+        [(string-contains text needle) text]
+        [(<= looks 0) #f]
+        [else (usleep (inexact->exact (truncate (* interval 1000000))))
+          (loop (- looks 1))]))))
 
 (define* (run-sift arguments #:key (directory (test-root)) (stdin #f))
   "Run bin/sift as a subprocess and return @code{(status stdout stderr)}.

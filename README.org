@@ -565,6 +565,13 @@ Every command, every option and every exit code is in
 command for a pipeline, and the status is 0 for clean, 1 for findings and 2 for
 a usage error or a file that cannot be read.
 
+Any of the file commands can be watched instead of run once: ~sift ci --watch~,
+~sift lint --watch src/~ and ~sift format --write --watch .~ run again whenever
+a file the run read changes, until you interrupt them.  It watches what the run
+read rather than what it was given, so a file created three directories down is
+noticed, and it writes its own lines to standard error so a machine format stays
+parseable.
+
 * How the dialect is determined
 :PROPERTIES:
 :CUSTOM_ID: dialects

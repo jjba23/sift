@@ -78,11 +78,45 @@ counterpart, over which the command line takes precedence.
 | ~--label NAME~             | format, lint, check             | Name the stdin source in diagnostics                                  |
 | ~--config FILE~            | all                             | Read this configuration file instead of discovering one               |
 | ~--trust-config~           | all                             | Allow this project's Scheme configuration to be evaluated             |
+| ~--watch~                  | format, lint, check, fix, ci    | Run again whenever the files the run read change, until interrupted   |
 | ~--~                       | all                             | Stop option parsing; everything after it is a file                    |
 
 A long option may be abbreviated to any prefix that is unambiguous: ~--dial
 elisp~ denotes ~--dialect elisp~, and both ~--dialect elisp~ and
 ~--dialect=elisp~ are accepted.
+
+** Watching
+:PROPERTIES:
+:CUSTOM_ID: watch
+:END:
+
+~--watch~ turns a run into a loop: the command runs once, and again every time
+a file it read changes, until the process is interrupted.
+
+#+begin_src shell
+sift lint --watch src/          # re-lint the tree on every save
+sift ci --watch .               # the pipeline's two questions, in a loop
+sift format --write --watch .   # format on save, from the other side
+#+end_src
+
+It watches what the run *read* rather than the operands it was given, so
+~sift ci --watch .~ notices a file created three directories down, and a
+project's ~file-filter~ is the filter the watch uses because it is the filter
+the run used. Each look is a ~stat~ per file, half a second apart: there is no
+inotify here and nothing to install, so it works the same on Linux, macOS and
+anywhere a POSIX file system answers.
+
+The watcher writes its own lines to standard error -- which file changed, how
+many are watched -- and leaves standard output to the command, so
+~--format=json~ stays one document per run.  A run that changes the files it
+reads, like ~format --write~, does not trigger itself: the timestamps are read
+after the run, not before it.
+
+Three things are refused rather than silently ignored: ~--watch~ on a command
+that reads no files (~version~, ~explain~, ~lsp~), ~--watch~ with ~--stdin~
+(standard input is read once), and ~--watch~ with no file or directory to
+watch.  The exit status is not used once watching: a finding is something to
+look at rather than a reason to stop, and Ctrl-C ends the loop.
 
 ** Exit codes
 :PROPERTIES:

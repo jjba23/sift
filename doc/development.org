@@ -207,6 +207,7 @@ src/sift/
   lsp.scm           diagnostics, actions, formatting, hover, and navigation
   catalogue.scm     the rule catalogue, generated from the records
   cli.scm           args-fold, dispatch, exit codes
+  watch.scm         the stat-and-compare behind --watch
 tests/              one Veritas suite per rule, per module and per command
 benchmarks/         the benchmarks, run by Veritas and printed by its reporter
 emacs/              the Emacs package and its ERT suite
