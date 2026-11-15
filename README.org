@@ -51,6 +51,11 @@ It ships as one executable and one Emacs package, under the MIT license.  The
 premise is the ordinary one: a Lisp program is a datum with a read syntax, and
 a formatter that treats it as such can be exact and cheap at the same time.
 
+Contributions are welcome, and the two pages for them are short:
+[[file:CONTRIBUTING.md][CONTRIBUTING.md]] is the five minutes from ~git clone~ to a green suite, and
+[[file:doc/contributing.org][doc/contributing.org]] is what a new rule or a new dialect has to reach --
+which the suite then checks for you.
+
 #+begin_quote
 *Check, format, lint.*  ~sift check~ prints the patch it would make and exits
 1; ~sift format~ prints the formatted file; ~sift lint~ names the rule that
@@ -1046,6 +1051,11 @@ it is a contribution that can be carried to the end:
   descriptions are written by hand and read by people deciding whether to trust
   the tool.  A sentence that causes hesitation is a defect in the documentation.
 
+[[file:doc/contributing.org][doc/contributing.org]] is the checklist behind the two items that reach the
+most files: what a rule has to fill in, what a dialect has to fill in, and which
+of those places the suite checks for you.  [[file:CONTRIBUTING.md][CONTRIBUTING.md]] is the same page
+for someone who has not cloned yet.
+
 ** A first patch, in order
 :PROPERTIES:
 :CUSTOM_ID: first-patch
@@ -1060,11 +1070,19 @@ it is a contribution that can be carried to the end:
    ~maak self-check~, ~maak check~ and ~maak fixture-check~.
 4. Send it as a pull request, or as a patch -- see below.
 
+While working, ~maak test-suite~ runs the one suite whose file is open, in a
+second, instead of the three minutes the whole tree takes:
+
+#+begin_src shell
+maak test-suite tests/checkers/tabs.scm
+#+end_src
+
 The project's own style is the style it enforces, so it formats itself:
 
 #+begin_src shell
 maak fmt           # format sift's own sources with sift
 maak test          # the Veritas suite
+maak test-suite    # one suite, by file: tests/checkers/tabs.scm
 maak check         # compile every module
 maak self-check    # sift's sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips
@@ -1123,6 +1141,8 @@ there is.
 - [[file:doc/design.org][doc/design.org]] — the convictions, and the decisions they produced.
 - [[file:doc/development.org][doc/development.org]] — the ~maak~ gates, the pipeline that runs them and the
   ritual that cuts a release, what the benchmarks measure, and the module map.
+- [[file:doc/contributing.org][doc/contributing.org]] — what a rule has to reach, what a dialect has to
+  reach, and which of those places the suite checks.
 - [[file:web/README.org][web/README.org]] — the browser build: the seam, the protocol, the
   compatibility layer, and the numbers.
 - ~sift explain RULE~ — the same reasoning, one rule at a time, from the

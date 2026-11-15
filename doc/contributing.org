@@ -1,0 +1,302 @@
+# SPDX-License-Identifier: MIT
+# Copyright © Josep Bigorra <jjbigorra@gmail.com>
+
+#+title: sift, for whoever adds to it
+#+author: Josep Bigorra
+#+email: jjbigorra@gmail.com
+#+options: toc:2 num:nil
+#+language: en
+
+A rule, a dialect, an editor integration: each one reaches more files than it
+looks like it should, and the places it reaches are mechanical.  This page is
+that list, in the order the suite asks for it, so that adding a rule is a
+matter of filling in what a failing test names rather than of remembering what
+a conversation said.  [[file:development.org][development.org]] is the same
+ground from the other side: how the project is built, tested and released.
+
+* Before the first change
+:PROPERTIES:
+:CUSTOM_ID: before
+:END:
+
+There is nothing to build.  sift is Scheme source and a shell launcher, the
+suite runs under Guile, and a checkout is a working installation:
+
+#+begin_src shell
+git clone https://github.com/jjba23/sift.git
+cd sift
+./bin/sift version   # the program starts
+maak test            # three minutes, and it should be green before you touch anything
+#+end_src
+
+A first run that is red is a first run whose failure is not yours, which is why
+it comes before the change and not after it.  ~maak test~ compiles the library
+into Guile's cache on the way; the second run is faster.
+
+The gates are the ones a release runs, and any of them can be run alone:
+
+| Command            | The question it asks                                          |
+|--------------------+---------------------------------------------------------------|
+| ~maak test~        | every suite, under Veritas                                    |
+| ~maak test-suite~  | one suite, by the file you have open: ~maak test-suite tests/checkers/tabs.scm~ |
+| ~maak check~       | every module compiles, so a syntax error fails the build      |
+| ~maak self-check~  | sift's own sources are formatted by sift                      |
+| ~maak fixture-check~ | the golden corpus still round-trips, byte for byte          |
+| ~maak docs~        | regenerate ~doc/rules.org~ from the rules                     |
+| ~maak emacs-test~  | the Emacs package's ERT suite                                 |
+| ~maak editors-check~ | Vim in batch, Node over the VS Code logic                   |
+| ~maak web~         | the browser build compiles                                    |
+
+~maak test-suite~ is the one worth knowing on the first day: the whole run is
+three minutes and a single rule's suite is a second, so a change is iterated on
+with the second and finished with the first.
+
+* Adding a rule
+:PROPERTIES:
+:CUSTOM_ID: adding-a-rule
+:END:
+
+A rule is a record, a procedure that walks a tree, a sentence, a code, an
+example, and a test file of its own.  Every one of them is written this way, and
+every step below has a test that fails when it is skipped.
+
+** The five steps
+:PROPERTIES:
+:CUSTOM_ID: rule-steps
+:END:
+
+1. *Take the next code.*  ~rule-codes~ in ~src/sift/records.scm~ maps a rule's
+   name to its code, in the order the codes were assigned.  A code is never
+   reused: a ~SIFT012~ printed in a bug report three years ago still means the
+   same rule, so a new rule goes at the end of the list with the next free
+   number, whatever its name would sort to.
+
+2. *Write the rule*, in the family module under ~src/sift/checkers/~ that it
+   belongs to -- ~bodies.scm~, ~parens.scm~, ~naming.scm~, ~simplify.scm~ and
+   the rest.  A rule is a record and a walker:
+
+   #+begin_src scheme
+   (define if-without-else-checker
+     (checker 'if-without-else
+              "an `if` with no else branch is a `when`"
+              '(scheme racket)
+              if-without-else-warnings
+              #:severity 'warning
+              #:example '((input . "(if (ready?) (go))")
+                          (fix . "(when (ready?) (go))"))))
+   #+end_src
+
+   The walker's signature is ~(lambda (ast source dialect) warnings)~ and it
+   returns ~<lint-warning>~ records, which is what ~make-lint-warning~ builds.
+   Add the checker to that module's list (~bodies-checkers~ and so on):
+   ~(sift lint)~'s ~all-checkers~ is those lists appended, so a checker that is
+   not in one is a checker nothing runs.
+
+3. *Write its test*, at ~tests/checkers/<rule-name>.scm~.  Nothing registers
+   it -- the runner walks the directory -- but the file is what proves the rule
+   does what its description says, and ~maak test-suite tests/checkers/<rule>.scm~
+   runs it on its own.  A rule's test says, at least:
+
+   - a passing case, so the rule can be quiet;
+   - a failing case whose line and column are asserted, so a message that
+     points at the wrong place fails the test;
+   - one case per dialect the rule claims;
+   - when the rule has a fix: the fixed text, and a re-lint of the fixed text
+     that finds nothing.
+
+   #+begin_src scheme
+   (test "reports an if with two arguments"
+     (assert-warnings #:source "(if a b)\n" #:checker 'if-without-else
+                      #:expect '((1 2))))
+   #+end_src
+
+   The failing case is the one that catches the rule being wrong, and it is
+   the one that is tempting to write from the implementation rather than from
+   the intent.  Write the example first: which line and column a reader should
+   be sent to is a design question, not an implementation detail.
+
+4. *Regenerate the catalogue*: ~maak docs~ writes ~doc/rules.org~ from the
+   records.  The document is not edited by hand and a test fails when it is
+   stale.
+
+5. *Say how many rules there are.*  Four pages state the count -- the README,
+   ~doc/linting.org~, ~web/README.org~ and ~VISION.md~ -- and the suite fails
+   until each says the new number.  It is the documentation defect that is
+   nobody's fault and everybody's.
+
+** What the suite checks for you
+:PROPERTIES:
+:CUSTOM_ID: rule-checks
+:END:
+
+~tests/catalogue.scm~ is the checklist as a test, so a pull request that adds a
+rule and forgets a step fails by name instead of by review:
+
+- every rule has a code, no two rules share one, and every code is
+  ~SIFT~ and five digits;
+- every rule has an example and a sentence about its fix, because
+  ~sift explain~ and the browser's rule list are built from them;
+- every rule is named by a test under ~tests/checkers~, so a rule with no test
+  is a failing test rather than a rule nobody noticed;
+- no rule applies to a dialect sift does not read;
+- ~doc/rules.org~ is what the records produce, and the summary table has a row
+  per rule;
+- the four pages that state the count state it.
+
+What no test can check is the part that is a decision: whether the rule is
+worth having, which dialects it applies to, and whether the sentence explains
+why.  [[file:style.org][style.org]] is the argument the rules implement, and a
+rule that disagrees with it is the informative kind of bug report.
+
+* Adding a dialect
+:PROPERTIES:
+:CUSTOM_ID: adding-a-dialect
+:END:
+
+A dialect is not one line in a record: it is a name an editor can send, a file
+extension, a set of delimiters, a bracket table, an indentation table, a
+standard library, the rules that apply to it, a column in four documents, and a
+suite that says what its reader does.  What the tool does with a dialect it
+does not recognise is fall back to Scheme's answer -- a file in the new dialect
+would be read as Scheme and formatted with Scheme's table, quietly -- so the
+places to fill in are listed here and four of them are checked.
+
+** The steps
+:PROPERTIES:
+:CUSTOM_ID: dialect-steps
+:END:
+
+1. *Name it*, in ~dialects~ in ~src/sift/records.scm~, and give it its aliases
+   in ~string->dialect~ in the same file.  The aliases matter: an editor sends
+   ~rkt~ for a Racket buffer and ~emacs-lisp~ for an Emacs Lisp one, and a
+   dialect nobody can name is a dialect nobody can select.
+
+2. *Claim its extensions*, in ~dialect-extensions~ in
+   ~src/sift/reader.scm~.  This is the table ~detect-dialect~ reads first,
+   before a shebang and before a marker inside the file, because the extension
+   is what the person chose.
+
+3. *Teach the reader its syntax.*  The reader is permissive: it reads a
+   construct that belongs to another dialect anyway, keeps every byte, and says
+   so.  What it needs from you is the answers only the dialect knows:
+
+   | Where                       | The question                                       |
+   |-----------------------------+----------------------------------------------------|
+   | ~dialect-delimiters~        | which characters end an atom (does ~'~ belong to a symbol?) |
+   | ~dialect-brackets~          | what ~[...]~ opens -- a list, a vector, or nothing |
+   | ~dialect-name~              | how a diagnostic spells the dialect                |
+   | ~shebang-dialect~           | an interpreter whose name means this dialect       |
+   | ~dialect-marker~            | a line inside the file that opens it (~#lang~)     |
+
+   Then the ~(eq? (reader-dialect r) 'x)~ places: ~#:' and ~:~ keywords,
+   ~#\char~ spellings, ~#'~ and ~#`~ , ~.~ as a cons dot, ~&optional~ lambda
+   lists, ~#vu8~ and ~#u8~ bytevectors.  Each of those is already conditioned
+   on the dialects that have it, and adding one is a matter of joining the list
+   or of adding the branch with its own comment saying why.
+
+4. *Give the formatter a table*, in ~dialect-indent-tables~ in
+   ~src/sift/format.scm~: the forms that indent specially, and by how much.  A
+   dialect whose forms indent like Scheme's points at Scheme's table and says
+   so in a comment; ~default-brackets~ and ~default-line-length~ answer the two
+   other defaults it may want different.
+
+5. *Say which rules apply.*  Every checker carries a dialect list, and ~'all~
+   is the four that exist today -- so a new dialect is not silently included in
+   the rules whose examples were written for other syntax.  Walk
+   ~sift list-checkers~ with the new dialect and decide, rule by rule; the ones
+   that are about whitespace and parens will be ~'all~ and the ones about a
+   macro will not.
+
+6. *Index its standard library*, in ~src/sift/stdlib.scm~, so that navigation
+   answers about the implementation's own names.  A dialect with no probe is
+   simply not indexed, which is honest; the comment at the top of the file says
+   what a probe is.
+
+7. *Add it to the CLI's sentence*: ~src/sift/cli.scm~ names the dialects it
+   supports when one is unknown, and an out-of-date sentence is the first thing
+   a new user reads.
+
+8. *Teach the editors and the page*: ~emacs/sift.el~ (~sift-dialect~, the mode
+   alist, and the Eglot modes), ~editors/vim/autoload/sift.vim~,
+   ~editors/vim/plugin/sift.vim~, ~editors/vim/neovim.lua~,
+   ~editors/vscode/edit.js~, and the browser's selector in ~web/index.html~
+   with the label extension in ~web/editor.js~ and an example in
+   ~web/sift/web.scm~.  Each is a small table with one row to add.
+
+9. *Write the suites*: ~tests/reader-<dialect>.scm~, ~tests/format-<dialect>.scm~
+   and ~tests/lint-<dialect>.scm~ are where the dialect's behaviour is written
+   down -- the reader dialect by dialect on every reader macro, the formatter
+   on a golden corpus in both styles, the linter on the rules that only it
+   applies to -- with fixtures under ~tests/fixtures/<dialect>/~.
+
+10. *Document it*: the dialect table in the README, the read-syntax table in
+    ~doc/formatting.org~, and ~maak docs~ for the catalogue, whose rows now name
+    the new dialect where the rules apply to it.
+
+** What the suite checks for you
+:PROPERTIES:
+:CUSTOM_ID: dialect-checks
+:END:
+
+~tests/dialects.scm~ fails, by dialect and by name, when any of the mechanical
+steps above is missing:
+
+- the name round-trips through ~dialect->string~ and ~string->dialect~;
+- the dialect claims at least one extension, and a file with it is detected;
+- it has a row in ~dialect-indent-tables~, and that table is not empty;
+- it has a default bracket style and line length;
+- the README and the page's selector name it.
+
+What it cannot check is the work: which syntax the reader has to learn, which
+rules apply, and what the formatter should do with a form nobody has seen.  A
+dialect added without those passes the suite and reads like Scheme, which is
+worse than not adding it.
+
+* Other contributions
+:PROPERTIES:
+:CUSTOM_ID: other-contributions
+:END:
+
+- *A bug report.*  What matters is the input, the output that was expected, and
+  the first section of ~sift doctor~ -- the dialect and the rules usually answer
+  the question on their own.  A file sift refuses to parse is a bug even when
+  the file is broken: the message is obliged to say where.
+- *An editor integration.*  Neovim, Vim and VS Code each have a directory and a
+  test written in that editor's own tool; another editor is one directory more,
+  and ~maak editors-check~ is how it is run.
+- *A dialect detail.*  An escape spelled differently, a comment syntax in an
+  unexpected place, a form that indents by something other than two: the
+  dialect's reader and formatter suites are where that behaviour is written
+  down.
+- *A word in the documentation.*  The README, [[file:style.org][the style document]] and the rule
+  descriptions are read by people deciding whether to trust the tool, and a
+  sentence that causes hesitation is a defect in the documentation.
+
+* The conventions
+:PROPERTIES:
+:CUSTOM_ID: conventions
+:END:
+
+A commit message is a type and then a sentence, imperative, lower case, about
+seventy characters: ~feat:~ for something that did not exist, ~fix:~ for
+something that was wrong, and ~docs:~, ~test:~, ~refactor:~, ~build:~, ~ci:~ or
+~chore:~ for the rest, scoped in parentheses when that narrows it --
+~fix(lsp):~, ~refactor(reader):~.  The body says why and what was rejected; the
+reader who matters is the one scanning ~git log~ for the change that broke a
+build.
+
+One logical change per commit, so either half can be reverted alone, and the
+full gate run before committing.  A red suite in a commit message is stated in
+the message rather than discovered afterwards.
+
+Patches arrive as a pull request on [[https://github.com/jjba23/sift][GitHub]] or as a patch sent with
+~git format-patch~ and ~git send-email~, which is how the author usually works.
+The review concerns the code.
+
+Questions are equally welcome as issues.  A question this page does not answer
+is a defect in this page.
+
+AI agents are welcome and [[file:../AI_POLICY.md][AI_POLICY.md]] says on what terms: a human is the
+author of record, tests come first, and a release is cut from a green tree.
+
+Back to the [[file:../README.org][README]].

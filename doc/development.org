@@ -27,12 +27,19 @@ places it on the load path itself, so that a clean checkout needs no exports:
 
 #+begin_src shell
 maak test          # the whole Veritas suite
+maak test-suite    # one suite, by the file you have open
 maak check         # compile every module, so a syntax error fails the build
 maak self-check    # sift's own sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips, byte for byte
 maak docs          # regenerate doc/rules.org from the rules
 maak bench         # time the reader, the formatter and every checker
 #+end_src
+
+~maak test-suite tests/checkers/tabs.scm~ runs the suites for the paths it is
+given and nothing else: the whole run is three minutes and one rule's suite is
+a second, so a change is iterated on with the second and finished with the
+first.  It says nothing about the other ninety-four rules, which is why the
+gate is still ~maak test~.
 
 ~maak test~ is intended to run inside the pinned environment, so that the
 Guile, the JSON library and Veritas are the versions against which the project
@@ -211,6 +218,7 @@ doc/                style.org (the reasoning), rules.org (generated),
                     package), cli.org (the command line),
                     language-server.org (the protocol),
                     configuration.org (the settings), design.org (why),
+                    contributing.org (adding a rule or a dialect),
                     development.org (this page)
 #+end_example
 
