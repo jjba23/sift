@@ -59,6 +59,7 @@
             default-blank-lines
             indent-rule
             indent-rules
+            dialect-indent-tables
             clause-headed?
             default-line-length
             line-length-for
@@ -307,14 +308,27 @@ Common Lisp have no such convention, so they keep whatever the author wrote."
     (check-type . 2) (eval-when . 2) (locally . 2) (declaim . 2)
     (declare . 2) (in-package . 2) (use-package . 2) (import . 2) (export . 2)))
 
+;; The indentation table each dialect formats with, as (dialect . table).
+;;
+;; A table rather than a `case' because it is one of the four things a new
+;; dialect has to fill in, and `tests/dialects.scm' fails when a dialect in
+;; `dialects' has no row here.  A dialect whose forms indent like Scheme's says
+;; so by pointing at Scheme's table -- that is a decision someone wrote down,
+;; not a fallback that happened.
+(define dialect-indent-tables
+  (list (cons 'scheme scheme-indent-rules)
+        (cons 'racket racket-indent-rules)
+        (cons 'elisp elisp-indent-rules)
+        (cons 'cl cl-indent-rules)))
+
 (define (indent-rules dialect)
-  "Return the indentation table for @var{dialect}."
-  (case dialect
-    [(scheme) scheme-indent-rules]
-    [(racket) racket-indent-rules]
-    [(elisp) elisp-indent-rules]
-    [(cl) cl-indent-rules]
-    [else scheme-indent-rules]))
+  "Return the indentation table for @var{dialect}.
+
+A dialect sift does not read is formatted by Scheme's table, the same way the
+rest of the formatter treats syntax it does not recognise: every byte is kept
+and the shape is the one most likely to be right."
+  (let ((row (assq dialect dialect-indent-tables)))
+    (if row (cdr row) scheme-indent-rules)))
 
 (define* (indent-rule dialect operator #:optional (indent-width 2))
   "Return the indentation rule for @var{operator} in @var{dialect}.

@@ -40,6 +40,8 @@
             ast->text
             detect-dialect
             dialect-marker
+            dialect-extensions
+            extension-dialect
             string->ast-list
             source-lines
             line-count
@@ -1271,22 +1273,33 @@ that gets @code{#f} must ask for `--dialect' rather than guess."
     (and source (dialect-marker source))
     #f))
 
+;; The file extensions each dialect claims, as (dialect . extensions).
+;;
+;; A table rather than a `cond' because it is the first thing a new dialect
+;; needs: a file nothing recognises is a file a reader has to pass `--dialect'
+;; for, and `tests/dialects.scm' fails when a dialect in `dialects' has no row
+;; here.
+;;
+;; - `.sld' and `.sls' are R7RS and R6RS libraries, `.sps' an R6RS program: all
+;;   three are Scheme, and a project that keeps them apart from its `.scm' files
+;;   would otherwise have to pass `--dialect' for every one of them.
+;; - `.rktd' is a Racket data module and `.rktl' a library the test runner
+;;   loads.  `.scrbl' is Scribble, which has an at-expression reader of its own
+;;   -- `@verbatim{a  b}' keeps its spacing, and this reader would collapse it
+;;   -- so it is not claimed as Racket.
+(define dialect-extensions
+  '((scheme . (".scm" ".ss" ".sld" ".sls" ".sps"))
+    (racket . (".rkt" ".rktd" ".rktl"))
+    (elisp . (".el"))
+    (cl . (".lisp" ".cl" ".asd" ".lsp" ".system"))))
+
 (define (extension-dialect file)
+  "Return the dialect @var{file}'s extension claims, or @code{#f}."
   (let ((ext (extension-of file)))
-    (cond
-      ;; `.sld' and `.sls' are R7RS and R6RS libraries, `.sps' an R6RS
-      ;; program: all three are Scheme, and a project that keeps them apart
-      ;; from its `.scm' files would otherwise have to pass `--dialect' for
-      ;; every one of them.
-      [(and ext (member ext '(".scm" ".ss" ".sld" ".sls" ".sps"))) 'scheme]
-      ;; `.rktd' is a Racket data module and `.rktl' a library the test
-      ;; runner loads.  `.scrbl' is Scribble, which has an at-expression
-      ;; reader of its own -- `@verbatim{a  b}' keeps its spacing, and this
-      ;; reader would collapse it -- so it is not claimed as Racket.
-      [(and ext (member ext '(".rkt" ".rktd" ".rktl"))) 'racket]
-      [(and ext (string=? ext ".el")) 'elisp]
-      [(and ext (member ext '(".lisp" ".cl" ".asd" ".lsp" ".system"))) 'cl]
-      [else #f])))
+    (and ext
+      (let ((row (find (lambda (entry) (member ext (cdr entry)))
+                       dialect-extensions)))
+        (and row (car row))))))
 
 ;; The programs whose name in a shebang means the file is Scheme.  Guile is the
 ;; one sift is written for and the one the dialect is named after, but a
