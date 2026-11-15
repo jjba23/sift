@@ -25,7 +25,7 @@ class Sift < Formula
   desc "Dialect-aware formatter, linter and language server for Lisp"
   homepage "https://github.com/jjba23/sift"
   url "https://github.com/jjba23/sift/archive/refs/tags/v1.34.0.tar.gz"
-  sha256 "d7411a6c7f2dbdff67360f0cfc983b8150bfb57fb21d8974769a1b0036e38e8f"
+  sha256 "f39d8629d36c36d75023f6b7ab6b1870934302211843a8f681e5a0130bacecf6"
   license "MIT"
 
   depends_on "guile"
