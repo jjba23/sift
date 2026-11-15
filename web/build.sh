@@ -121,7 +121,16 @@ mkdir -p "$dist"
 # stand-in rather than failing to resolve; then web/, which is where
 # `(sift web)' lives; then src/, the core, which knows nothing about any of
 # this.
+# `-Ono-contify' because that one pass of `-O2' miscompiles this program: the
+# module compiles, and then `lint', `fix', `hover', `symbols' and `inlayHints'
+# die with `WASM runtime error: invalid cast' -- a `ref.cast' of the fixnum 1
+# to a struct type, which is the pass sharing a continuation between branches
+# that do not have the same type.  Every other pass stays on, so the module is
+# the speed it was; `web/probe.scm' and `maak web-check' are what say so, and
+# they are what will say when this line can go.
 "$guild" compile-wasm \
+    -O2 \
+    -Ono-contify \
     --bundle \
     -L "$root/src" \
     -L "$here" \
