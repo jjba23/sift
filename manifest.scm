@@ -29,6 +29,7 @@
        ;; `maak docs' keeps `doc/rules.org' and, beside it, the API reference
        ;; dokgen extracts from the modules.
        (specification->package "guile-dokgen")
+       (specification->package "texinfo")
        ;; the Emacs package is developed and tested here too; a minimal
        ;; Emacs has ERT, Flymake and `json', which is all it needs
        emacs-minimal))
