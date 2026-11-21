@@ -154,6 +154,14 @@ was computed from, so a job that finishes after the buffer changed is dropped
 instead of drawing old findings over new text, and a closed buffer is not
 reported about at all.
 
+An open buffer is the authority on its own file.  The index holds the text on
+disk, and a buffer is that text possibly edited and possibly not saved yet, so
+the index is never asked about a path an editor holds a buffer for: a jump, a
+reference search, an outline entry and a file rename all answer from the
+buffer.  Without that rule one definition would be answered twice -- at the
+buffer's line and at the saved one's -- and a file rename would send two edits
+over the same range, which is a `WorkspaceEdit` an editor may refuse whole.
+
 * Where the standard library comes from
 :PROPERTIES:
 :CUSTOM_ID: lsp-stdlib

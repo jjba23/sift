@@ -110,6 +110,8 @@
             index-texts
             workspace-definition-sites
             workspace-names
+            open-paths
+            open-buffer-path?
             path->uri
             percent-encode
             workspace-root-of
@@ -407,18 +409,47 @@ the empty index and answers about the buffers it was given."
      entries)
     (make-index files names generation)))
 
-(define (index-sites index name dialect)
+;;; An open buffer and the file it was read from are two copies of one text,
+;;; and the buffer is the one the reader is looking at: it may be edited, and
+;;; the file may be a save behind it.  So every answer the index would give is
+;;; given without the paths the editor holds a buffer for -- a jump that
+;;; offered both would offer one definition twice, at two lines, and a file
+;;; rename would send two edits over the same range, which an editor may refuse
+;;; whole.
+
+(define (open-paths documents)
+  "Return the file paths the editor holds a buffer for, as a hash table.
+
+A buffer that is not a file -- an editor's scratch document -- names no path
+and is left out; nothing in the index is about it."
+  (let ((paths (make-hash-table)))
+    (hash-for-each
+     (lambda (uri document)
+       (when (string-prefix? "file://" uri)
+         (hash-set! paths (strip-uri uri) #t)))
+     documents)
+    paths))
+
+(define (open-buffer-path? open path)
+  "Return @code{#t} when an open buffer answers for @var{path} instead."
+  (and open (hash-ref open path)))
+
+(define* (index-sites index name dialect #:key (open #f))
   "Return @code{(uri text definition)} for @var{name}'s file-level definitions.
 
 Only the files whose remembered names include @var{name} are looked at, and a
 file the cache did not read is not read here: a jump is answered from the
 snapshot, or not at all until the indexer has the file.  That is what keeps
-the answer to a request independent of the size of the project."
+the answer to a request independent of the size of the project.
+
+@var{open} is the paths the editor holds a buffer for, and they are not
+answered from here: the buffer is the authority on its own text."
   (let ((sites '()))
     (for-each
      (lambda (entry)
        (when (and (eq? dialect (indexed-file-dialect entry))
-               (indexed-file-definitions entry))
+               (indexed-file-definitions entry)
+               (not (open-buffer-path? open (indexed-file-path entry))))
          (for-each
           (lambda (definition)
             (when (and (not (definition-scope definition))
@@ -431,26 +462,36 @@ the answer to a request independent of the size of the project."
      (hash-ref (index-names index) name '()))
     (reverse sites)))
 
-(define (index-names-of index dialect)
-  "Return the names the indexed files define in @var{dialect}, without repeats."
+(define* (index-names-of index dialect #:key (open #f))
+  "Return the names the indexed files define in @var{dialect}, without repeats.
+
+A name only an open buffer still defines is not a name the index has, so
+@var{open} takes those files out of the answer."
   (let ((names '()))
     (hash-for-each
      (lambda (name entries)
-       (when (any (lambda (entry) (eq? dialect (indexed-file-dialect entry)))
+       (when (any (lambda (entry)
+                    (and (eq? dialect (indexed-file-dialect entry))
+                      (not (open-buffer-path? open (indexed-file-path entry)))))
                   entries)
          (set! names (cons name names))))
      (index-names index))
     (reverse names)))
 
-(define (index-texts index dialect except-uri)
-  "Return @code{(uri text)} for the indexed files read in @var{dialect}."
+(define* (index-texts index dialect except-uri #:key (open #f))
+  "Return @code{(uri text)} for the indexed files read in @var{dialect}.
+
+@var{except-uri} is the buffer the question came from, and @var{open} the
+paths the editor holds a buffer for: their text is the buffer's, not this
+copy's."
   (let ((texts '()))
     (hash-for-each
      (lambda (path entry)
        (let ((uri (path->uri path)))
          (when (and (indexed-file-text entry)
                  (eq? dialect (indexed-file-dialect entry))
-                 (not (string=? uri except-uri)))
+                 (not (string=? uri except-uri))
+                 (not (open-buffer-path? open path)))
            (set! texts (cons (list uri (indexed-file-text entry)) texts)))))
      (index-files index))
     (reverse texts)))
@@ -502,13 +543,13 @@ the answer to a request independent of the size of the project."
   "Return the files of the current index, by path."
   (index-files (workspace-index workspace)))
 
-(define (workspace-definition-sites workspace name dialect)
+(define* (workspace-definition-sites workspace name dialect #:key (open #f))
   "Return @code{(uri text definition)} for every file-level definition of @var{name}."
-  (index-sites (workspace-index workspace) name dialect))
+  (index-sites (workspace-index workspace) name dialect #:open open))
 
-(define (workspace-names workspace dialect)
+(define* (workspace-names workspace dialect #:key (open #f))
   "Return the names the workspace defines in @var{dialect}, without repeats."
-  (index-names-of (workspace-index workspace) dialect))
+  (index-names-of (workspace-index workspace) dialect #:open open))
 
 (define (document-definition-sites documents name dialect except-uri)
   "Return open buffers that define @var{name}, skipping @var{except-uri}.
@@ -621,7 +662,8 @@ is most entitled to shadow with a definition of its own."
           (if (not name)
             '()
             (append (document-definition-sites documents name dialect uri)
-                    (workspace-definition-sites workspace name dialect)
+                    (workspace-definition-sites
+                     workspace name dialect #:open (open-paths documents))
                     (if (deadline-expired? deadline) '()
                       ((current-stdlib) dialect name)))))])))
 
@@ -646,7 +688,8 @@ has no parse to reuse and no index to fall back on, so the buffer is read here."
         (if (not name)
           '()
           (append (document-definition-sites documents name dialect uri)
-                  (workspace-definition-sites workspace name dialect)
+                  (workspace-definition-sites
+                   workspace name dialect #:open (open-paths documents))
                   (if (deadline-expired? deadline) '()
                     ((current-stdlib) dialect name))))))))
 
@@ -668,7 +711,8 @@ has no parse to reuse and no index to fall back on, so the buffer is read here."
          (set! sites (cons (list other-uri (document-text document)) sites))))
      documents)
     (append (reverse sites)
-            (index-texts (workspace-index workspace) dialect uri))))
+            (index-texts (workspace-index workspace) dialect uri
+                         #:open (open-paths documents)))))
 
 (define (reference-location uri text node)
   "Return the JSON location of one mention of a name."
@@ -848,7 +892,7 @@ the start of."
                                (parse-definitions ast)))))))
      documents)
     (for-each (lambda (name) (add name 'variable #f))
-              (workspace-names workspace dialect))
+              (workspace-names workspace dialect #:open (open-paths documents)))
     ;; The standard library is offered last and only for what is being typed: a
     ;; library holds twenty thousand names on a machine with one of each
     ;; installed, and a list that long is not a completion, it is a directory.
@@ -874,7 +918,8 @@ the start of."
 @var{dialect} @code{#f} means every dialect, which is what the request means:
 `workspace/symbol' names no buffer to take a language from."
   (let ((needle (string-downcase query))
-        (entries '()))
+        (entries '())
+        (open (open-paths documents)))
     (define (consider uri text definition)
       (let ((name (definition-name definition)))
         (when (string-find (string-downcase name) needle)
@@ -897,7 +942,8 @@ the start of."
     (hash-for-each
      (lambda (path entry)
        (when (and (or (not dialect) (eq? (indexed-file-dialect entry) dialect))
-               (indexed-file-definitions entry))
+               (indexed-file-definitions entry)
+               (not (open-buffer-path? open path)))
          (for-each (lambda (definition)
                      (unless (definition-scope definition)
                        (consider (path->uri path) (indexed-file-text entry)

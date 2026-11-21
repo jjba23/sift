@@ -132,6 +132,12 @@ characters would hand the rest of a body -- or the next frame's header -- to
 (define lib-uri "file:///tmp/sift-lsp-test-lib.scm")
 (define lib-source "(define (square x)\n  (* x x))\n")
 
+;; A file on disk and the buffer an editor holds for it, which is that file
+;; with an edit in it: the two do not agree about which line the definition is
+;; on, which is the whole reason a server has to choose between them.
+(define def-on-disk "(define (target x)\n  x)\n")
+(define def-in-buffer "\n;; an edit the file does not have\n(define (target x)\n  x)\n")
+
 ;; A buffer with a fixable warning, an unfixable one, and trailing whitespace.
 (define unclean
   "(define (f x)\n  (if (ready?)   \n      (go)))\n")
@@ -454,6 +460,17 @@ the test can see it, and that nothing is left in the user's cache afterwards."
                    (vector (json-object (field "oldUri" old-uri)
                                         (field "newUri" new-uri)))))))
 
+(define (renamed-files old-uri new-uri)
+  "Return a `didRenameFiles' notification for a file that has already moved."
+  (json-object
+   (field "jsonrpc" "2.0")
+   (field "method" "workspace/didRenameFiles")
+   (field "params"
+          (json-object
+           (field "files"
+                  (vector (json-object (field "oldUri" old-uri)
+                                       (field "newUri" new-uri))))))))
+
 (define (workspace-symbol-request id query)
   (request id "workspace/symbol" (json-object (field "query" query))))
 
@@ -536,10 +553,81 @@ together and the test gets whatever had already come in."
   (quotient (* (- (get-internal-real-time) start) 1000)
             internal-time-units-per-second))
 
+;;; ===== A session the test can interrupt =====
+;;;
+;;; `session' writes a whole conversation before the server starts, which is
+;;; what most of these tests want and cannot say the one thing the reloading
+;;; tests are about: *between* two messages, something outside the editor moves
+;;; a file.  So there is a second shape here, a live one: send one message, then
+;;; do whatever the test is about, then send the next.
+
+(define (read-answer port id)
+  "Read from @var{port} until the message that answers @var{id} arrives."
+  (let loop ()
+    (let ((message (read-frame port)))
+      (cond
+        [(not message) #f]
+        [(equal? (json-ref message "id") id) message]
+        [else (loop)]))))
+
+(define* (with-live-server root thunk)
+  "Call @var{thunk} with `send!' and `ask!', for a server serving @var{root}.
+
+@code{send!} writes one message; @code{ask!} takes a request's id, waits for
+its answer and returns the message.  The session is shut down afterwards
+whether the test failed or not, so a raising test does not leave a server
+reading a pipe nobody closes."
+  (let* ((command (string-append (test-root) "/bin/sift"))
+         (port (open-pipe* OPEN_BOTH command "lsp")))
+    (define (send! message)
+      (display (frame-of message) port)
+      (force-output port))
+    (define (ask! id) (read-answer port id))
+    (dynamic-wind
+      (lambda () #f)
+      (lambda ()
+        (send! (initialize-with-root 1 root))
+        (read-until port index-ready?)
+        (thunk send! ask!)
+        (send! (shutdown-request 99))
+        (send! (exit-message)))
+      (lambda ()
+        (catch #t (lambda () (close-pipe port)) (lambda (key . args) #f))))))
+
+(define* (jump-until send! ask! uri line character done? #:key (looks 50))
+  "Ask for the definition at @var{line} and @var{character} until @var{done?}.
+
+The index is refreshed by a thread of its own, so the request that follows a
+change can be answered before the re-read has been published: the loop is the
+test's patience, and the bound turns an index that never catches up into a
+failure rather than a hanging suite.  What it returns is the last answer, so a
+failing assertion can show what was found instead."
+  (let loop ((remaining looks) (answer #f))
+    (if (<= remaining 0)
+      (and answer (json-ref answer "result"))
+      (let* ((id (+ 100 remaining))
+             (sent (begin (send! (definition-request id uri line character))
+                     (ask! id)))
+             (locations (json-ref sent "result")))
+        (if (and (vector? locations)
+              (done? (map (lambda (location) (json-ref location "uri"))
+                          (vector->list locations))))
+          locations
+          (begin
+            (usleep 100000)
+            (loop (- remaining 1) sent)))))))
+
 ;;; ===== Reading answers =====
 
 (define (diagnostic-code diagnostic) (json-ref diagnostic "code"))
 (define (diagnostic-severity diagnostic) (json-ref diagnostic "severity"))
+
+(define (location-uris locations)
+  "Return the URIs an array of locations names, in order."
+  (if (vector? locations)
+    (map (lambda (location) (json-ref location "uri"))
+         (vector->list locations))
+    '()))
 
 (define (diagnostic-with messages code)
   (let ((diagnostics (published messages buffer-uri)))
@@ -1925,6 +2013,211 @@ together and the test gets whatever had already come in."
               (assert-equal #:expect json-null
                 #:got (json-ref (answer-to (cdr result) 2) "result")
                 #:name "a package is not a file, so there is nothing to rename")))))))
+
+    (test "a buffer the editor holds answers for its own file, alone"
+      ;; The index is a copy of the file on disk, and an open buffer is that
+      ;; file possibly edited: asking both answers the same definition twice,
+      ;; and the copy's line is a line the reader is not looking at.  An editor
+      ;; showing two jump targets where there is one offers a choice that is
+      ;; not a choice.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/lib.scm") def-on-disk)
+            (spit (string-append directory "/here.scm") "(target 1)\n")
+            (let* ((root (string-append "file://" directory))
+                   (lib (string-append root "/lib.scm"))
+                   (here (string-append root "/here.scm"))
+                   (result (session-when-ready
+                            (list (initialize-with-root 1 root)
+                                  (open-at lib def-in-buffer)
+                                  (open-at here "(target 1)\n")
+                                  (definition-request 2 here 0 2))))
+                   (locations (json-ref (answer-to (cdr result) 2) "result")))
+              (assert-equal #:expect 1 #:got (vector-length locations)
+                #:name "one definition, one answer")
+              (when (> (vector-length locations) 0)
+                (assert-equal #:expect 2
+                  #:got (json-ref (start-of (vector-ref locations 0)) "line")
+                  #:name "and the line is the buffer's, not the copy's"))))))))
+
+    (test "a mention in a buffer the editor holds is counted once"
+      ;; The same rule seen from `references': the file is open, so its text is
+      ;; the buffer's, and the copy in the index is not a second mention.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/lib.scm") def-on-disk)
+            (spit (string-append directory "/here.scm") "(target 1)\n")
+            (let* ((root (string-append "file://" directory))
+                   (lib (string-append root "/lib.scm"))
+                   (here (string-append root "/here.scm"))
+                   (result (session-when-ready
+                            (list (initialize-with-root 1 root)
+                                  (open-at lib def-in-buffer)
+                                  (open-at here "(target 1)\n")
+                                  (references-request 2 here 0 2))))
+                   (locations (json-ref (answer-to (cdr result) 2) "result"))
+                   (definition
+                    (find (lambda (location)
+                            (equal? (json-ref location "uri") lib))
+                          (if (vector? locations)
+                            (vector->list locations)
+                            '()))))
+              (assert-equal #:expect 2 #:got (vector-length locations)
+                #:name "the definition and the one call")
+              (assert-equal #:expect 2
+                #:got (and definition
+                        (json-ref (start-of definition) "line"))
+                #:name "the definition is where the buffer has it")))))))
+
+    (test "a workspace symbol in an open buffer is listed once"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/lib.scm") def-on-disk)
+            (spit (string-append directory "/here.scm") "(target 1)\n")
+            (let* ((root (string-append "file://" directory))
+                   (lib (string-append root "/lib.scm"))
+                   (here (string-append root "/here.scm"))
+                   (result (session-when-ready
+                            (list (initialize-with-root 1 root)
+                                  (open-at lib def-in-buffer)
+                                  (open-at here "(target 1)\n")
+                                  (workspace-symbol-request 2 "target"))))
+                   (symbols (json-ref (answer-to (cdr result) 2) "result")))
+              (assert-equal #:expect 1 #:got (vector-length symbols)
+                #:name "the outline of the project names it once")))))))
+
+    (test "renaming a file edits an open buffer once"
+      ;; Two edits over one range is a `WorkspaceEdit' an editor may refuse
+      ;; whole: the rename then does nothing, and the file it was about is left
+      ;; half-renamed.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/util.scm")
+                  "(define-module (app util))\n(define (f) 1)\n")
+            (spit (string-append directory "/user.scm")
+                  "(import (app util))\n(f)\n")
+            (let* ((root (string-append "file://" directory))
+                   (user (string-append root "/user.scm"))
+                   (old (string-append root "/util.scm"))
+                   (new (string-append root "/helpers.scm"))
+                   (result (session-when-ready
+                            (list (initialize-with-root 1 root)
+                                  (open-at user "(import (app util))\n(f)\n")
+                                  (rename-file-request 2 old new))))
+                   (edit (json-ref (answer-to (cdr result) 2) "result"))
+                   (changes (json-ref edit "documentChanges"))
+                   (edits-for
+                    (lambda (uri)
+                      (let loop ((at 0))
+                        (if (>= at (vector-length changes))
+                          #f
+                          (let ((change (vector-ref changes at)))
+                            (if (equal? (json-ref (json-ref change "textDocument")
+                                                  "uri")
+                                        uri)
+                              (json-ref change "edits")
+                              (loop (+ at 1)))))))))
+              (assert-equal #:expect 1
+                #:got (vector-length (edits-for user))
+                #:name "the open buffer is edited once, not once per copy")))))))
+
+    (test "a file created outside the editor is part of the project"
+      ;; A build writes a module, or a colleague's branch arrives: the editor
+      ;; says nothing, because nothing happened in it.  A server that only
+      ;; listened to the editor would answer "not defined" about a file it can
+      ;; see.
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/here.scm") "(defined-later 1)\n")
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.scm"))
+                   (made (string-append root "/made.scm")))
+              (with-live-server
+               root
+               (lambda (send! ask!)
+                 (send! (open-at here "(defined-later 1)\n"))
+                 (send! (definition-request 100 here 0 2))
+                 (assert-equal #:expect '()
+                   #:got (location-uris
+                          (json-ref (ask! 100) "result"))
+                   #:name "nothing defines the name until the file exists")
+                 (spit (string-append directory "/made.scm")
+                       "(define (defined-later x)\n  x)\n")
+                 (send! (watched-change made 1))
+                 (assert-equal #:expect (list made)
+                   #:got (location-uris
+                          (jump-until send! ask! here 0 2 pair?))
+                   #:name "the new file answers the jump, without a restart")))))))))
+
+    (test "a file deleted outside the editor leaves the project"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/lib.scm") def-on-disk)
+            (spit (string-append directory "/here.scm") "(target 1)\n")
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.scm"))
+                   (lib (string-append root "/lib.scm")))
+              (with-live-server
+               root
+               (lambda (send! ask!)
+                 (send! (open-at here "(target 1)\n"))
+                 (send! (definition-request 100 here 0 2))
+                 (assert-equal #:expect (list lib)
+                   #:got (location-uris (json-ref (ask! 100) "result"))
+                   #:name "the definition is in the file that holds it")
+                 (delete-file (string-append directory "/lib.scm"))
+                 (send! (watched-change lib 3))
+                 (assert-equal #:expect '()
+                   #:got (location-uris
+                          (jump-until send! ask! here 0 2 null?))
+                   #:name "and a file that went away stops answering")))))))))
+
+    (test "a file moved outside the editor is found at its new path"
+      (with-temp-directory
+       (lambda (directory)
+         (with-cache-home
+          directory
+          (lambda ()
+            (spit (string-append directory "/here.scm") "(target 1)\n")
+            (spit (string-append directory "/fresh.scm") def-on-disk)
+            (let* ((root (string-append "file://" directory))
+                   (here (string-append root "/here.scm"))
+                   (fresh (string-append root "/fresh.scm"))
+                   (moved (string-append root "/moved.scm")))
+              (with-live-server
+               root
+               (lambda (send! ask!)
+                 (send! (open-at here "(target 1)\n"))
+                 (send! (definition-request 100 here 0 2))
+                 (assert-equal #:expect (list fresh)
+                   #:got (location-uris (json-ref (ask! 100) "result"))
+                   #:name "the definition is in the file as it was named")
+                 (rename-file (string-append directory "/fresh.scm")
+                              (string-append directory "/moved.scm"))
+                 (send! (renamed-files fresh moved))
+                 (assert-equal #:expect (list moved)
+                   #:got (location-uris
+                          (jump-until send! ask! here 0 2
+                                      (lambda (uris) (member moved uris))))
+                   #:name "and the name answers from where the file is now")))))))))
 
     (test "a jump in a read project answers in milliseconds"
       (with-temp-directory

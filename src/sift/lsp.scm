@@ -345,8 +345,12 @@ position covers one character, which is what an editor can highlight."
   "Return @code{(uri text)} for the project's files in @var{dialect}.
 
 The file being renamed is left out: its edit is written against the name the
-editor is moving it to, and the old name is about to stop existing."
-  (let ((sites '()))
+editor is moving it to, and the old name is about to stop existing.  A file the
+editor has a buffer for is left out too, because the buffer's text is the text
+this edit must be written against -- the copy here is the file on disk, and the
+same replacement written twice over one range is an edit an editor may refuse."
+  (let ((sites '())
+        (open (open-paths documents)))
     (hash-for-each
      (lambda (uri document)
        (when (and (not (string=? uri old-uri))
@@ -360,6 +364,7 @@ editor is moving it to, and the old name is about to stop existing."
          (when (and (indexed-file-text entry)
                  (not (string=? uri old-uri))
                  (not (string=? uri new-uri))
+                 (not (open-buffer-path? open path))
                  (eq? (indexed-file-dialect entry) dialect))
            (set! sites (cons (list uri (indexed-file-text entry)) sites)))))
      (index-files (workspace-index workspace)))
