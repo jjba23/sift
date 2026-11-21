@@ -918,31 +918,31 @@ exactly the bug that would reach a tab and no test."
              #:name (format #f "the ~a token is what the spans are drawn with" kind)))
          kinds)))
 
-    (test "the highlighter is fetched with the build stamp"
-      ;; These files are served with a long cache, so a module URL that does not
-      ;; change is a module the browser keeps: the page would show the reader a
-      ;; highlighter from the build before the one that is deployed, and nothing
-      ;; would say so.  `build.sh' writes the stamp into `editor.js' as it copies
-      ;; it, and both halves of that are asserted here.
-      (let ((imports (captures "from \"([^\"]*)\"" (slurp (web-file "editor.js")) 1)))
-        (assert-true (pair? imports) #:name "the editor imports a module")
+    (test "the highlighter is loaded from beside the editor, with the build stamp"
+      ;; Two properties, and the page is broken without either.  The highlighter
+      ;; has to be fetched with the same stamp the editor was fetched with --
+      ;; these files are served with a long cache, so a URL that does not change
+      ;; is a module the browser keeps -- and it has to be fetched *lazily*, from
+      ;; `import.meta.url': a static `import' that fails takes the whole module
+      ;; with it, and one 404 during a deploy then leaves a page with no boot, no
+      ;; buttons and a status bar saying "loading" for ever.
+      (let ((editor (slurp (web-file "editor.js"))))
         (assert-equal #:expect '()
-          #:got (remove (lambda (specifier)
-                          (string-contains specifier "?v=__SIFT_BUILD__"))
-                        imports)
-          #:name "every module it imports carries the stamp")
-        (assert-true (if (member "./highlight.js?v=__SIFT_BUILD__" imports) #t #f)
-          #:name "and one of them is the highlighter"))
-      (assert-true
-        (if (string-contains (slurp (web-file "build.sh"))
-                             "sed -e \"s|__SIFT_BUILD__|$stamp|g\" \"$here/editor.js\"")
-          #t #f)
-        #:name "the build writes the stamp into the editor as it copies it")
+          #:got (captures "from \"([^\"]*)\"" editor 1)
+          #:name "the editor has no static import to fail")
+        (assert-true (if (string-contains editor "import(highlighterUrl)") #t #f)
+          #:name "the highlighter is imported at run time")
+        (assert-true
+          (if (string-contains editor "new URL(\"highlight.js\" + new URL(import.meta.url).search")
+            #t #f)
+          #:name "with a URL built from the module's own, stamp and all")
+        (assert-true (if (string-contains editor "escapeHtml(text)") #t #f)
+          #:name "and the buffer is drawn as text when the module does not arrive"))
       (assert-true
         (if (string-contains (slurp (web-file "build.sh"))
                              "cp \"$here/highlight.js\" \"$dist/highlight.js\"")
           #t #f)
-        #:name "and puts the highlighter in the directory it serves"))
+        #:name "the build puts the highlighter in the directory it serves"))
 
     (test "the highlighter keeps every character of a buffer"
       ;; The colour is drawn in a layer under the textarea, so a tokenizer that

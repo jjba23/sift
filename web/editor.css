@@ -453,5 +453,20 @@ footer kbd {
 .outline-row:hover { background: var(--ink-3); border-left-color: var(--green); }
 .outline-row .rule { color: var(--dim); }
 /* The outline's detail is the definition's own first line, so it is coloured like
-   code rather than like the prose a finding's message is. */
-.outline-row .message code.detail { color: var(--example); font-family: inherit; white-space: pre; }
+   code rather than like the prose a finding's message is -- and it scrolls on its
+   own, because a long definition line in a narrow panel would otherwise push the
+   panel sideways and take the findings with it. */
+.outline-row .message { margin: 4px 0 0; overflow: hidden; }
+.outline-row .message code.detail {
+  display: block;
+  color: var(--example);
+  font-family: inherit;
+  white-space: pre;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+/* Before sift has started the buffer is empty, and an empty editor is a page that
+   looks broken for as long as the wasm takes.  The hint costs nothing and says
+   the page is the editor. */
+.sheet textarea::placeholder { color: var(--gutter); opacity: 1; }

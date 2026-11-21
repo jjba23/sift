@@ -190,6 +190,16 @@ the nine kinds of token the page colours appears in all four examples, and
 that stopped teaching a part of its language would fail a test rather than
 quietly stop showing it.
 
+Three things the page does for its own sake, because each one looked like "the
+editor is broken" when it was missing.  The status bar *composes* what a button
+did with the counts that follow it -- "already formatted, so nothing changed —
+0 errors, 3 warnings, 0 notes" -- instead of writing one and then letting the
+lint overwrite it, which is a Format button that appears to do nothing.  The
+panel is *one* function, so the outline and the rules cannot both be on screen;
+they could, when each pair of show and hide calls was written on its own.  And a
+boot that has not finished in ten seconds says so, rather than leaving the status
+bar at "loading sift.wasm…" while every button does nothing.
+
 A link can carry both choices, which is how one example is shared with someone
 else: ~?dialect=racket~ opens the Racket example and ~?theme=dark~ opens the
 page in the dark, and an unknown value is ignored rather than refused.
@@ -297,14 +307,22 @@ The tokens come from ~highlight.js~, which is JavaScript and not the reader in
 the wasm, for a reason that is about a keystroke rather than about purity: a read
 of the buffer costs a JSON round trip into a Scheme reader that allocates four
 nodes per character, and a read of six kilobytes is most of the 780 ms ~format~
-costs in the table below -- per keystroke, for colour.
-It is a *tokenizer*: it decides what a run of characters is, never what it means,
-and it has no opinion about indentation, because sift has an opinion about that
-and it is the one in the wasm.  What it does have is the four dialects, which is
-not decoration: Emacs Lisp writes a character as ~?a~ and a keyword as ~:key~,
-Common Lisp does the same and spells a float ~1.5d0~, Scheme and Racket write
-~#\a~ and ~#:key~, and Racket opens with ~#lang~, which is a declaration and not
-a symbol.
+costs in the table below -- per keystroke, for colour.  It is a *tokenizer*: it
+decides what a run of characters is, never what it means, and it has no opinion
+about indentation, because sift has an opinion about that and it is the one in
+the wasm.  What it does have is the four dialects, which is not decoration: Emacs
+Lisp writes a character as ~?a~ and a keyword as ~:key~, Common Lisp does the same
+and spells a float ~1.5d0~, Scheme and Racket write ~#\a~ and ~#:key~, and Racket
+opens with ~#lang~, which is a declaration and not a symbol.
+
+It is fetched *lazily*, from beside the editor and with the editor's own build
+stamp, and that is not a detail: a static ~import~ that fails takes the whole
+module with it, so a browser that asks for the two files at the wrong instant --
+a deploy replaces the directory they are served from -- used to get a page with
+no boot, no buttons, and a status bar saying "loading sift.wasm…" for ever.  Now
+the editor works without it: the buffer is drawn as plain text until the module
+arrives, and stays plain text if it never does.  Missing colour costs the reader
+colour, not the formatter.
 
 Two things it must never do, and ~tests/web.scm~ runs it under node to say so: it
 must not lose a character, and it must not read prose where there is a datum.

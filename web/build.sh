@@ -80,12 +80,13 @@ mkdir -p "$dist"
 reflect_js=$("$guile" -c '(use-modules (hoot config)) (display %reflect-js-dir)')
 cp "$reflect_js/reflect.js" "$dist/reflect.js"
 
-# The page carries `__SIFT_BUILD__' where the stamp goes, in every URL it names,
-# and so does `editor.js': it imports the highlighter, and a module whose URL
-# does not change is a module the browser keeps.  The stylesheet needs nothing
-# substituted into it.
+# The page carries `__SIFT_BUILD__' where the stamp goes, in every URL it names.
+# `editor.js' needs nothing substituted into it: it finds the highlighter and
+# the wasm beside itself and carries its own query string on to them, which is
+# the same arrangement `sift.wasm' already used and one placeholder fewer to
+# forget.
 sed -e "s|__SIFT_BUILD__|$stamp|g" "$here/index.html" > "$dist/index.html"
-sed -e "s|__SIFT_BUILD__|$stamp|g" "$here/editor.js" > "$dist/editor.js"
+cp "$here/editor.js" "$dist/editor.js"
 cp "$here/highlight.js" "$dist/highlight.js"
 cp "$here/editor.css" "$dist/editor.css"
 

@@ -19,11 +19,57 @@
  * below is the one place that knows how to read it.
  */
 
-// The one import, and it is stamped like every other URL the page names: these
-// files are served with a long cache, so a module whose URL does not change is
-// a module the browser keeps.  `build.sh' writes the stamp into this file as it
-// copies it, which is why the placeholder is here rather than a number.
-import { highlight as highlightCode } from "./highlight.js?v=__SIFT_BUILD__";
+// ---------------------------------------------------------------- the colour
+//
+// `highlight.js' is a module of its own, and it is loaded *dynamically* on
+// purpose: a static `import' that fails takes the whole module with it, and
+// then nothing on this page works -- no boot, no buttons, no findings, a
+// status bar saying "loading" until the reader gives up.  That is one 404 away
+// at all times: a deploy replaces the directory this file is served from, and
+// a browser that asks for the two files in the wrong instant gets the old
+// `editor.js' and no `highlight.js' at all.
+//
+// So the editor is written to work without it.  Until it arrives -- or if it
+// never does -- the buffer is drawn as plain text, and when it loads the next
+// keystroke colours it.  A page whose formatter works and whose colour is
+// missing is a page; a page whose colour is missing and which therefore does
+// nothing at all is the bug this arrangement exists to prevent.
+
+let tokenize = null;
+
+const highlighterUrl = new URL("highlight.js" + new URL(import.meta.url).search,
+                               import.meta.url).href;
+
+import(highlighterUrl)
+  .then((module) => {
+    tokenize = module.tokenize;
+    drawHighlight();
+  })
+  .catch((error) => {
+    // Saying nothing is the point: the editor works, and the reader has lost
+    // colour rather than the tool.
+    console.warn("sift: the highlighter did not load; the buffer is uncoloured", error);
+  });
+
+/** The buffer as HTML: tokens when the highlighter is here, text when it is not. */
+function coloured(text, dialectName = dialect.value) {
+  if (!tokenize) return escapeHtml(text);
+  try {
+    return tokenize(text, dialectName)
+      .map((token) => (token.kind
+        ? `<span class="t-${token.kind}">${escapeHtml(token.text)}</span>`
+        : escapeHtml(token.text)))
+      .join("");
+  } catch (error) {
+    // A tokenizer that throws is a tokenizer to stop using, not a page to lose.
+    console.warn("sift: the highlighter failed; the buffer is uncoloured", error);
+    tokenize = null;
+    return escapeHtml(text);
+  }
+}
+
+const escapeHtml = (text) =>
+  String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // ---------------------------------------------------------------- the bridge
 
@@ -38,6 +84,7 @@ const text = (value) =>
 
 /** Send one request to the wasm and return the parsed answer. */
 function ask(request) {
+  if (!sift) throw new Error("sift has not finished starting in this browser");
   const [answer] = sift.call(JSON.stringify(request));
   return JSON.parse(text(answer));
 }
@@ -207,41 +254,68 @@ function selectRange(from, to) {
   drawLines();
 }
 
+// ---------------------------------------------------------------- the panel
+//
+// One panel at a time: what sift found in the buffer, the outline of the buffer,
+// or the rules of the build.  It is one function because the three lists are
+// three ways of saying "here is what I found", and a page where each pair of
+// show/hide calls was written on its own is a page that ends up showing two of
+// them at once -- an outline sitting on top of a list of rules, which is what a
+// reader saw when the rules were opened and then the outline.
+
+const panels = {
+  findings: { head: document.getElementById("findings-head"),
+              list: document.getElementById("finding-list"), button: null },
+  outline: { head: document.getElementById("outline-head"),
+             list: document.getElementById("outline-list"),
+             button: document.getElementById("outline") },
+  rules: { head: document.getElementById("rules-head"),
+           list: document.getElementById("rule-list"),
+           button: document.getElementById("rules") },
+};
+
+let visiblePanel = "findings";
+
+/** Show @var{name} and hide the rest. */
+function showPanel(name) {
+  visiblePanel = name;
+  for (const [key, panel] of Object.entries(panels)) {
+    const shown = key === name;
+    panel.head.hidden = !shown;
+    panel.list.hidden = !shown;
+    if (panel.button) panel.button.setAttribute("aria-expanded", shown ? "true" : "false");
+  }
+}
+
+/** True when @var{name} should now open: it was not the panel on screen. */
+function openingPanel(name) {
+  if (visiblePanel === name) {
+    showPanel("findings");
+    return false;
+  }
+  return true;
+}
+
 // ---------------------------------------------------------------- the outline
 
 async function showOutline() {
-  const head = document.getElementById("outline-head");
-  const button = document.getElementById("outline");
-  const findingsHead = document.getElementById("findings-head");
-  const findingList = document.getElementById("finding-list");
-  const rulesHead = document.getElementById("rules-head");
-  if (!outlineList.hidden) {
-    outlineList.hidden = true;
-    head.hidden = true;
-    findingsHead.hidden = false;
-    findingList.hidden = false;
-    button.setAttribute("aria-expanded", "false");
-    return;
-  }
+  if (!openingPanel("outline")) return;
+  // Asked for before the panel is shown, so a failure leaves the findings where
+  // they were and puts the reason in the status bar rather than in an empty panel.
   const result = askOrThrow({ op: "symbols", source: source.value, dialect: dialect.value });
   const symbols = result.symbols;
   document.getElementById("outline-count").textContent = String(symbols.length);
-  outlineList.innerHTML = symbols.map((symbol, index) => `
+  outlineList.innerHTML = symbols.map((symbol) => `
       <li class="outline-row" data-line="${symbol.selectionRange.start.line}"
           data-character="${symbol.selectionRange.start.character}">
         <code class="rule">${symbol.kind}</code>
         <span class="name">${escape2(symbol.name)}</span>
         <span class="where">${symbol.selectionRange.start.line + 1}</span>
         ${symbol.detail
-          ? `<p class="message"><code class="detail">${highlightCode(symbol.detail, dialect.value)}</code></p>`
+          ? `<p class="message"><code class="detail">${coloured(symbol.detail)}</code></p>`
           : ""}
       </li>`).join("");
-  outlineList.hidden = false;
-  head.hidden = false;
-  findingsHead.hidden = true;
-  findingList.hidden = true;
-  rulesHead.hidden = true;
-  button.setAttribute("aria-expanded", "true");
+  showPanel("outline");
 }
 
 // ---------------------------------------------------------------- the buffer
@@ -284,7 +358,7 @@ const request = (op, extra) => ({
  * into a `<pre>' under the textarea, and the two scroll together. */
 
 function drawHighlight() {
-  highlight.innerHTML = highlightCode(source.value, dialect.value);
+  highlight.innerHTML = coloured(source.value);
   highlight.scrollTop = source.scrollTop;
   highlight.scrollLeft = source.scrollLeft;
 }
@@ -345,15 +419,28 @@ function jumpTo(line, column) {
 
 // ------------------------------------------------------- the operations
 
-function lint() {
+/** The counts of a lint, as one sentence, with how long it took. */
+function countsSentence(counts, started) {
+  return `${counts.error} errors, ${counts.warning} warnings, ${counts.info} notes`
+    + ` — ${Math.round(performance.now() - started)} ms`;
+}
+
+/** Lint the buffer, and say what @var{note} did first when there is a note.
+ *
+ * The note is what a *button* did -- "formatted in 12 ms", "already formatted,
+ * nothing to change" -- and it is composed here rather than assigned before the
+ * call because the lint has a sentence of its own, and the two used to fight:
+ * the format message was written and then overwritten, so a reader who pressed
+ * Format on an already-formatted buffer saw the counts change by nothing and had
+ * no way to tell a no-op from a broken button.
+ */
+function lint(note = "") {
   try {
     const started = performance.now();
     const result = askOrThrow(request("lint"));
     showFindings(result.warnings);
-    const counts = result.counts;
-    status.textContent =
-      `${counts.error} errors, ${counts.warning} warnings, ${counts.info} notes` +
-      ` — ${Math.round(performance.now() - started)} ms`;
+    const counts = countsSentence(result.counts, started);
+    status.textContent = note ? `${note} — ${counts}` : counts;
     status.classList.remove("bad");
   } catch (error) {
     status.textContent = error.message;
@@ -383,11 +470,10 @@ function format() {
     const result = askOrThrow(request("format"));
     replaceBuffer(result.source);
     showFindings(result.warnings);
-    status.textContent = result.changed
-      ? `formatted in ${Math.round(performance.now() - started)} ms`
-      : "already formatted";
     status.classList.remove("bad");
-    lint();
+    lint(result.changed
+      ? `formatted in ${Math.round(performance.now() - started)} ms`
+      : "already formatted, so nothing changed");
   } catch (error) {
     status.textContent = error.message;
     status.classList.add("bad");
@@ -406,11 +492,10 @@ function extract(to) {
       to,
     });
     replaceBuffer(result.source);
-    status.textContent = result.changed
-      ? `${result.title} in ${Math.round(performance.now() - started)} ms`
-      : "nothing to extract here";
     status.classList.remove("bad");
-    lint();
+    lint(result.changed
+      ? `${result.title} in ${Math.round(performance.now() - started)} ms`
+      : "nothing to extract here");
   } catch (error) {
     status.textContent = error.message;
     status.classList.add("bad");
@@ -423,10 +508,12 @@ function fix() {
     const result = askOrThrow(request("fix"));
     replaceBuffer(result.source);
     showFindings(result.warnings);
+    const left = result.warnings.length;
     status.textContent =
       result.applied === 0
-        ? "nothing to fix"
-        : `${result.applied} fix${result.applied === 1 ? "" : "es"} applied in ${Math.round(performance.now() - started)} ms`;
+        ? `nothing to fix — ${left} finding${left === 1 ? "" : "s"} left`
+        : `${result.applied} fix${result.applied === 1 ? "" : "es"} applied in ${Math.round(performance.now() - started)} ms`
+          + ` — ${left} finding${left === 1 ? "" : "s"} left`;
     status.classList.remove("bad");
   } catch (error) {
     status.textContent = error.message;
@@ -435,18 +522,7 @@ function fix() {
 }
 
 async function showRules() {
-  const head = document.getElementById("rules-head");
-  const findingsHead = document.getElementById("findings-head");
-  const findingList = document.getElementById("finding-list");
-  const button = document.getElementById("rules");
-  if (!ruleList.hidden) {
-    ruleList.hidden = true;
-    head.hidden = true;
-    findingsHead.hidden = false;
-    findingList.hidden = false;
-    button.setAttribute("aria-expanded", "false");
-    return;
-  }
+  if (!openingPanel("rules")) return;
   const result = askOrThrow({ op: "checkers" });
   document.getElementById("rule-count").textContent = String(result.checkers.length);
   ruleList.innerHTML = result.checkers
@@ -474,16 +550,12 @@ async function showRules() {
           <span class="sev sev-${checker.severity}">${escape2(checker.severity)}</span>
         </div>
         <p class="message">${escape2(checker.description)}</p>
-        <pre class="example" data-label="a finding">${highlightCode(checker.example, exampleDialect)}</pre>
+        <pre class="example" data-label="a finding">${coloured(checker.example, exampleDialect)}</pre>
         ${fix}
       </li>`;
     })
     .join("");
-  ruleList.hidden = false;
-  head.hidden = false;
-  findingsHead.hidden = true;
-  findingList.hidden = true;
-  button.setAttribute("aria-expanded", "true");
+  showPanel("rules");
 }
 
 // ------------------------------------------------------- the example
@@ -727,15 +799,31 @@ const wasmUrl = new URL("sift.wasm" + moduleUrl.search, moduleUrl).href;
 const reflectDir = new URL(".", moduleUrl).href.replace(/\/$/, "");
 
 (async () => {
+  // A boot that never finishes is the failure a reader cannot diagnose: the
+  // status bar keeps saying "loading" and every button does nothing.  This says
+  // so after ten seconds -- a browser without the WebAssembly this needs, a
+  // deploy caught between two files -- and leaves the buffer readable, because
+  // an editor that can only be read is still better than a page that looks
+  // broken.
+  const watchdog = setTimeout(() => {
+    if (sift) return;
+    status.textContent =
+      "sift is still starting after ten seconds — this browser may not support the"
+      + " WebAssembly it needs, and the editor works for reading until it does";
+    status.classList.add("bad");
+  }, 10000);
   try {
     const started = performance.now();
     [sift] = await Scheme.load_main(wasmUrl, { reflect_wasm_dir: reflectDir });
     const version = askOrThrow({ op: "version" }).version;
+    status.classList.remove("bad");
     status.textContent = `sift ${version} — loaded in ${Math.round(performance.now() - started)} ms`;
     loadExample();
   } catch (error) {
     status.textContent = `sift could not start: ${error.message}`;
     status.classList.add("bad");
     source.readOnly = true;
+  } finally {
+    clearTimeout(watchdog);
   }
 })();
