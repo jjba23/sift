@@ -39,6 +39,7 @@
   --t-char: #d3a4ff;
   --t-number: #ffb86c;
   --t-keyword: #ff79c6;
+  --t-boolean: #7cc6ff;
   --t-symbol: #dbe6e0;
   --t-paren: #8aa297;
   --t-quote: #ffc857;
@@ -78,6 +79,7 @@
   --t-char: #74359b;
   --t-number: #94500b;
   --t-keyword: #9c2268;
+  --t-boolean: #0b5b96;
   --t-symbol: #16251e;
   --t-paren: #55685f;
   --t-quote: #7a5200;
@@ -249,6 +251,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
 .t-char    { color: var(--t-char); }
 .t-number  { color: var(--t-number); }
 .t-keyword { color: var(--t-keyword); }
+.t-boolean { color: var(--t-boolean); }
 .t-symbol  { color: var(--t-symbol); }
 .t-paren   { color: var(--t-paren); }
 .t-quote   { color: var(--t-quote); }
@@ -322,9 +325,16 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
 }
 
 .rule-row { cursor: default; }
+
+/* What a rule is about: the code that carries the finding, coloured by the
+   dialect the rule is written in, and the fix the catalogue states -- which is
+   sometimes that code rewritten and sometimes a sentence about the change, so it
+   is prose and not a second snippet.  The label above the snippet is what makes
+   it read as the text the rule fires on rather than as the rule's own source. */
 .rule-row .example {
+  position: relative;
   margin: 6px 0 0;
-  padding: 6px 8px;
+  padding: 15px 8px 6px;
   background: var(--ink);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -332,6 +342,28 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--green); ou
   color: var(--example);
   white-space: pre;
   overflow-x: auto;
+}
+
+.rule-row .example::before {
+  content: attr(data-label);
+  position: absolute;
+  top: 2px;
+  left: 8px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.rule-row .dialects { color: var(--dim); font-size: 10px; }
+
+.rule-row .fix { color: var(--fg); }
+.rule-row .fix .label {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bright);
+  margin-right: 4px;
 }
 
 /* ---- the footer ---- */
@@ -420,3 +452,6 @@ footer kbd {
 
 .outline-row:hover { background: var(--ink-3); border-left-color: var(--green); }
 .outline-row .rule { color: var(--dim); }
+/* The outline's detail is the definition's own first line, so it is coloured like
+   code rather than like the prose a finding's message is. */
+.outline-row .message code.detail { color: var(--example); font-family: inherit; white-space: pre; }

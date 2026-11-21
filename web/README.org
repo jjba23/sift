@@ -85,6 +85,7 @@ every machine has -- and no part of publishing uses it.
 |-----------------+------------------------------------------------------------------------|
 | ~index.html~    | the page, with the build stamp written into every URL it names          |
 | ~editor.js~     | the editor: one request per keystroke, debounced                        |
+| ~highlight.js~  | the colour: a tokenizer for the four dialects, and nothing else          |
 | ~editor.css~    | the look, and the two rules that keep the highlight layer aligned       |
 | ~favicon.png~   | the project's own icon, so a served page is a page with no 404 in a log  |
 | ~sift.wasm~     | sift, compiled                                                          |
@@ -165,7 +166,7 @@ too high), and it compresses the module.  The one behaviour it has to be worked
 | ~Ctrl-Space~                         | completion of the names the buffer defines   |
 | ~F12~ or ~Ctrl~+click                | jump to the definition, in this buffer       |
 | ~Outline~                            | the buffer's definitions, click to go there  |
-| ~Rules~                              | every rule, with its example                 |
+| ~Rules~                              | every rule, with the dialects it applies to, the code that carries the finding, and the fix it suggests |
 | the dialect selector                 | Scheme, Racket, Emacs Lisp or Common Lisp, and the example the page opens on for each |
 | the theme button                     | light or dark, following the system until you choose |
 
@@ -178,6 +179,16 @@ which is why ~tests/web.scm~ can assert of each one that it is a fixed point of
 the formatter and that it has a finding to show.  They are also what makes the
 two buttons honest: ~Format~ says "already formatted" because each example
 already is, and ~Fix~ repairs the finding the panel is pointing at.
+
+Each example is also a tour of the dialect, and it has to stay one: between
+them they carry a line comment, a block comment, a docstring with an escape in
+it, a character, a number in more than one spelling, a keyword, a boolean, and
+the reader prefix each dialect is particular about -- ~#;~ in Scheme, ~#lang~ in
+Racket, ~?\C-x~ in Emacs Lisp, ~#'~ and ~#x1f~ in Common Lisp.  Every one of
+the nine kinds of token the page colours appears in all four examples, and
+~tests/web.scm~ runs the highlighter over each example to say so: an example
+that stopped teaching a part of its language would fail a test rather than
+quietly stop showing it.
 
 A link can carry both choices, which is how one example is shared with someone
 else: ~?dialect=racket~ opens the Racket example and ~?theme=dark~ opens the
@@ -273,6 +284,36 @@ question.  Add an import to the core and the third one names it -- before a Wasm
 build gets the chance to.  Teach the facade a new core module and the second one
 says the browser's dependency just grew.  Start explaining the core in terms of
 a tab and the first one fails with the file's name.
+
+** The colour
+
+The buffer is drawn twice: a ~textarea~ holding the text, and a ~pre~ under it
+holding the same text with a ~span~ around each token.  The two are scrolled
+together and have identical font metrics, which is the whole trick -- a
+character one pixel out of step is a colour sitting beside the letter it belongs
+to -- and it is the reason nothing in the highlight layer may add whitespace.
+
+The tokens come from ~highlight.js~, which is JavaScript and not the reader in
+the wasm, for a reason that is about a keystroke rather than about purity: a read
+of the buffer costs a JSON round trip into a Scheme reader that allocates four
+nodes per character, and a read of six kilobytes is most of the 780 ms ~format~
+costs in the table below -- per keystroke, for colour.
+It is a *tokenizer*: it decides what a run of characters is, never what it means,
+and it has no opinion about indentation, because sift has an opinion about that
+and it is the one in the wasm.  What it does have is the four dialects, which is
+not decoration: Emacs Lisp writes a character as ~?a~ and a keyword as ~:key~,
+Common Lisp does the same and spells a float ~1.5d0~, Scheme and Racket write
+~#\a~ and ~#:key~, and Racket opens with ~#lang~, which is a declaration and not
+a symbol.
+
+Two things it must never do, and ~tests/web.scm~ runs it under node to say so: it
+must not lose a character, and it must not read prose where there is a datum.
+~#;(a b)~ comments out one datum and not the rest of the line; ~#| a #| b |# c |#
+nests; ~?\(~ is a character and not an unclosed list; ~#\(~ likewise; and a ~;~
+inside a string is a semicolon.  Nine kinds of token come out of it -- ~comment~,
+~string~, ~char~, ~number~, ~keyword~, ~boolean~, ~symbol~, ~paren~ and ~quote~ --
+and each one is a ~--t-*~ variable in ~editor.css~, declared again in the light
+theme, because a token with no colour is text nobody can read.
 
 ** The protocol
 

@@ -19,6 +19,12 @@
  * below is the one place that knows how to read it.
  */
 
+// The one import, and it is stamped like every other URL the page names: these
+// files are served with a long cache, so a module whose URL does not change is
+// a module the browser keeps.  `build.sh' writes the stamp into this file as it
+// copies it, which is why the placeholder is here rather than a number.
+import { highlight as highlightCode } from "./highlight.js?v=__SIFT_BUILD__";
+
 // ---------------------------------------------------------------- the bridge
 
 let sift = null;
@@ -226,7 +232,9 @@ async function showOutline() {
         <code class="rule">${symbol.kind}</code>
         <span class="name">${escape2(symbol.name)}</span>
         <span class="where">${symbol.selectionRange.start.line + 1}</span>
-        ${symbol.detail ? `<p class="message">${escape2(symbol.detail)}</p>` : ""}
+        ${symbol.detail
+          ? `<p class="message"><code class="detail">${highlightCode(symbol.detail, dialect.value)}</code></p>`
+          : ""}
       </li>`).join("");
   outlineList.hidden = false;
   head.hidden = false;
@@ -269,78 +277,14 @@ const request = (op, extra) => ({
 
 // ------------------------------------------------------- highlighting
 
-/* A Scheme reader, near enough for colour: comments, strings, character
- * literals, delimiters, numbers and the quote prefixes.  It is a tokenizer and
- * not a formatter -- sift has one of those, and it is in the wasm -- so it
- * only has to agree with the text, never with the indentation. */
-const DELIMITERS = new Set(["(", ")", "[", "]", "{", "}"]);
-const PREFIXES = new Set(["'", "`"]);
-
-function escape(character) {
-  return character === "&" ? "&amp;" : character === "<" ? "&lt;" : character === ">" ? "&gt;" : character;
-}
-
-function highlightScheme(code) {
-  let out = "";
-  let i = 0;
-  const push = (kind, text) => {
-    out += kind ? `<span class="t-${kind}">${Array.from(text, escape).join("")}</span>` : Array.from(text, escape).join("");
-  };
-  while (i < code.length) {
-    const character = code[i];
-    const next = code[i + 1];
-
-    if (character === ";") {
-      const end = code.indexOf("\n", i);
-      const stop = end === -1 ? code.length : end;
-      push("comment", code.slice(i, stop));
-      i = stop;
-    } else if (character === "#" && next === "|") {
-      const end = code.indexOf("|#", i + 2);
-      const stop = end === -1 ? code.length : end + 2;
-      push("comment", code.slice(i, stop));
-      i = stop;
-    } else if (character === '"') {
-      let j = i + 1;
-      while (j < code.length) {
-        if (code[j] === "\\") { j += 2; continue; }
-        if (code[j] === '"') { j += 1; break; }
-        j += 1;
-      }
-      push("string", code.slice(i, j));
-      i = j;
-    } else if (character === "#" && next === "\\") {
-      let j = i + 2;
-      while (j < code.length && !/[\s()\[\]";]/.test(code[j])) j += 1;
-      push("char", code.slice(i, j));
-      i = j;
-    } else if (DELIMITERS.has(character)) {
-      push("paren", character);
-      i += 1;
-    } else if (PREFIXES.has(character) || (character === "," && next === "@") || character === ",") {
-      const width = character === "," && next === "@" ? 2 : 1;
-      push("quote", code.slice(i, i + width));
-      i += width;
-    } else if (/\s/.test(character)) {
-      let j = i;
-      while (j < code.length && /\s/.test(code[j])) j += 1;
-      push(null, code.slice(i, j));
-      i = j;
-    } else {
-      let j = i;
-      while (j < code.length && !/[\s()\[\]";]/.test(code[j])) j += 1;
-      const word = code.slice(i, j);
-      if (/^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(word)) push("number", word);
-      else if (word.startsWith(":") || word.startsWith("#:")) push("keyword", word);
-      else push("symbol", word);
-      i = j;
-    }
-  }
-  return out;
-}
+/* The colour itself lives in `highlight.js', which is a tokenizer that knows the
+ * four dialects and nothing else -- it does not decide what a form means, and it
+ * has no opinion about indentation, because sift has an opinion about that and
+ * it is in the wasm.  Here is the whole of the arrangement: the same text goes
+ * into a `<pre>' under the textarea, and the two scroll together. */
 
 function drawHighlight() {
-  highlight.innerHTML = highlightScheme(source.value);
+  highlight.innerHTML = highlightCode(source.value, dialect.value);
   highlight.scrollTop = source.scrollTop;
   highlight.scrollLeft = source.scrollLeft;
 }
@@ -506,18 +450,34 @@ async function showRules() {
   const result = askOrThrow({ op: "checkers" });
   document.getElementById("rule-count").textContent = String(result.checkers.length);
   ruleList.innerHTML = result.checkers
-    .map(
-      (checker) => `
+    .map((checker) => {
+      // A rule that applies to one dialect is written in that dialect, so its
+      // example is coloured by it: an Emacs Lisp rule whose example is coloured
+      // as Scheme is the same mistake as opening a Racket buffer on a Scheme
+      // example, one panel further in.
+      const exampleDialect = (checker.dialects && checker.dialects[0]) || "scheme";
+      const dialects = (checker.dialects || []).join(" ");
+      // `expected' is the rule's fix as the catalogue writes it: sometimes the
+      // text the finding becomes, sometimes a sentence about the change
+      // ("delete `car` from the `only` clause").  So it is shown as prose rather
+      // than coloured as code -- a sentence coloured like a form would be the
+      // page claiming to have read something it has not.
+      const fix = checker.expected
+        ? `<p class="message fix"><span class="label">fix</span> ${escape2(checker.expected)}</p>`
+        : "";
+      return `
       <li class="rule-row">
         <div class="rule-head">
           <code class="rule">${escape2(checker.code)}</code>
           <span class="name">${escape2(checker.name)}</span>
+          <span class="dialects">${escape2(dialects)}</span>
           <span class="sev sev-${checker.severity}">${escape2(checker.severity)}</span>
         </div>
         <p class="message">${escape2(checker.description)}</p>
-        <pre class="example">${escape2(checker.example)}</pre>
-      </li>`,
-    )
+        <pre class="example" data-label="a finding">${highlightCode(checker.example, exampleDialect)}</pre>
+        ${fix}
+      </li>`;
+    })
     .join("");
   ruleList.hidden = false;
   head.hidden = false;
@@ -697,6 +657,10 @@ for (const select of [style, severity]) select.addEventListener("change", lint);
 // A dialect is a different language, so it is a different example -- unless the
 // buffer holds someone's work, which is never thrown away for a click.
 dialect.addEventListener("change", () => (untouched() ? loadExample() : lint()));
+// A dialect is also a way of colouring the buffer, so switching one repaints it
+// even when the text stays: an Emacs Lisp `?a' is a character where a Scheme
+// `?a' is a name, and the page should not keep saying otherwise.
+dialect.addEventListener("change", drawHighlight);
 document.getElementById("example").addEventListener("click", loadExample);
 document.getElementById("format").addEventListener("click", format);
 document.getElementById("fix").addEventListener("click", fix);

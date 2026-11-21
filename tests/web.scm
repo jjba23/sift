@@ -289,6 +289,102 @@ Only the first is asked for, which is why the pattern carries the colon."
   (field-of (result-of (asked (cons "op" "sample") (cons "dialect" dialect)))
             "source"))
 
+;;; ===== The colour, as the page gets it =====
+;;;
+;;; The buffer is coloured by `web/highlight.js', which is JavaScript on purpose:
+;;; colour is redrawn on every keystroke, and the reader in the wasm allocates
+;;; four nodes per character, so asking it for the tokens of a six-kilobyte
+;;; buffer is a keystroke nobody would type twice.  What a tokenizer written once
+;;; for one dialect gets wrong is the interesting part -- the datum `#;' comments
+;;; out, the block comment that nests, the `?(' that is a character, the `;' in a
+;;; string -- so those are what these tests ask about, and node is how they ask.
+
+(define (highlighter-kinds)
+  "Return the token kinds `web/highlight.js' can produce, sorted.
+
+Sorted so that a test can compare it with `token-kinds', which is sorted too: the
+order in the file is the order a reader of the file wants, and the order here is
+the order a comparison wants."
+  (sort (captures "\"([a-z]+)\""
+                  (or (text-between (slurp (web-file "highlight.js"))
+                                    "export const tokenKinds = ["
+                                    "];")
+                    "")
+                  1)
+        string<?))
+
+(define (colour-kind-names selector)
+  "Return the token kinds @var{selector} declares a `--t-' colour for."
+  (map (lambda (variable)
+         (substring variable (string-length "--t-")))
+       (filter (lambda (variable) (string-prefix? "--t-" variable))
+               (declared-variables selector))))
+
+(define (node-program)
+  "Return the node on PATH, or @code{#f} when this machine has none.
+
+A browser build's tests need a JavaScript engine to ask the browser's half, and
+node is what `maak editors-check' already runs, so a machine without it is a
+machine that skips these tests rather than one that fails them."
+  (let* ((port (open-input-pipe "command -v node 2>/dev/null"))
+         (line (read-line port)))
+    (close-pipe port)
+    (let ((path (and (string? line) (string-trim-both line))))
+      (and path (not (string-null? path)) path))))
+
+(define (tokens-in dialect text)
+  "Return the tokens `web/highlight.js' makes of @var{text}, read as @var{dialect}.
+
+The highlighter is a module with no DOM in it, which is why a test can import it:
+node is handed a harness that reads the buffer from a file and prints the tokens
+as JSON, so what comes back is what the page draws, not a second implementation
+of it in Scheme.  Each token is @code{(kind . text)}, with @code{#f} for the
+spacing between them."
+  (with-temp-directory
+   (lambda (directory)
+     (let* ((sample (string-append directory "/sample.txt"))
+            (harness (string-append directory "/harness.mjs"))
+            (out-file (string-append directory "/tokens.json"))
+            (err-file (string-append directory "/tokens.err")))
+       (spit sample text)
+       (spit harness
+             (format #f
+                     (string-append
+                      "import { tokenize } from ~s;\n"
+                      "import { readFileSync } from \"node:fs\";\n"
+                      "const [dialect, path] = process.argv.slice(2);\n"
+                      "process.stdout.write(\n"
+                      "  JSON.stringify(tokenize(readFileSync(path, \"utf8\"), dialect)));\n")
+                     (string-append "file://" (web-file "highlight.js"))))
+       (let* ((command (format #f "~a ~a ~a ~a > ~a 2> ~a; echo $?"
+                               (node-program) harness dialect sample out-file err-file))
+              (status (call-with-input-string
+                        (let ((port (open-input-pipe command)))
+                          (let ((answer (read-line port)))
+                            (close-pipe port)
+                            (or answer "1")))
+                        read)))
+         ;; Asserted rather than raised, the way `answer-over-compat' does it: a
+         ;; highlighter that did not run is a test that fails with node's own
+         ;; complaint attached, not a suite that stops with a backtrace.
+         (assert-equal #:expect 0 #:got status
+           #:name (format #f "the highlighter runs under node (~a)" dialect))
+         (map (lambda (token)
+                (cons (let ((kind (json-ref token "kind")))
+                        (and (string? kind) kind))
+                      (json-ref token "text")))
+              (if (zero? status)
+                (vector->list (json-read (slurp out-file)))
+                '())))))))
+
+(define (token-kinds tokens)
+  "Return the kinds of @var{tokens}, once each, sorted."
+  (sort (delete-duplicates (filter-map car tokens) string=?) string<?))
+
+(define (tokens-text tokens)
+  "Return @var{tokens} as the text they were read from."
+  (apply string-append (map cdr tokens)))
+
 (define (compat-load-path directory)
   "Return the load path that puts the browser's SRFI-13 in front, as flags.
 
@@ -788,6 +884,116 @@ exactly the bug that would reach a tab and no test."
       (assert-equal #:expect 4
         #:got (length (delete-duplicates (map sample-of dialect-names) string=?))
         #:name "an example borrowed from another dialect teaches nothing"))
+
+    ;; --- the colour, and the file it comes from -----------------------
+
+    (test "every kind of token the page colours has a colour"
+      ;; Two ways for this to rot: a kind the highlighter emits and the
+      ;; stylesheet never colours, which is text the reader cannot see, and a
+      ;; colour nothing emits, which is a rule that has been dead since it was
+      ;; written.  Both themes are asked, because the light block is a second
+      ;; set of every variable and forgetting one there is dark text on a dark
+      ;; background rather than a failing build.
+      (let ((kinds (highlighter-kinds)))
+        (assert-equal #:expect 9 #:got (length kinds)
+          #:name "the highlighter names the kinds it produces")
+        (for-each
+         (lambda (selector)
+           (assert-equal #:expect '()
+             #:got (lset-difference string=? kinds (colour-kind-names selector))
+             #:name (format #f "every kind has a colour in ~a" selector))
+           (assert-equal #:expect '()
+             #:got (lset-difference string=? (colour-kind-names selector) kinds)
+             #:name (format #f "and every colour in ~a is a kind" selector)))
+         (list ":root" ":root[data-theme=\"light\"]"))
+        (for-each
+         (lambda (kind)
+           ;; The rule is written with the braces aligned, so the question is
+           ;; "is there a `.t-<kind>' rule", not "does it read exactly like the
+           ;; one above it".
+           (assert-true
+             (if (regexp-exec (make-regexp (format #f "\\.t-~a[ \t]*\\{" kind))
+                              (slurp (web-file "editor.css")))
+               #t #f)
+             #:name (format #f "the ~a token is what the spans are drawn with" kind)))
+         kinds)))
+
+    (test "the highlighter is fetched with the build stamp"
+      ;; These files are served with a long cache, so a module URL that does not
+      ;; change is a module the browser keeps: the page would show the reader a
+      ;; highlighter from the build before the one that is deployed, and nothing
+      ;; would say so.  `build.sh' writes the stamp into `editor.js' as it copies
+      ;; it, and both halves of that are asserted here.
+      (let ((imports (captures "from \"([^\"]*)\"" (slurp (web-file "editor.js")) 1)))
+        (assert-true (pair? imports) #:name "the editor imports a module")
+        (assert-equal #:expect '()
+          #:got (remove (lambda (specifier)
+                          (string-contains specifier "?v=__SIFT_BUILD__"))
+                        imports)
+          #:name "every module it imports carries the stamp")
+        (assert-true (if (member "./highlight.js?v=__SIFT_BUILD__" imports) #t #f)
+          #:name "and one of them is the highlighter"))
+      (assert-true
+        (if (string-contains (slurp (web-file "build.sh"))
+                             "sed -e \"s|__SIFT_BUILD__|$stamp|g\" \"$here/editor.js\"")
+          #t #f)
+        #:name "the build writes the stamp into the editor as it copies it")
+      (assert-true
+        (if (string-contains (slurp (web-file "build.sh"))
+                             "cp \"$here/highlight.js\" \"$dist/highlight.js\"")
+          #t #f)
+        #:name "and puts the highlighter in the directory it serves"))
+
+    (test "the highlighter keeps every character of a buffer"
+      ;; The colour is drawn in a layer under the textarea, so a tokenizer that
+      ;; drops or invents one character is a buffer whose colours sit a letter
+      ;; away from the letters they describe.  The cases are the ones a
+      ;; tokenizer gets wrong: a datum commented out by `#;', a block comment
+      ;; that nests, a `?(' that is a character and not an unclosed list, an
+      ;; unterminated string, and a `;' inside a string.
+      (if (not (node-program))
+        (assert-true #t #:name "node is not installed; skipped")
+        (for-each
+         (lambda (case)
+           (let* ((dialect (car case))
+                  (text (cadr case))
+                  (tokens (tokens-in dialect text)))
+             (assert-equal #:expect text #:got (tokens-text tokens)
+               #:name (format #f "the ~a text of ~s comes back whole" dialect text))))
+         (list
+          (list "scheme" "#;(a b) (c)")
+          (list "scheme" ";; a comment\n#| a #| b |# c |# (ok)")
+          (list "scheme" "(list #\\( #\\) #\\space) ; tail")
+          (list "scheme" "(display \"a \\\" b; c\")")
+          (list "scheme" "(display \"never closed")
+          (list "elisp" "(list ?\\( ?\\) ?a (string? x))")
+          (list "cl" "(list #\\( #\\) #x1f 1.5d0 :key)")
+          (list "racket" "#lang racket\n#(1 2 #t)")))))
+
+    (test "the highlighter comments out one datum at a time"
+      (if (not (node-program))
+        (assert-true #t #:name "node is not installed; skipped")
+        (let ((tokens (tokens-in "scheme" "#;(a b) (c)")))
+          (assert-equal #:expect '("comment" "paren" "symbol" "paren")
+            #:got (filter-map car tokens)
+            #:name "the commented datum is one comment, and `(c)' is still code")
+          (assert-equal #:expect "#;(a b)"
+            #:got (cdr (car tokens))
+            #:name "the comment covers exactly what `#;' comments out"))))
+
+    (test "every example shows every kind of token the page colours"
+      ;; The examples are the demonstration of the dialect *and* of the
+      ;; colouring: a reader who opens the page should see a string, a character,
+      ;; a number, a keyword and a quote in the language they picked.  This is
+      ;; what keeps the four of them from drifting back into plain code.
+      (if (not (node-program))
+        (assert-true #t #:name "node is not installed; skipped")
+        (for-each
+         (lambda (dialect)
+           (assert-equal #:expect (highlighter-kinds)
+             #:got (token-kinds (tokens-in dialect (sample-of dialect)))
+             #:name (format #f "the ~a example shows every kind of token" dialect)))
+         dialect-names)))
 
     (test "a question without an offset is a usage error"
       (assert-refused #:request (asked (cons "op" "hover") (cons "source" "(a)"))

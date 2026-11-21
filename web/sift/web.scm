@@ -398,8 +398,8 @@ rather than on how it was written down."
 ;;;
 ;;; A page that opens on Scheme code while the selector says Racket is a page
 ;;; that shows a reader the wrong language, so the example a dialect opens on
-;;; is the dialect's own: square brackets in Scheme and Racket, a `defun' and
-;;; an `interactive' in Emacs Lisp, a LOOP in Common Lisp.
+;;; is the dialect's own: square brackets in Racket, a `defun' and an
+;;; `interactive' in Emacs Lisp, a LOOP and a `#' in Common Lisp.
 ;;;
 ;;; They live here, in the facade, rather than in `editor.js', for the reason
 ;;; everything else does: this is the half of the page a test can read, and
@@ -407,55 +407,126 @@ rather than on how it was written down."
 ;;; the formatter and that it says something -- so an example cannot rot into a
 ;;; buffer with a parse error in it, and the panel it opens beside is not empty.
 ;;;
+;;; What each one is for has grown with the page: it is the demonstration of the
+;;; dialect *and* of the colouring, so every example carries a line comment, a
+;;; block comment, a docstring with an escape in it, a character, a number in
+;;; more than one spelling, a quote or a quasiquote, and a reader prefix the
+;;; dialect is particular about -- `#;' in Scheme, `#lang' in Racket, `?\C-x' in
+;;; Emacs Lisp, `#'` and `#x1f' in Common Lisp.  `tests/web.scm' says so: an
+;;; example that stopped showing a kind of token is a test that fails rather
+;;; than a page that quietly stops showing it.
+;;;
 ;;; Each is also a demonstration of what the two buttons do.  They are already
 ;;; formatted, so `Format' answers "already formatted" -- that is the fixed
 ;;; point, stated as a demo -- and each carries a finding that `Fix' repairs.
 
 (define scheme-example
   (string-append
-   "(define (classify n)\n"
-   "  (cond [(< n 0) 'negative]\n"
-   "        [(= n 0) 'zero]\n"
-   "        [else 'positive]))\n"
+   ";;; A word count, written for the example buffer.\n"
+   ";;;\n"
+   ";;; The text is already formatted, so `Format' answers \"already formatted\", and\n"
+   ";;; it carries one finding, so `Fix' has something to repair.\n"
    "\n"
-   "(define (report n)\n"
-   "  (if (ready?)\n"
-   "    (proceed)))\n"))
+   "#;(obsolete-setting 72) ; the datum after `#;' is a comment, not code\n"
+   "\n"
+   "#| A block comment, and a #|nested|# one nests. |#\n"
+   "\n"
+   "(define default-width 80)\n"
+   "\n"
+   "(define settings\n"
+   "  `(columns ,default-width\n"
+   "            ,@'(2 4))) ; quasiquote, unquote, splice\n"
+   "\n"
+   "(define (count-words line)\n"
+   "  \"Return an alist of (word . count) for LINE.\"\n"
+   "  (let loop ((words (string-split line #\\space))\n"
+   "             (counts '()))\n"
+   "    (if (null? words)\n"
+   "      (reverse counts)\n"
+   "      (loop (cdr words)\n"
+   "            (cons (cons (car words) 1) counts)))))\n"
+   "\n"
+   "(define (report line #:optional (width default-width))\n"
+   "  \"Write the words of LINE, and the width they were measured at.\"\n"
+   "  (let ((words (count-words line)))\n"
+   "    (if (null? words) ; no else branch: a finding\n"
+   "      (display \"no words\"))\n"
+   "    (format #t \"~a word(s) in a column of ~a~%\" (length words) width)\n"
+   "    (list #\\newline #t 3.5 #xff (vector-ref #(80 72) 0))))\n"))
 
 (define racket-example
   (string-append
    "#lang racket\n"
    "\n"
-   "(define (classify n)\n"
-   "  (cond [(< n 0) 'negative]\n"
-   "        [(= n 0) 'zero]\n"
-   "        [else 'positive]))\n"
+   ";;; A word count in Racket, so the buffer shows `#lang` at the top.\n"
    "\n"
-   "(define (report n)\n"
-   "  (if (ready?)\n"
-   "      (proceed)))\n"))
+   "#| A block comment, which Racket shares with Scheme. |#\n"
+   "\n"
+   "(define default-width 80)\n"
+   "\n"
+   "(define (count-words line)\n"
+   "  (for/fold ([counts '()]) ([word (string-split line \" \")])\n"
+   "    (cons (cons word 1) counts)))\n"
+   "\n"
+   "(define (report line [width default-width])\n"
+   "  (define words (count-words line))\n"
+   "  (if (null? words) ; no else branch: a finding\n"
+   "      (displayln \"no words\"))\n"
+   "  (printf \"~a word(s) in a column of ~a~n\" (length words) width)\n"
+   "  (list #\\newline #t 3.5 #xff (vector-ref #(80 72) 0)\n"
+   "        `(columns ,width ,@'(2 4))))\n"))
 
 (define elisp-example
   (string-append
-   ";;; hello.el --- an example for sift  -*- lexical-binding: t; -*-\n"
+   ";;; example.el --- a word count  -*- lexical-binding: t; -*-\n"
    "\n"
-   "(defun sift-greet (name)\n"
-   "  (interactive \"sName: \")\n"
-   "  (if (not name)\n"
-   "    (setq name \"world\"))\n"
-   "  (message \"hello, %s\" name))\n"))
+   ";;; Commentary:\n"
+   ";;\n"
+   ";; Already formatted, and carrying a finding for `Fix' to repair: an `if' on a\n"
+   ";; negated test, which is an `unless'.\n"
+   "\n"
+   ";;; Code:\n"
+   "\n"
+   "(defcustom example-width 80\n"
+   "  \"The column the report is measured at.\"\n"
+   "  :type 'integer)\n"
+   "\n"
+   "(defun example-count-words (line)\n"
+   "  \"Return an alist of (WORD . COUNT) for LINE.\"\n"
+   "  (mapcar (lambda (word) (cons word 1)) (split-string line \" \" t)))\n"
+   "\n"
+   "(defun example-report (line)\n"
+   "  \"Write the words of LINE, and the width they were measured at.\"\n"
+   "  (interactive \"sLine: \")\n"
+   "  (let ((words (example-count-words line)))\n"
+   "    (if (not words) ; an `unless` says it once: a finding\n"
+   "      (message \"no words\"))\n"
+   "    (message \"%s word(s), width %d, char %c, options %S\"\n"
+   "             (length words) example-width ?\\C-x '(:key t))))\n"
+   "\n"
+   "(provide 'example)\n"
+   ";;; example.el ends here\n"))
 
 (define cl-example
   (string-append
-   "(defun sift-report (items)\n"
-   "  (if (not (null items))\n"
-   "    (format t \"~a~%\" (first items))))\n"
+   ";;; A word count in Common Lisp, which spells things its own way.\n"
    "\n"
-   "(defun sift-list (items)\n"
-   "  \"Return the non-empty items.\"\n"
-   "  (loop for item in items\n"
-   "        when item\n"
-   "        collect item))\n"))
+   "#| A block comment, which Common Lisp shares with Scheme. |#\n"
+   "\n"
+   "(defparameter *default-width* 80)\n"
+   "\n"
+   "(defun count-words (line)\n"
+   "  \"Return an alist of (word . count) for LINE.\"\n"
+   "  (loop for word in (uiop:split-string line :separator \" \")\n"
+   "        collect (cons word 1)))\n"
+   "\n"
+   "(defun report (line &key (width *default-width*))\n"
+   "  \"Write the words of LINE, at the column WIDTH names.\"\n"
+   "  (progn ; the only body of `defun`: a finding\n"
+   "    (let ((words (count-words line)))\n"
+   "      (format t \"~a word(s) in a column of ~a~%\" (length words) width))\n"
+   "    (list #\\a #\\Space #x1f 3.5 #'count-words\n"
+   "          `(columns ,width ,@'(2 4)))))\n"))
 
 (define (dialect-example dialect)
   "Return the example the page opens on in @var{dialect}."

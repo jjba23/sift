@@ -80,11 +80,13 @@ mkdir -p "$dist"
 reflect_js=$("$guile" -c '(use-modules (hoot config)) (display %reflect-js-dir)')
 cp "$reflect_js/reflect.js" "$dist/reflect.js"
 
-# The page carries `__SIFT_BUILD__' where the stamp goes, in every URL it names.
-# The other two are copied as they are: a stylesheet and a module that reads its
-# own URL need nothing substituted into them.
+# The page carries `__SIFT_BUILD__' where the stamp goes, in every URL it names,
+# and so does `editor.js': it imports the highlighter, and a module whose URL
+# does not change is a module the browser keeps.  The stylesheet needs nothing
+# substituted into it.
 sed -e "s|__SIFT_BUILD__|$stamp|g" "$here/index.html" > "$dist/index.html"
-cp "$here/editor.js" "$dist/editor.js"
+sed -e "s|__SIFT_BUILD__|$stamp|g" "$here/editor.js" > "$dist/editor.js"
+cp "$here/highlight.js" "$dist/highlight.js"
 cp "$here/editor.css" "$dist/editor.css"
 
 # The icon the project already has, at the size a tab asks for, so that a page
@@ -95,13 +97,13 @@ cp "$root/assets/icon/icon-128.png" "$dist/favicon.png"
 # on the wasm is a blank editor, and a 404 on reflect.js is a status bar that
 # says "sift could not start" -- so the build says what it laid out, and fails
 # when the answer is not everything.
-for file in index.html editor.js editor.css favicon.png sift.wasm reflect.js reflect.wasm wtf8.wasm; do
+for file in index.html editor.js highlight.js editor.css favicon.png sift.wasm reflect.js reflect.wasm wtf8.wasm; do
     [ -s "$dist/$file" ] || die "$dist/$file is missing: the build did not finish"
 done
 
 note "$dist is ready"
 note "  build   $stamp"
-for file in index.html editor.js editor.css favicon.png sift.wasm reflect.js reflect.wasm wtf8.wasm; do
+for file in index.html editor.js highlight.js editor.css favicon.png sift.wasm reflect.js reflect.wasm wtf8.wasm; do
     printf 'sift:   %-14s %s\n' "$file" "$(du -h "$dist/$file" | cut -f 1)" >&2
 done
 note "serve it: cd $dist && python3 -m http.server 8080"
