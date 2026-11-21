@@ -18,6 +18,8 @@
 ;; definition table, which is the whole file, so they are the ones the language
 ;; server computes after it has published the findings it can answer at once.
 
+;;; Code:
+
 (define-module (sift checkers inference)
   #:declarative? #t
   #:use-module (srfi srfi-1)

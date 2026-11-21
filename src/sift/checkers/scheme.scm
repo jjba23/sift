@@ -9,6 +9,8 @@
 ;; two dialects: internal definitions, an `if' that is really a `when', a
 ;; `letrec' that is really a `let', and a quasiquote that unquotes a constant.
 
+;;; Code:
+
 (define-module (sift checkers scheme)
   #:declarative? #t
   #:use-module (srfi srfi-1)

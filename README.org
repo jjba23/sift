@@ -1082,6 +1082,28 @@ line.  Nothing in ~format~ or in a checker knows about ports or exit codes.  The
 module map, and what each module owns, is
 [[file:doc/development.org::#architecture][doc/development.org]].
 
+** From source text to a warning
+:PROPERTIES:
+:CUSTOM_ID: from-source-text-to-a-warning
+:END:
+
+A lint run reads the file once, runs the checkers that apply to its dialect over
+the AST, folds in what the reader found, applies the ~sift:~ suppression
+directives, and sorts what is left.  A fix is attempted only when one is asked
+for, and the fixed text is read again before it is returned -- a fix that would
+break the file is discarded together with the rest of that run's fixes, and the
+original warnings are reported instead.
+
+#+attr_html: :width 720 :alt The lint pipeline: reader, checkers, suppression, fixes and the re-read
+[[file:resources/diagrams/lint-pipeline.svg]]
+
+~maak docs~ writes two things: ~doc/rules.org~, the catalogue generated from the
+checker records, and ~doc/api-dist/index.html~, the API reference dokgen extracts
+from the exported names of ~src/sift/~.  They sit beside the hand-written pages in
+~doc/~ and replace none of them.  The diagram's source is
+~resources/diagrams/lint-pipeline.mmd~; ~maak diagrams~ re-renders the SVG
+beside it.
+
 * Premises
 :PROPERTIES:
 :CUSTOM_ID: beliefs

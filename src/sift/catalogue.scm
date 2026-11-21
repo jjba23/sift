@@ -15,6 +15,8 @@
 ;; by hand; what is here is the part that must not drift: the codes, the
 ;; dialects, the severities, the examples and the fixes.
 
+;;; Code:
+
 (define-module (sift catalogue)
   #:declarative? #t
   #:use-module (srfi srfi-1)

@@ -14,6 +14,8 @@
 ;; These checkers report what the manual asks for, each one separately, so a
 ;; project can take the ones it wants.
 
+;;; Code:
+
 (define-module (sift checkers elisp)
   #:declarative? #t
   #:use-module (srfi srfi-1)

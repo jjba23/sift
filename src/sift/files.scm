@@ -20,6 +20,8 @@
 ;; operands, and the language server when it indexes the workspace -- so
 ;; `sift ci .' and `sift lsp' cannot disagree about which files are Lisp files.
 
+;;; Code:
+
 (define-module (sift files)
   #:declarative? #t
   #:use-module (srfi srfi-1)

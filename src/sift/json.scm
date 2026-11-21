@@ -23,6 +23,8 @@
 ;; that `#f' means what it means in Scheme and a JSON `false' is not the
 ;; absence of a value.
 
+;;; Code:
+
 (define-module (sift json)
   #:declarative? #t
   #:use-module (srfi srfi-1)

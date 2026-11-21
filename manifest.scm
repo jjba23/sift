@@ -15,7 +15,8 @@
 ;; would put two of them on the load path with nothing saying which one a test
 ;; ran against, which is exactly the confusion a test rig cannot afford.
 
-(use-modules (gnu packages emacs)
+(use-modules (gnu packages)
+             (gnu packages emacs)
              (gnu packages guile)
              (gnu packages guile-xyz))
 
@@ -25,6 +26,9 @@
        guile-fibers
        guile-json-4
        guile-veritas
+       ;; `maak docs' keeps `doc/rules.org' and, beside it, the API reference
+       ;; dokgen extracts from the modules.
+       (specification->package "guile-dokgen")
        ;; the Emacs package is developed and tested here too; a minimal
        ;; Emacs has ERT, Flymake and `json', which is all it needs
        emacs-minimal))

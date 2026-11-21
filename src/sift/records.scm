@@ -15,6 +15,8 @@
 ;; module imports it so that a node built by the reader is the same shape the
 ;; formatter renders and the checkers inspect.
 
+;;; Code:
+
 (define-module (sift records)
   #:declarative? #t
   #:use-module (srfi srfi-1)

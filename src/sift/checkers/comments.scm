@@ -26,6 +26,8 @@
 ;; in, and if that place is the wrong one for the sentence, moving the comment
 ;; is still the author's work.
 
+;;; Code:
+
 (define-module (sift checkers comments)
   #:declarative? #t
   #:use-module (srfi srfi-1)

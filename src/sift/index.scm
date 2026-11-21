@@ -29,6 +29,8 @@
 ;; read until a request needs its text.  A cache that cannot be read is no
 ;; cache at all, which is slower and never wrong.
 
+;;; Code:
+
 (define-module (sift index)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)

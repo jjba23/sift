@@ -21,6 +21,8 @@
 ;; the other reason the allocation numbers in the benchmarks are worth keeping
 ;; an eye on.
 
+;;; Code:
+
 (define-module (sift pool)
   #:declarative? #t
   #:use-module (srfi srfi-1)

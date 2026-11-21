@@ -25,6 +25,8 @@
 ;; Every value remembers where it came from, which is what
 ;; `config show --source' prints.
 
+;;; Code:
+
 (define-module (sift config)
   #:declarative? #t
   #:use-module (srfi srfi-1)
@@ -52,7 +54,6 @@
             load-config-file
             discover-config-files
             load-config
-            config-cli-overrides
             config-show
             config-explain
             trust-config-file!

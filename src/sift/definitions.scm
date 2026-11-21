@@ -34,6 +34,8 @@
 ;; limits it implies are written down in the manual's table of what the
 ;; language server answers.
 
+;;; Code:
+
 (define-module (sift definitions)
   ;; Not declarative, unlike the rest of the library: the language server hands
   ;; these accessors to `map' and stores them beside the definitions they

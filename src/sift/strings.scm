@@ -22,6 +22,8 @@
 ;; The optional arguments are SRFI-13's, in SRFI-13's order, so that a caller
 ;; who knows the SRFI already knows these.
 
+;;; Code:
+
 (define-module (sift strings)
   #:declarative? #t
   #:export (string-find

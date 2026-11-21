@@ -24,6 +24,8 @@
 ;; editor in a tab and an editor beside a checkout get one implementation of
 ;; "where is this defined", not two that agree until they do not.
 
+;;; Code:
+
 (define-module (sift analysis)
   ;; Not declarative, for the reason the server is not: the record accessors
   ;; here are handed to `map' and kept beside the records they describe, and an

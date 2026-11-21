@@ -15,6 +15,28 @@
 ;; them.  And no fix is applied unless the source still reads afterwards: a
 ;; fix that introduces a parse error is discarded, along with every other fix
 ;; of the same run, and the original warnings are reported unfixed.
+;;
+;; The pipeline, from one file's text to the warnings a caller is given:
+;;
+;; ```mermaid
+;; flowchart TD
+;;   source["Source text"] --> reader["read-source: AST and parse errors"]
+;;   reader --> applicable["checkers-applicable?: the checkers for the dialect"]
+;;   applicable --> run["each checker over the AST"]
+;;   reader --> parse["reader warnings"]
+;;   run --> produced["warnings"]
+;;   parse --> produced
+;;   produced --> suppress["suppression intervals from sift: directives"]
+;;   suppress --> reported["warnings at or above the minimum severity, sorted"]
+;;   reported --> fix["apply-fixes, only when asked"]
+;;   fix --> reread{"does the fixed text still read?"}
+;;   reread -- yes --> fixed["fixed source"]
+;;   reread -- no --> unfixed["original warnings, unfixed"]
+;; ```
+;;
+;; Code:
+
+;;; Code:
 
 (define-module (sift lint)
   #:declarative? #t

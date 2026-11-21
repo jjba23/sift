@@ -24,6 +24,8 @@
 ;; be able to read it, a hash is 52 base32 characters, and an input list needs
 ;; no labels.
 
+;;; Code:
+
 (define-module (sift checkers guix)
   #:declarative? #t
   #:use-module (srfi srfi-1)

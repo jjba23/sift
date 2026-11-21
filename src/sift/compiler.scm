@@ -32,6 +32,8 @@
 ;; compiler that hangs holds a thread until the session ends; add a watchdog
 ;; when a real implementation is found hanging.'
 
+;;; Code:
+
 (define-module (sift compiler)
   #:declarative? #t
   #:use-module (srfi srfi-1)

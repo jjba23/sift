@@ -10,6 +10,8 @@
 ;; side effect and then edited; a body of one `progn' is a form that was
 ;; spliced by hand and never cleaned up.
 
+;;; Code:
+
 (define-module (sift checkers bodies)
   #:declarative? #t
   #:use-module (srfi srfi-1)

@@ -5,7 +5,7 @@
 
 ;;; Commentary:
 ;;
-;; SXML is Lisp used as markup: `(element (@ (attribute "value")) child ...)'.
+;; SXML is Lisp used as markup: `(element (@@ (attribute "value")) child ...)'.
 ;; A formatter does not need to know that -- an element is a list and formats
 ;; as one, and the attribute list, being the first argument, lines up under
 ;; itself the way every call does -- but a linter can say the three things the
@@ -17,10 +17,12 @@
 ;;
 ;; All three are about documents, so none of them fires on ordinary code.  The
 ;; test for "is this a document" is the attribute list itself: a list whose
-;; head is a symbol and that holds an `(@ ...)' child is an element, and
+;; head is a symbol and that holds an `(@@ ...)' child is an element, and
 ;; nothing else is.  That is the one piece of evidence a file carries, and it
-;; is enough -- a function called `div' that takes an `@' list is not something
+;; is enough -- a function called `div' that takes an `@@' list is not something
 ;; anyone writes by accident.
+
+;;; Code:
 
 (define-module (sift checkers sxml)
   #:declarative? #t

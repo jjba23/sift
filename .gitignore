@@ -25,3 +25,7 @@ web/dist/
 # the nix build's ./result
 result
 result-*
+
+# The API reference `dokgen' writes, and the page it is rendered to.
+doc/api/
+doc/api-dist/

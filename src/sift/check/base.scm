@@ -12,6 +12,8 @@
 ;; program rather than as text, and the line arithmetic that the checkers
 ;; working on raw text rather than on forms need.
 
+;;; Code:
+
 (define-module (sift check base)
   #:declarative? #t
   #:use-module (srfi srfi-1)
@@ -607,8 +609,8 @@ quasisyntax or a `quote`-style form decides: inside it the node is data, and a
 list that happens to start with `cond` is not a `cond` form.
 
 An unquote ends the data, whichever of its spellings it is written in --
-`,`/`(unquote ...)`, `,@`/`(unquote-splicing ...)`, and the syntax-case
-`#,' and `#,@' -- because what is inside it is evaluated again."
+`,`/`(unquote ...)`, `,@@`/`(unquote-splicing ...)`, and the syntax-case
+`#,' and `#,@@' -- because what is inside it is evaluated again."
   (let loop ((rest ancestors))
     (cond
       [(null? rest) #f]
@@ -659,7 +661,7 @@ Where the parameter list is depends on the form, so the answer comes from
 
 `#(if a b)' is a vector that holds three symbols, not an `if' with no else
 branch: a vector literal is data, so a rule about the shape of a form has no
-business reading what is inside one.  An unquote -- `,', `,@' or one of their
+business reading what is inside one.  An unquote -- `,', `,@@' or one of their
 syntax-case spellings -- ends the data again, exactly as it does in
 @code{quoted-context?}: what is inside it is evaluated."
   (let loop ((rest ancestors))

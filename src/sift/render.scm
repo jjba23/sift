@@ -13,6 +13,8 @@
 ;; Colour is used only when the output is a terminal and NO_COLOR is unset,
 ;; so a pipeline never has to strip escape sequences it did not ask for.
 
+;;; Code:
+
 (define-module (sift render)
   #:declarative? #t
   #:use-module (srfi srfi-1)

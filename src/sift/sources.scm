@@ -26,6 +26,8 @@
 ;; is already in the cache is not downloaded again; deleting the cache
 ;; directory is always safe.
 
+;;; Code:
+
 (define-module (sift sources)
   #:declarative? #t
   #:use-module (srfi srfi-1)

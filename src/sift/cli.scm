@@ -21,6 +21,8 @@
 ;; calling, which is what makes sift usable in CI and in an editor's
 ;; format-on-save hook without special cases.
 
+;;; Code:
+
 (define-module (sift cli)
   #:declarative? #t
   #:use-module (srfi srfi-1)

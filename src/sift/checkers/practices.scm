@@ -25,6 +25,8 @@
 ;; and what to name the sixth parameter, are decisions; the quote is not, which
 ;; is why it is the one rule here with a fix.
 
+;;; Code:
+
 (define-module (sift checkers practices)
   #:declarative? #t
   #:use-module (srfi srfi-1)

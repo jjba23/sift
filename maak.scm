@@ -29,6 +29,8 @@
   ;; named `commit' or `tag' later in this file would shadow the helper it
   ;; calls, and the call would be a puzzle rather than a line of a task.
   #:use-module ((maak git) #:prefix git:)
+  ;; `scandir' is what the `diagrams' task walks resources/diagrams with.
+  #:use-module (ice-9 ftw)
   #:use-module (ice-9 format)
   #:use-module (ice-9 regex)
   #:use-module (ice-9 string-fun)
@@ -45,6 +47,7 @@
             fixture-check
             self-check
             docs
+            diagrams
             complexity
             editors-check
             emacs-test
@@ -64,6 +67,10 @@
             release agents))
 
 ;; ====== Maak file constants ======
+
+;; The URL for the CSS stylesheet used to style API documentation.
+(define api-docs-css-url
+  "https://jointhefreeworld.org/static/css/jointhefreeworld.css")
 
 ;; The corpus of golden files, as one script: every `expected' directory is
 ;; judged in the dialect and the style its path names, because the corpus is
@@ -233,12 +240,68 @@ file was read."
        #:verbose? #t))
 
 (define (docs)
-  "Regenerate doc/rules.org from the checker records.
+  "Regenerate the reference: doc/rules.org, and the API chapter beside it.
 
-The catalogue is not written by hand: a rule that exists is in the document,
-and the test suite fails when the two disagree."
+The rule catalogue is not written by hand: a rule that exists is in the
+document, and the test suite fails when the two disagree.
+
+The API chapter is the other half.  Dokgen reads the modules rather than their
+text, so every exported procedure that has a docstring is in the reference; it
+writes Texinfo to doc/api, and texi2any renders that one page to doc/api-dist.
+Only doc/api is cleared -- doc/ also holds the hand-written pages (this
+project's manual), and a task that emptied the directory would take them with
+it.
+
+Beside the Texinfo dokgen writes the stylesheet and the script the page is read
+with, and a directory of diagrams for the docstrings that carry one; Texinfo
+copies neither, so both are put beside the page that points at them."
   (run-guile
-   "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))"))
+   "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))")
+  (delete-file-recursively "doc/api")
+  (time-machine-manifest-shell
+   (list "dokgen" "api"
+         "--destination" "doc/api"
+         "./src/sift")
+   #:verbose? #t)
+  (mkdir-p "doc/api-dist")
+  (time-machine-manifest-shell
+   (list "texi2any" "-v" "--html" "--no-split"
+         (~ "--css-ref=~a" api-docs-css-url)
+         "-I" "doc/api"
+         "-c" (shell-quote
+               (string-append
+                "EXTRA_HEAD="
+                "<link rel=\"stylesheet\" href=\"dokgen.css\">"
+                "<script src=\"dokgen.js\" defer></script>"))
+         "-o" "doc/api-dist/index.html"
+         "./doc/api/index.texi")
+   #:verbose? #t)
+  (for-each (lambda (asset)
+              (when (file-exists? (~ "doc/api/~a" asset))
+                (cp (~ "doc/api/~a" asset) "doc/api-dist"
+                    #:force? #t #:verbose? #t)))
+            '("dokgen.css" "dokgen.js"))
+  (when (file-exists? "doc/api/diagrams")
+    (cp "doc/api/diagrams" "doc/api-dist" #:force? #t #:verbose? #t)))
+
+(define (diagrams)
+  "Render every mermaid source under resources/diagrams to the SVG beside it.
+
+A diagram is committed twice -- the source and the rendering -- so reading the
+README needs no renderer.  `mmdc' is a JavaScript tool the pinned shell does not
+carry, so it is looked up on $PATH, where `npm install --global
+@mermaid-js/mermaid-cli' puts it."
+  (for-each
+   (lambda (name)
+     (let* ((source (in-vicinity "resources/diagrams" name))
+            (image (string-append (string-drop-right source 4) ".svg")))
+       (run (list "mmdc" "-i" source "-o" image
+                  "--backgroundColor" "transparent")
+            #:verbose? #t)))
+   (scandir "resources/diagrams"
+            (lambda (name)
+              (and (not (member name '("." "..")))
+                   (string-suffix? ".mmd" name))))))
 
 (define (complexity . args)
   "Report how hard each definition in the tree is to read.

@@ -12,6 +12,8 @@
 ;; docstring, a LOOP that mixes keyword spellings, and two forms that say
 ;; nothing their argument does not already say.
 
+;;; Code:
+
 (define-module (sift checkers cl)
   #:declarative? #t
   #:use-module (srfi srfi-1)

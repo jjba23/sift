@@ -46,6 +46,8 @@
 ;; cache is keyed on the implementation's own binary, so an upgraded Guile is
 ;; read again rather than answered about from an index of the old one.
 
+;;; Code:
+
 (define-module (sift stdlib)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)

@@ -13,6 +13,8 @@
 ;; opened, not where sift would like it to be, because an editor that inserts
 ;; a delimiter on a guess can silently change what a program means.
 
+;;; Code:
+
 (define-module (sift checkers parens)
   #:declarative? #t
   #:use-module (srfi srfi-1)

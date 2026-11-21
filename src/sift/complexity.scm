@@ -29,6 +29,8 @@
 ;; comment and a quoted datum are never mistaken for code -- an `(if ...)' in a
 ;; docstring or in a pattern is not a branch.
 
+;;; Code:
+
 (define-module (sift complexity)
   #:declarative? #t
   #:use-module (srfi srfi-1)

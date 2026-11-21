@@ -19,6 +19,8 @@
 ;; The reader keeps positions, so a wrong key or a wrong value can be
 ;; reported as `sift.yaml:12:5: message' instead of just a line number.
 
+;;; Code:
+
 (define-module (sift yaml)
   #:declarative? #t
   #:use-module (srfi srfi-1)

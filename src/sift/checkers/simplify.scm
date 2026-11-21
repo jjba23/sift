@@ -27,6 +27,8 @@
 ;; which is the same caveat Guile's own `compose' carries, and why the rule
 ;; suggests rather than rewrites.
 
+;;; Code:
+
 (define-module (sift checkers simplify)
   #:declarative? #t
   #:use-module (srfi srfi-1)

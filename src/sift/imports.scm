@@ -29,6 +29,8 @@
 ;; in one directory pay for it once and the answer does not depend on the order
 ;; the files were linted in.
 
+;;; Code:
+
 (define-module (sift imports)
   #:declarative? #t
   #:use-module (srfi srfi-1)

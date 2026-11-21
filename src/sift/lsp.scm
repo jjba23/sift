@@ -77,6 +77,8 @@
 ;; events* buffer, and without them "nothing to report" and "not running" look
 ;; exactly alike.
 
+;;; Code:
+
 (define-module (sift lsp)
   ;; The server is not declarative: it hands the definition accessors to
   ;; `map' and keeps them beside the documents they describe, and a record

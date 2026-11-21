@@ -13,6 +13,8 @@
 ;; much a definition asks of a reader: how deep its conditionals chain, how
 ;; much the whole definition costs, and how many paths it hides.
 
+;;; Code:
+
 (define-module (sift checkers ergonomics)
   #:declarative? #t
   #:use-module (srfi srfi-1)

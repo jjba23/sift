@@ -14,6 +14,8 @@
 ;; every call site in every file, and a formatter that renames one of them has
 ;; broken the program.  So the rules report, and the author decides.
 
+;;; Code:
+
 (define-module (sift checkers naming)
   #:declarative? #t
   #:use-module (srfi srfi-1)

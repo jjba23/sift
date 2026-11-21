@@ -14,6 +14,8 @@
 ;; begins inside a block comment is not indentation, so both are excluded
 ;; using the ranges the reader recorded for those nodes.
 
+;;; Code:
+
 (define-module (sift checkers whitespace)
   #:declarative? #t
   #:use-module (srfi srfi-1)

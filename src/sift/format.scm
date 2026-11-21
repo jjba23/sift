@@ -30,6 +30,8 @@
 ;; column of the opening delimiter, never from the whitespace that was there,
 ;; which is exactly what makes the second pass a no-op.
 
+;;; Code:
+
 (define-module (sift format)
   #:declarative? #t
   #:use-module (srfi srfi-1)

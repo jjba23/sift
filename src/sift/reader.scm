@@ -22,6 +22,8 @@
 ;; carrying the count.  That split is what lets the formatter preserve blank
 ;; lines and decide which comments are inline.
 
+;;; Code:
+
 (define-module (sift reader)
   #:declarative? #t
   #:use-module (srfi srfi-1)

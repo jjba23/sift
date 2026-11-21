@@ -25,6 +25,8 @@
 ;; three levels down.  So the caller re-answers "what would this command read
 ;; now" on every look, which is also how a new file is noticed.
 
+;;; Code:
+
 (define-module (sift watch)
   #:declarative? #t
   #:use-module (srfi srfi-1)
