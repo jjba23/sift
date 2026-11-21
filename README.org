@@ -952,6 +952,83 @@ repos:
     hooks: [{id: sift-format}, {id: sift-lint}]
 #+end_src
 
+** With dprint
+:PROPERTIES:
+:CUSTOM_ID: dprint
+:END:
+
+[[https://dprint.dev/][dprint]] formats what sift does not — JSON, Markdown, TOML,
+TypeScript — and runs a formatter through a process plugin, so a project that
+already uses it can put sift behind the same ~dprint fmt~.  The exec plugin
+hands the file on standard input and takes the formatted text on standard
+output, which is exactly the filter sift already is; ~--label~ is what tells
+sift which file it is reading, so the dialect is the file's own.
+
+A Wasm plugin is what dprint prefers, and sift is not one: that interface is
+Rust and messagepack in a module dprint hosts itself, and sift is Scheme on a
+Wasm GC, which is a different module.  A process plugin is the same formatter
+behind the interface dprint offers a tool that is already an executable, and
+sift is one.
+
+#+begin_src json
+{
+  "shebangs": {
+    "#!/usr/bin/env guile": "scm",
+    "#!/usr/bin/env -S guile -s": "scm"
+  },
+  "exec": {
+    "cwd": "${configDir}",
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "commands": [
+      {
+        "command": "sift format --stdin --label {{file_path}} --line-length {{line_width}} --indent {{indent_width}}",
+        "cacheKeyFiles": ["sift.yaml"],
+        "exts": ["scm", "ss", "sld", "sls", "sps", "rkt", "rktd", "rktl",
+                 "el", "lisp", "cl", "asd", "lsp"]
+      }
+    ]
+  },
+  "plugins": [
+    "https://plugins.dprint.dev/dprint/dprint-plugin-exec-0.9.0.json@939c28cce4022e2676ac9596585448c16abee12b8ccb0320a9eb9596ade1c219"
+  ]
+}
+#+end_src
+
+~dprint add exec~ writes that plugin entry, checksum and all — a process plugin
+runs unsandboxed, so dprint refuses one that is not pinned by hash.  Five things
+are worth knowing about the arrangement:
+
+- *dprint decides which files are sift's*, through ~exts~ (or ~associations~), and
+  sift is then handed the text of each.  A file sift's own ~file-filter~ excludes
+  is still formatted, because a piped run has no walk to filter; say it once,
+  where dprint can see it.  An extensionless script is routed by dprint's
+  ~shebangs~ table and read as the dialect its own first line names.
+- *~lineWidth~ and ~indentWidth~ are carried through* as ~--line-length~ and
+  ~--indent~.  Most Lisp indentation is structural rather than a width — a
+  ~defun~ body is two columns because that is how a Lisp is read — so
+  ~indentWidth~ decides only where a width is what decides, such as the clauses
+  of a ~cond~ whose first clause starts on the next line.
+- *~sift.yaml~ is still read*, from the working directory the plugin is given, so
+  the style, the line length and the rules are the project's, and ~cacheKeyFiles~
+  is what invalidates dprint's cache when that file changes.  Add the file that
+  pins sift's own version — ~flake.lock~, ~channels.scm~, ~manifest.scm~ — for
+  the same reason: a new sift formats differently.
+- *A file sift cannot read fails the run*, with sift's own diagnostic naming the
+  file and the line (`dprint fmt` exits 1), and the file is left as it was.
+- *Linting is not formatting*, and dprint only formats.  ~sift lint~, ~sift fix~
+  and ~sift ci~ are unchanged, and a project that wants both runs ~sift ci~ and
+  ~dprint check~; [[#pre-commit][the hook above]] and the
+  [[#github-actions][action]] are two ways to have one command run both.
+
+One cost, honestly: the exec plugin starts a process per file, so a run of fifty
+files pays fifty Guile startups — about 50 ms each once sift's modules are
+compiled and cached, and dprint runs them in parallel.  dprint's incremental
+cache means an unchanged file is not sent at all: a second ~dprint fmt~ with
+nothing edited formats nothing.  A project big enough to feel the startup cost
+should run ~sift format~ over the tree itself, or the two together, rather than
+through the plugin.
+
 * Parallel evaluation
 :PROPERTIES:
 :CUSTOM_ID: parallel

@@ -36,10 +36,12 @@ its own interface.
 
 Given neither a file argument nor ~--stdin~, ~format~, ~lint~ and ~check~
 read standard input, in the manner of a filter.  With ~--stdin~, at most one
-file may be named, and it serves only as the label of the diagnostics -- which
-is how an editor lints an unsaved buffer.  A directory argument denotes the
-set of every Lisp file below it, in sorted order, so ~sift ci .~ applies the
-pipeline to the tree.
+file may be named, and it is the *name of the source*: the dialect is detected
+from it when the text itself does not say, and diagnostics name it rather than
+~<stdin>~.  That is how an editor lints an unsaved buffer, and how a formatter
+plugin such as [[https://dprint.dev/][dprint]]'s passes a file it has read.  A
+directory argument denotes the set of every Lisp file below it, in sorted order,
+so ~sift ci .~ applies the pipeline to the tree.
 
 ** Options
 :PROPERTIES:
@@ -75,7 +77,7 @@ counterpart, over which the command line takes precedence.
 | ~--quiet~, ~-q~            | lint, ci                        | Drop the summary line                                                 |
 | ~--verbose~, ~-v~          | all                             | Say what is being processed                                           |
 | ~--force~                  | format, lint, ci, install-hooks | Format or fix a file that has parse errors; replace an existing hook  |
-| ~--label NAME~             | format, lint, check             | Name the stdin source in diagnostics                                  |
+| ~--label NAME~             | format, lint, check             | Name the stdin source; its name picks the dialect and is what diagnostics say |
 | ~--config FILE~            | all                             | Read this configuration file instead of discovering one               |
 | ~--trust-config~           | all                             | Allow this project's Scheme configuration to be evaluated             |
 | ~--watch~                  | format, lint, check, fix, ci    | Run again whenever the files the run read change, until interrupted   |

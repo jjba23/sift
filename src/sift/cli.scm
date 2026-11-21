@@ -515,12 +515,18 @@ that reads the same in every language."
 
 The order is the documented one: `--dialect', then the extension, then the
 shebang, then a marker in the file.  When none of them answers, sift asks
-rather than guesses, and says which dialects it knows."
-  (or (config-ref config 'dialect)
-    (and path (detect-dialect #:file path #:source source))
-    (and source (detect-dialect #:source source))
-    (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|racket|elisp|cl"
-                 (or label path "the input"))))
+rather than guesses, and says which dialects it knows.
+
+@var{label} is the name of the file a piped source came from, and it is used
+where @var{path} would be: a caller that has the text on standard input still
+knows which file it was reading, and `dprint', an editor and `xargs' all pass
+that name and nothing else."
+  (let ((named (or path label)))
+    (or (config-ref config 'dialect)
+      (and named (detect-dialect #:file named #:source source))
+      (and source (detect-dialect #:source source))
+      (usage-error "cannot tell the dialect of ~a; pass --dialect scheme|racket|elisp|cl"
+                   (or named "the input")))))
 
 (define (error-findings warnings)
   "Return the findings that say the file is not a program.
@@ -604,32 +610,38 @@ command line, and only a run that writes its result to a file passes it."
                      (label #f) (diff? #f) (sort? #f))
   "Format one source, returning the exit status for it.
 
-@var{path} is @code{#f} for standard input.  Nothing is written unless
-@var{write?} asks for it; without it the formatted text goes to stdout, so
-`format' is a filter."
-  (let* ((dialect (dialect-for config path source #:label label)))
+@var{path} is @code{#f} for standard input, and @var{label} is the name of the
+file the source came from when there is one: a caller that has the text on
+standard input still knows which file it was reading.  The label is what a
+message and a parse error name -- `<stdin>:3:1' tells a person nothing when the
+caller passed fifty files -- and it is why the dialect can be detected at all.
+
+Nothing is written unless @var{write?} asks for it; without it the formatted
+text goes to stdout, so `format' is a filter."
+  (let* ((named (or path label))
+         (dialect (dialect-for config named source)))
     (emit-verbose config "formatting ~a (~a, ~a)"
-                  (or path "<stdin>") dialect (config-ref config 'style))
-    (let ((denied (deny-on-parse-errors config path source dialect)))
+                  (or named "<stdin>") dialect (config-ref config 'style))
+    (let ((denied (deny-on-parse-errors config named source dialect)))
       (if denied
         denied
         (call-with-values
-          (lambda () (format-with config dialect path source #:sort? sort?))
+          (lambda () (format-with config dialect named source #:sort? sort?))
           (lambda (formatted errors)
             (cond
               [check?
                 (if (string=? formatted source)
                   (begin (emit-verbose config "~a is already formatted"
-                                       (or path "<stdin>"))
+                                       (or named "<stdin>"))
                     0)
                   (begin
                     (case [config-ref config 'format]
                       [(json)
                        (format #t "[{\"file\":~a,\"changed\":true}]~%"
-                               (json-escape (or path "<stdin>")))]
+                               (json-escape (or named "<stdin>")))]
                       [(null) *unspecified*]
                       [(github)
-                       (let ((name (or path label "<stdin>")))
+                       (let ((name (or named "<stdin>")))
                          (format #t
                                  "::error file=~a,line=1,title=sift format::~a would be reformatted~%"
                                  name name))]
@@ -639,7 +651,7 @@ command line, and only a run that writes its result to a file passes it."
                                 #:no-color
                                 (eq? (config-ref config 'color) 'never))))
                           (display (unified-diff source formatted
-                                                 #:path (or path "<stdin>")
+                                                 #:path (or named "<stdin>")
                                                  #:color? color?)
                                    (current-output-port)))])
                     1))]
@@ -651,7 +663,7 @@ command line, and only a run that writes its result to a file passes it."
                 ;; `format --diff' is the review-friendly form of `check':
                 ;; the same question, answered with the patch it would make.
                 (display (unified-diff source formatted
-                                       #:path (or path label "<stdin>")
+                                       #:path (or named "<stdin>")
                                        #:color? (color-enabled?
                                                  #:no-color (eq? (config-ref config 'color)
                                                                  'never)))

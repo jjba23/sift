@@ -361,6 +361,64 @@ has exactly one of, which is a question `assert-contains' cannot ask."
                       #:stdin "(define x 1)\n")))
          (assert-status #:expect 0 #:got result)))
 
+     ;; The label is the *name of the source*, not decoration.  A caller that has
+     ;; the text on standard input still knows which file it was reading, and
+     ;; that name is the only thing that can pick the dialect -- which is what
+     ;; makes sift a formatter plugin for a tool that runs one process per file
+     ;; and hands it the text: dprint's exec plugin, with `{{file_path}}'.
+     (test "the label picks the dialect, as the file's name would"
+       (let ((operand (run-sift '("format" "--stdin" "buffer.el")
+                                #:stdin "(defun f ()\n    x)\n"))
+             (racket (run-sift '("format" "--stdin" "--label=buffer.rkt")
+                               #:stdin "(define (f x)\n(+ x 1))\n"))
+             (common-lisp (run-sift '("format" "--stdin" "--label=buffer.lisp")
+                                    #:stdin "(defun f ()\n    x)\n")))
+         (assert-status #:expect 0 #:got operand)
+         (assert-same-text #:expect "(defun f ()\n  x)\n" #:got (cadr operand)
+                           #:name "an operand that names an Emacs Lisp file is read as one")
+         (assert-status #:expect 0 #:got racket)
+         (assert-same-text #:expect "(define (f x)\n  (+ x 1))\n" #:got (cadr racket)
+                           #:name "so is a --label that names Racket")
+         (assert-status #:expect 0 #:got common-lisp)
+         (assert-same-text #:expect "(defun f ()\n  x)\n" #:got (cadr common-lisp)
+                           #:name "and one that names Common Lisp")))
+
+     (test "a label sift cannot place is a question, not a guess"
+       (let ((result (run-sift '("format" "--stdin" "--label=buffer.txt")
+                               #:stdin "(define (f x)\n(+ x 1))\n")))
+         (assert-status #:expect 2 #:got result)
+         (assert-contains #:expect (caddr result) #:got "buffer.txt")
+         (assert-contains #:expect (caddr result) #:got "--dialect")))
+
+     (test "the command line dprint builds formats one file"
+       ;; The exec plugin runs one process per file, with the text on stdin, and
+       ;; substitutes `{{file_path}}', `{{line_width}}' and `{{indent_width}}'
+       ;; into the command it was configured with.  This is that command with
+       ;; the three substituted, and the answer it has to give: the formatted
+       ;; text, and nothing else on standard output.
+       (with-temp-directory
+        (lambda (directory)
+          (let ((path (string-append directory "/buffer.el")))
+            (let ((result (run-sift (list "format" "--stdin"
+                                          (string-append "--label=" path)
+                                          "--line-length" "80" "--indent" "2")
+                                    #:stdin "(defun f ()\n    x)\n")))
+              (assert-status #:expect 0 #:got result)
+              (assert-same-text #:expect "(defun f ()\n  x)\n"
+                                #:got (cadr result)))))))
+
+     (test "a parse error names the label, and writes nothing"
+       ;; A plugin's caller shows what the command said and leaves the file as
+       ;; it was, so the message is the whole of what a person reads -- and
+       ;; `<stdin>' names none of the fifty files a run covers.
+       (let ((result (run-sift '("format" "--stdin" "--label=buffer.el")
+                               #:stdin "(defun f (\n")))
+         (assert-status #:expect 2 #:got result)
+         (assert-same-text #:expect "" #:got (cadr result)
+                           #:name "nothing is written, so the caller's file is not clobbered")
+         (assert-contains #:expect (caddr result) #:got "buffer.el:1:")
+         (assert-contains #:expect (caddr result) #:got "parse error")))
+
      (test "an unreadable file is a usage error"
        (let ((result (run-sift '("format" "tests/fixtures/no-such-file.scm"))))
          (assert-status #:expect 2 #:got result)
