@@ -20,6 +20,8 @@
 
 [[https://github.com/jjba23/sift/actions/workflows/ci.yml][https://github.com/jjba23/sift/actions/workflows/ci.yml/badge.svg]] [[https://github.com/jjba23/sift/releases][https://img.shields.io/badge/release-1.39.2-2f6f4f.svg]] [[https://opensource.org/license/mit][https://img.shields.io/badge/license-MIT-2f6f4f.svg]] [[https://www.gnu.org/software/guile/][https://img.shields.io/badge/Guile-3.0%2B-1e5b3a.svg]] [[https://github.com/jjba23/guix-jointhefreeworld][https://img.shields.io/badge/Guix-channel-6f4e9c.svg]] [[https://github.com/jjba23/nix-jointhefreeworld][https://img.shields.io/badge/Nix-flake-5277c3.svg]] [[https://microsoft.github.io/language-server-protocol/][https://img.shields.io/badge/LSP-server-2f6f4f.svg]] [[file:doc/rules.org][https://img.shields.io/badge/rules-95-2f6f4f.svg]]
 
+- 📖 *API reference:* [[https://jointhefreeworld.org/api-docs/sift/index.html][Sift API reference]]
+
 sift reads a Lisp source file, reports what is ill-formed in it, and rewrites
 its whitespace.  The rewrite is a total function on text and a fixed point:
 formatting a formatted file returns it unchanged, and a comment, a blank line,

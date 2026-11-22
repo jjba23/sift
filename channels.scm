@@ -19,8 +19,7 @@
        (url "https://github.com/jjba23/guix-jointhefreeworld")
        (branch "trunk")
        ;; The release this configuration is built against: the jointhefreeworld
-       ;; channel at v1.0.4 -- heks-toon 0.3.6, maak 0.14.0, scriba 0.5.1,
-       ;; veritas 1.4.3, sift 1.27.2 -- and the rest of the collection at the
+       ;; channel with guile-dokgen 0.11.0 and the rest of the collection at the
        ;; same revision.
        (commit "fafafe4e22b43dc89037facf8bd4c8977c4c7146")
        (introduction
