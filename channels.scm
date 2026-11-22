@@ -22,7 +22,7 @@
        ;; channel at v1.0.4 -- heks-toon 0.3.6, maak 0.14.0, scriba 0.5.1,
        ;; veritas 1.4.3, sift 1.27.2 -- and the rest of the collection at the
        ;; same revision.
-       (commit "24db897c6c9064ebf2018582c6dca2229dda0e62")
+       (commit "fafafe4e22b43dc89037facf8bd4c8977c4c7146")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
