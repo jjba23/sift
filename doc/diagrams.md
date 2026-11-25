@@ -5,6 +5,12 @@ where a name is resolved, why a second diagnostic report arrives after the
 first, how the standard library is found, and what a file rename changes.  The
 diagrams are the map; the Org pages are the reference.
 
+The palette is a terminal: green for what every run does, cyan for the project
+around the buffer, amber for what the reader or a note has to say, violet for
+the places a name can live outside the project, and red for the answer that is
+absent or thrown away.  Each diagram is drawn on its own canvas, so it reads the
+same whatever theme the viewer uses.
+
 ## Navigation: from a cursor to a definition
 
 A jump is answered from the narrowest thing that knows the answer, and it only
@@ -12,20 +18,40 @@ widens when it has to.  The buffer is the authority, the project is indexed
 beside it, and the library is the last and largest place a name can live.
 
 ```mermaid
-flowchart TD
-    A[Cursor position] --> B[Reader: AST with source positions]
-    B --> C{In scope here?}
-    C -- yes --> D[Parameter, let binding, internal definition]
-    C -- no --> E{Defined in this buffer?}
-    E -- yes --> F[Top-level definition]
-    E -- no --> G{Open buffers define it?}
-    G -- yes --> H[Other buffer]
-    G -- no --> I{Project index defines it?}
-    I -- yes --> J[File on disk]
-    I -- no --> K{Standard library or downloaded source?}
-    K -- yes --> L[Installed, compressed, or fetched source]
-    K -- no --> M[No answer]
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
+flowchart LR
+    classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
+    classDef ttyLib fill:#100020,stroke:#b967ff,stroke-width:2px,color:#d9a6ff
+    classDef ttyBad fill:#1a0005,stroke:#ff3860,stroke-width:2px,color:#ff9aa9
+
+    subgraph canvas ["[ sift :: navigation · narrowest first ]"]
+        A(["> cursor"])
+        C["1 · in scope<br/>let, define"]
+        E["2 · this buffer<br/>top-level"]
+        G["3 · open buffers<br/>another buffer"]
+        I["4 · project index<br/>file on disk"]
+        K["5 · stdlib<br/>or fetched"]
+        M["6 · no answer"]
+
+        A --> C
+        C --> E
+        E --> G
+        G --> I
+        I --> K
+        K --> M
+    end
+
+    class A,C,E ttyCore
+    class G,I ttyIndex
+    class K ttyLib
+    class M ttyBad
+    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    linkStyle default stroke:#39ff14,stroke-width:1.5px
 ```
+
+Each rung is asked only when the one before it had no answer, so the arrow is
+"not found here" and never "also look here".
 
 Why this is good: a jump almost never scans the project, because resolution
 stops at the first place a reader would look.  The project index is read once
@@ -40,21 +66,22 @@ immediately, and each slower answer replaces it only for the text it was
 computed from.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff", "actorBkg": "#0b0f14", "actorBorder": "#00e5ff", "actorTextColor": "#7df9ff", "actorLineColor": "#00e5ff", "signalColor": "#39ff14", "signalTextColor": "#c9ffd4", "labelBoxBkgColor": "#0b0f14", "labelBoxBorderColor": "#39ff14", "labelTextColor": "#39ff14", "loopTextColor": "#c9ffd4", "noteBkgColor": "#1a1200", "noteBorderColor": "#ffb000", "noteTextColor": "#ffd27d", "activationBkgColor": "#001a0f", "activationBorderColor": "#39ff14"}}}%%
 sequenceDiagram
     participant E as Editor
     participant S as sift
-    participant D as Deep-pass thread
-    participant C as Compiler thread
-    E->>S: didOpen / didChange (full text)
+    participant D as Deep pass
+    participant C as Compiler
+    E->>S: didOpen / didChange
     S->>S: fast rules
-    S-->>E: publishDiagnostics (fast)
-    S->>D: all warnings (in a thread)
-    D-->>E: publishDiagnostics (fast + whole-file)
-    E->>S: didOpen / didSave
-    S->>C: compile a temporary copy
-    C->>C: guild / emacs / sbcl, bounded output
-    C-->>E: publishDiagnostics (all + compiler)
-    Note over C: cached by text + dialect
+    S-->>E: diagnostics (fast)
+    S->>D: warnings, in a thread
+    D-->>E: diagnostics (fast + full)
+    E->>S: didSave
+    S->>C: compile a temp copy
+    C->>C: guild / emacs / sbcl
+    C-->>E: diagnostics (all + compiler)
+    Note over C: cached by text and dialect
 ```
 
 Why this is good: a keystroke never waits for a compiler, a second report is
@@ -69,26 +96,52 @@ package trees a dialect installs beside it, and optionally a source archive
 named by URL.
 
 ```mermaid
-flowchart LR
-    A[stdlib setting] --> B{true / false / list}
-    B -- true --> C[Ask the implementation for its roots]
-    B -- list --> D[Local directories]
-    B -- list --> E[Source URLs]
-    C --> F[Roots]
-    D --> F
-    E --> G{download-sources?}
-    G -- false --> H[Report: not fetched]
-    G -- true --> I[curl into the cache]
-    I --> J[tar listing checked]
-    J --> K[Unpack under the cache]
-    K --> F
-    F --> L[Walk files]
-    L --> M{.el.gz?}
-    M -- yes --> N[gzip -dc while reading]
-    M -- no --> O[Read as it is]
-    N --> P[Definitions and names]
-    O --> P
-    P --> Q[(Index cache)]
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
+flowchart TD
+    classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    classDef ttyWarn fill:#1a1200,stroke:#ffb000,stroke-width:2px,color:#ffd27d
+    classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
+
+    subgraph canvas ["[ sift :: stdlib ]"]
+        A(["> stdlib setting"])
+        C["implementation roots"]
+        D["local directories"]
+        E["source URLs"]
+        F["roots"]
+        G{"download-sources?"}
+        H["reported, not fetched"]
+        I["fetch, list, then unpack"]
+        L["walk files"]
+        M{".el.gz?"}
+        N["gzip -dc on read"]
+        O["read as it is"]
+        P["definitions and names"]
+        Q[("index cache")]
+
+        A -->|true| C
+        A -->|list| D
+        A -->|list| E
+        C --> F
+        D --> F
+        E --> G
+        G -->|no| H
+        G -->|yes| I
+        I --> F
+        F --> L
+        L --> M
+        M -->|yes| N
+        M -->|no| O
+        N --> P
+        O --> P
+        P --> Q
+    end
+
+    class A,C,D,E,F,L,M,N,O,P ttyCore
+    class G,H ttyWarn
+    class I,Q ttyIndex
+    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    linkStyle default stroke:#39ff14,stroke-width:1.5px
+    linkStyle 7 stroke:#ffb000,stroke-width:1.5px
 ```
 
 Why this is good: the first index is expensive and the second session is a
@@ -103,15 +156,35 @@ The two operations are independent, are on by default, and are the same
 question in the editor and on the command line.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
 flowchart TD
-    A[Buffer or file] --> B[unused-import fixes]
-    B --> C[Remove unused specifications]
-    C --> D[Sort import specifications by library]
-    D --> E{Shape?}
-    E -- "(import ...)" --> F[Permute specs in place]
-    E -- "define-module" --> G[Permute #:use-module clauses in place]
-    F --> H[One WorkspaceEdit or one written file]
-    G --> H
+    classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
+
+    subgraph canvas ["[ sift :: imports ]"]
+        A(["> buffer or file"])
+        B["unused-import fixes"]
+        C["remove unused specifications"]
+        D["sort specifications by library"]
+        E{"shape?"}
+        F["permute specs in place"]
+        G["permute #:use-module in place"]
+        H["one WorkspaceEdit, one written file"]
+
+        A --> B
+        B --> C
+        C --> D
+        D --> E
+        E -->|"(import ...)"| F
+        E -->|"define-module"| G
+        F --> H
+        G --> H
+    end
+
+    class A,B,C,D,E ttyCore
+    class F,G,H ttyIndex
+    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    linkStyle default stroke:#39ff14,stroke-width:1.5px
 ```
 
 Why this is good: sorting is a permutation of the existing spans, not a
@@ -126,22 +199,50 @@ A file rename asks the dialect what a module is.  Scheme and Emacs Lisp have an
 answer; Common Lisp does not pretend a package is a file.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
 flowchart TD
-    A[workspace/willRenameFiles] --> B{Dialect}
-    B -- Scheme --> C[Find define-module / library name]
-    C --> D{Old last segment equals old file name?}
-    D -- no --> E[No edit: do not guess]
-    D -- yes --> F[Replace last segment in the new file]
-    F --> G[Update every import of the old library]
-    B -- Emacs Lisp --> H[Find provide or old file name]
-    H --> I[Update provide in the new file]
-    I --> J[Update every require of the old feature]
-    B -- Common Lisp --> K[No edit]
-    G --> L[WorkspaceEdit]
-    J --> L
-    K --> L
-    L --> M[workspace/didRenameFiles]
-    M --> N[Forget old path, read new path, re-check buffers]
+    classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
+    classDef ttyWarn fill:#1a1200,stroke:#ffb000,stroke-width:2px,color:#ffd27d
+
+    subgraph canvas ["[ sift :: rename ]"]
+        A(["workspace/willRenameFiles"])
+        B{"dialect"}
+        C["find define-module"]
+        D{"segment is the file name?"}
+        E["no edit"]
+        F["replace the last segment"]
+        G["update imports"]
+        H["find provide"]
+        I["update provide"]
+        J["update requires"]
+        K["no edit"]
+        L["WorkspaceEdit"]
+        M(["workspace/didRenameFiles"])
+        N["forget old path, re-check buffers"]
+
+        A --> B
+        B -->|Scheme| C
+        C --> D
+        D -->|no| E
+        D -->|yes| F
+        F --> G
+        B -->|Emacs Lisp| H
+        H --> I
+        I --> J
+        B -->|Common Lisp| K
+        G --> L
+        J --> L
+        K --> L
+        L --> M
+        M --> N
+    end
+
+    class A,B,C,D,F,H,I,L,M,N ttyCore
+    class G,J ttyIndex
+    class E,K ttyWarn
+    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    linkStyle default stroke:#39ff14,stroke-width:1.5px
 ```
 
 Why this is good: the rename is conservative.  A module whose name has nothing

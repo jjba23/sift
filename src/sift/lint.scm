@@ -20,18 +20,17 @@
 ;;
 ;; ```mermaid
 ;; flowchart TD
-;;   source["Source text"] --> reader["read-source: AST and parse errors"]
-;;   reader --> applicable["checkers-applicable?: the checkers for the dialect"]
-;;   applicable --> run["each checker over the AST"]
-;;   reader --> parse["reader warnings"]
-;;   run --> produced["warnings"]
-;;   parse --> produced
-;;   produced --> suppress["suppression intervals from sift: directives"]
-;;   suppress --> reported["warnings at or above the minimum severity, sorted"]
-;;   reported --> fix["apply-fixes, only when asked"]
-;;   fix --> reread{"does the fixed text still read?"}
-;;   reread -- yes --> fixed["fixed source"]
-;;   reread -- no --> unfixed["original warnings, unfixed"]
+;;   source(["> source text"])
+;;   source --> reader["read-source · AST"]
+;;   reader --> applicable["checkers-applicable?"]
+;;   reader -.->|parse errors| warnings["warnings"]
+;;   applicable --> run["each checker"]
+;;   run --> warnings
+;;   warnings --> filtered["suppress · threshold · sort"]
+;;   filtered --> fix["apply-fixes, on request"]
+;;   fix --> reread{"still reads?"}
+;;   reread -->|yes| fixed["fixed source"]
+;;   reread -->|no| unfixed["original warnings"]
 ;; ```
 ;;
 ;; Code:

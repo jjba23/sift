@@ -1097,8 +1097,13 @@ for, and the fixed text is read again before it is returned -- a fix that would
 break the file is discarded together with the rest of that run's fixes, and the
 original warnings are reported instead.
 
-#+attr_html: :width 720 :alt The lint pipeline: reader, checkers, suppression, fixes and the re-read
+#+attr_html: :width 560 :alt The lint pipeline: reader, checkers, suppression, fixes and the re-read
 [[file:resources/diagrams/lint-pipeline.svg]]
+
+The diagram is a terminal: green is the pass every run takes, amber is what the
+reader found on its own, cyan is the report as the caller receives it, violet is
+a fix that was asked for, and red is the run whose fixes were thrown away.  It is
+drawn on its own canvas, so it reads the same in either theme the viewer uses.
 
 ~maak docs~ writes two things: ~doc/rules.org~, the catalogue generated from the
 checker records, and ~doc/api-dist/index.html~, the API reference dokgen extracts
