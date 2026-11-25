@@ -9,16 +9,48 @@
 ;; The development environment: Guile, the fibers and JSON libraries Veritas
 ;; needs, and make.
 ;;
-;; Veritas is never installed here.  The suite loads it from a checkout --
-;; VERITAS_DIR, ~/Hacking/veritas by default -- because the checkout under test
-;; is the one being developed.  A manifest that also provided a packaged copy
-;; would put two of them on the load path with nothing saying which one a test
-;; ran against, which is exactly the confusion a test rig cannot afford.
+;; Veritas is the GitHub release pinned below, v1.6.0.  A bare `guile-veritas'
+;; in this list resolved instead to the copy Guix carries, which is whatever the
+;; Guix commit in channels.scm happens to hold -- 0.8.1 at the time of writing,
+;; several minor releases behind the framework the suite is written against and
+;; missing `lazy', which replaced the quoted `(comp ...)' the suite no longer
+;; uses.
 
 (use-modules (gnu packages)
              (gnu packages emacs)
              (gnu packages guile)
-             (gnu packages guile-xyz))
+             (gnu packages guile-xyz)
+             (guix packages)
+             (guix git-download)
+             (guix build-system guile)
+             ((guix licenses) #:prefix license:))
+
+(define-public guile-veritas
+  (package
+    (name "guile-veritas")
+    (version "1.6.0")
+    (source
+     (origin
+       (method git-fetch)
+       (uri (git-reference
+             (url "https://github.com/jjba23/veritas.git")
+             (commit (string-append "v" version))))
+       (file-name (git-file-name name version))
+       (sha256
+        (base32 "1lb80y2dks68a2jlr5xix9m8pyqnzwiqiaynbl05p463xxhzs0v7"))))
+    (build-system guile-build-system)
+    (arguments
+     (list #:source-directory "src"))
+    (native-inputs (list guile-3.0))
+    (propagated-inputs (list guile-fibers guile-json-4))
+    (home-page "https://github.com/jjba23/veritas")
+    (synopsis "Testing framework for Guile")
+    (description
+     "Veritas is a testing framework for Guile with an embedded domain
+specific language for defining test suites.  Emphasis is placed on legible,
+maintainable tests: Veritas shuffles them and runs them concurrently by
+default, and reports failures with the values that produced them.")
+    (license license:expat)))
 
 (packages->manifest
  (list (specification->package "make")

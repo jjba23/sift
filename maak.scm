@@ -157,10 +157,10 @@ twice is a report that disagrees with itself."
 (define (test)
   "Run the whole Veritas suite.
 
-Veritas is the only test framework this project uses; it is loaded from
-VERITAS_DIR (~/Hacking/veritas by default) so that the checkout under test is
-the checkout that is being developed, and the load path is passed here rather
-than exported by the caller, so `maak test' works from a clean checkout."
+Veritas is the only test framework this project uses, and the copy that runs is
+the one `manifest.scm` pins -- GitHub's v1.6.0 -- so `maak test' needs no
+checkout of the framework beside this one.  The load paths are passed here
+rather than exported by the caller, so the task works from a clean checkout."
   (run-guile "(begin (use-modules (tests run)) (exit (run-all!)))"))
 
 (define (test-suite . paths)
