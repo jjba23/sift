@@ -21,7 +21,7 @@
        ;; The release this configuration is built against: the jointhefreeworld
        ;; channel with guile-dokgen 0.11.0 and the rest of the collection at the
        ;; same revision.
-       (commit "fafafe4e22b43dc89037facf8bd4c8977c4c7146")
+       (commit "f0e58ce54b3d63ad9b57bc0887c960f9c2efd6bc")
        (introduction
         (make-channel-introduction
          "b0ac3f05075d7959860fc9e1db5871acddea3986"
