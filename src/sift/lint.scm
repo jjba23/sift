@@ -20,17 +20,22 @@
 ;;
 ;; ```mermaid
 ;; flowchart TD
-;;   source(["> source text"])
-;;   source --> reader["read-source · AST"]
-;;   reader --> applicable["checkers-applicable?"]
-;;   reader -.->|parse errors| warnings["warnings"]
-;;   applicable --> run["each checker"]
-;;   run --> warnings
-;;   warnings --> filtered["suppress · threshold · sort"]
-;;   filtered --> fix["apply-fixes, on request"]
-;;   fix --> reread{"still reads?"}
-;;   reread -->|yes| fixed["fixed source"]
-;;   reread -->|no| unfixed["original warnings"]
+;;   subgraph read ["read and check"]
+;;     direction LR
+;;     source(["> source text"]) --> reader["read-source · AST"]
+;;     reader --> applicable["checkers for the dialect"]
+;;     applicable --> warnings["warnings"]
+;;     reader -.->|parse errors| warnings
+;;   end
+;;   subgraph report ["report and fix"]
+;;     direction LR
+;;     filtered["suppress · threshold · sort"]
+;;     filtered --> fix["apply-fixes, on request"]
+;;     fix --> reread{"still reads?"}
+;;     reread -->|yes| fixed["fixed source"]
+;;     reread -->|no| unfixed["original warnings"]
+;;   end
+;;   read --> report
 ;; ```
 ;;
 ;; Code:

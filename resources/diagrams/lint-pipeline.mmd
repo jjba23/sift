@@ -1,4 +1,4 @@
-%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24, "padding": 6, "diagramPadding": 8}}}%%
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 18, "rankSpacing": 26, "padding": 8}}}%%
 flowchart TD
     classDef ttyText fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
     classDef ttyWarn fill:#1a1200,stroke:#ffb000,stroke-width:2px,color:#ffd27d
@@ -6,35 +6,37 @@ flowchart TD
     classDef ttyFix fill:#100020,stroke:#b967ff,stroke-width:2px,color:#d9a6ff
     classDef ttyBad fill:#1a0005,stroke:#ff3860,stroke-width:2px,color:#ff9aa9
 
-    subgraph canvas ["[ sift lint :: text to findings ]"]
+    subgraph read ["[ read and check ]"]
+        direction LR
         source(["> source text"])
         reader["read-source · AST"]
-        app["checkers-applicable?"]
-        run["each checker"]
+        app["checkers for the dialect"]
         warn["warnings"]
+        source --> reader --> app
+        app --> warn
+        reader -.->|parse errors| warn
+    end
+
+    subgraph report ["[ report and fix ]"]
+        direction LR
         filt["suppress · threshold · sort"]
         fix["apply-fixes, on request"]
         reread{{"still reads?"}}
         fixed["fixed source"]
         unfixed["original warnings"]
-
-        source --> reader
-        reader --> app
-        reader -.->|parse errors| warn
-        app --> run
-        run --> warn
-        warn --> filt
-        filt --> fix
-        fix --> reread
+        filt --> fix --> reread
         reread -->|yes| fixed
         reread -->|no| unfixed
     end
 
-    class source,reader,app,run ttyText
+    read --> report
+
+    class source,reader,app ttyText
     class warn ttyWarn
     class filt ttyReport
     class fix,reread,fixed ttyFix
     class unfixed ttyBad
-    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style read fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style report fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
     linkStyle default stroke:#39ff14,stroke-width:1.5px
-    linkStyle 2 stroke:#ffb000,stroke-width:1.5px
+    linkStyle 3 stroke:#ffb000,stroke-width:1.5px

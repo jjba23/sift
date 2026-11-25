@@ -25,8 +25,7 @@ flowchart LR
     classDef ttyLib fill:#100020,stroke:#b967ff,stroke-width:2px,color:#d9a6ff
     classDef ttyBad fill:#1a0005,stroke:#ff3860,stroke-width:2px,color:#ff9aa9
 
-    subgraph canvas ["[ sift :: navigation · narrowest first ]"]
-        A(["> cursor"])
+    subgraph canvas ["[ sift :: navigation · cursor to definition ]"]
         C["1 · in scope<br/>let, define"]
         E["2 · this buffer<br/>top-level"]
         G["3 · open buffers<br/>another buffer"]
@@ -34,7 +33,6 @@ flowchart LR
         K["5 · stdlib<br/>or fetched"]
         M["6 · no answer"]
 
-        A --> C
         C --> E
         E --> G
         G --> I
@@ -42,7 +40,7 @@ flowchart LR
         K --> M
     end
 
-    class A,C,E ttyCore
+    class C,E ttyCore
     class G,I ttyIndex
     class K ttyLib
     class M ttyBad
@@ -96,27 +94,22 @@ package trees a dialect installs beside it, and optionally a source archive
 named by URL.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 18, "rankSpacing": 26, "padding": 8}}}%%
 flowchart TD
     classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
     classDef ttyWarn fill:#1a1200,stroke:#ffb000,stroke-width:2px,color:#ffd27d
     classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
 
-    subgraph canvas ["[ sift :: stdlib ]"]
+    subgraph roots_of ["[ where the roots come from ]"]
+        direction LR
         A(["> stdlib setting"])
-        C["implementation roots"]
-        D["local directories"]
+        C["implementation"]
+        D["local dirs"]
         E["source URLs"]
-        F["roots"]
         G{"download-sources?"}
-        H["reported, not fetched"]
-        I["fetch, list, then unpack"]
-        L["walk files"]
-        M{".el.gz?"}
-        N["gzip -dc on read"]
-        O["read as it is"]
-        P["definitions and names"]
-        Q[("index cache")]
+        H["not fetched"]
+        I["fetch · unpack"]
+        F["roots"]
 
         A -->|true| C
         A -->|list| D
@@ -127,7 +120,17 @@ flowchart TD
         G -->|no| H
         G -->|yes| I
         I --> F
-        F --> L
+    end
+
+    subgraph read_cache ["[ read, then cache ]"]
+        direction LR
+        L["walk files"]
+        M{".el.gz?"}
+        N["gzip -dc on read"]
+        O["read as it is"]
+        P["definitions and names"]
+        Q[("index cache")]
+
         L --> M
         M -->|yes| N
         M -->|no| O
@@ -136,10 +139,13 @@ flowchart TD
         P --> Q
     end
 
+    roots_of --> read_cache
+
     class A,C,D,E,F,L,M,N,O,P ttyCore
     class G,H ttyWarn
     class I,Q ttyIndex
-    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style roots_of fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style read_cache fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
     linkStyle default stroke:#39ff14,stroke-width:1.5px
     linkStyle 7 stroke:#ffb000,stroke-width:1.5px
 ```
@@ -156,24 +162,26 @@ The two operations are independent, are on by default, and are the same
 question in the editor and on the command line.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 18, "rankSpacing": 26, "padding": 8}}}%%
 flowchart TD
     classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
     classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
 
-    subgraph canvas ["[ sift :: imports ]"]
+    subgraph remove ["[ remove ]"]
+        direction LR
         A(["> buffer or file"])
         B["unused-import fixes"]
-        C["remove unused specifications"]
-        D["sort specifications by library"]
+        C["remove unused specs"]
+        A --> B --> C
+    end
+
+    subgraph sort ["[ sort ]"]
+        direction LR
+        D["sort specs by library"]
         E{"shape?"}
         F["permute specs in place"]
         G["permute #:use-module in place"]
-        H["one WorkspaceEdit, one written file"]
-
-        A --> B
-        B --> C
-        C --> D
+        H["one WorkspaceEdit or one file"]
         D --> E
         E -->|"(import ...)"| F
         E -->|"define-module"| G
@@ -181,9 +189,12 @@ flowchart TD
         G --> H
     end
 
+    remove --> sort
+
     class A,B,C,D,E ttyCore
     class F,G,H ttyIndex
-    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style remove fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style sort fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
     linkStyle default stroke:#39ff14,stroke-width:1.5px
 ```
 
@@ -199,49 +210,49 @@ A file rename asks the dialect what a module is.  Scheme and Emacs Lisp have an
 answer; Common Lisp does not pretend a package is a file.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 16, "rankSpacing": 24}}}%%
+%%{init: {"theme": "base", "themeVariables": {"darkMode": true, "fontFamily": "monospace", "fontSize": "13px", "background": "#05070a", "mainBkg": "#05070a", "primaryColor": "#05070a", "primaryTextColor": "#39ff14", "primaryBorderColor": "#39ff14", "secondaryColor": "#0b0f14", "tertiaryColor": "#0b0f14", "lineColor": "#39ff14", "textColor": "#c9ffd4", "edgeLabelBackground": "#05070a", "clusterBkg": "#0b0f14", "clusterBorder": "#00e5ff"}, "flowchart": {"wrappingWidth": 340, "nodeSpacing": 18, "rankSpacing": 26, "padding": 8}}}%%
 flowchart TD
     classDef ttyCore fill:#001a0f,stroke:#39ff14,stroke-width:2px,color:#39ff14
     classDef ttyIndex fill:#00121a,stroke:#00e5ff,stroke-width:2px,color:#7df9ff
     classDef ttyWarn fill:#1a1200,stroke:#ffb000,stroke-width:2px,color:#ffd27d
 
-    subgraph canvas ["[ sift :: rename ]"]
-        A(["workspace/willRenameFiles"])
-        B{"dialect"}
+    subgraph move ["[ ask the dialect, edit the module ]"]
+        direction LR
+        A(["willRenameFiles · dialect"])
         C["find define-module"]
         D{"segment is the file name?"}
         E["no edit"]
-        F["replace the last segment"]
-        G["update imports"]
+        F["replace · imports"]
         H["find provide"]
-        I["update provide"]
-        J["update requires"]
+        I["update provide · require"]
         K["no edit"]
         L["WorkspaceEdit"]
-        M(["workspace/didRenameFiles"])
-        N["forget old path, re-check buffers"]
 
-        A --> B
-        B -->|Scheme| C
+        A -->|Scheme| C
         C --> D
         D -->|no| E
         D -->|yes| F
-        F --> G
-        B -->|Emacs Lisp| H
+        F --> L
+        A -->|Emacs Lisp| H
         H --> I
-        I --> J
-        B -->|Common Lisp| K
-        G --> L
-        J --> L
+        I --> L
+        A -->|Common Lisp| K
         K --> L
-        L --> M
+    end
+
+    subgraph after ["[ after the move ]"]
+        direction LR
+        M(["didRenameFiles"])
+        N["forget, re-check buffers"]
         M --> N
     end
 
-    class A,B,C,D,F,H,I,L,M,N ttyCore
-    class G,J ttyIndex
+    move --> after
+
+    class A,C,D,F,H,I,L,M,N ttyCore
     class E,K ttyWarn
-    style canvas fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style move fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
+    style after fill:#05070a,stroke:#39ff14,stroke-width:2px,color:#39ff14
     linkStyle default stroke:#39ff14,stroke-width:1.5px
 ```
 
