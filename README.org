@@ -1068,7 +1068,8 @@ editor integrations -- and none of the suite is a smoke test.
 [[file:doc/development.org::#testing][doc/development.org]] is the page: the ~maak~ tasks, what the benchmarks
 measure, and what the suite actually asserts.  Those tasks are also the
 pipeline: a pull request against ~trunk~ runs every gate before the branch
-lands, and only the push that lands it publishes the browser build
+lands, and only the push that lands it publishes the browser build and the API
+reference
 ([[file:doc/development.org::#continuous-integration][the pipeline]]).
 
 * Architecture
@@ -1105,6 +1106,13 @@ from the exported names of ~src/sift/~.  They sit beside the hand-written pages 
 ~doc/~ and replace none of them.  The diagram's source is
 ~resources/diagrams/lint-pipeline.mmd~; ~maak diagrams~ re-renders the SVG
 beside it.
+
+~maak deploy~ is how that reference reaches the link at the top of this page: it
+runs ~maak docs~ and copies ~doc/api-dist~ to
+~/srv/http/jointhefreeworld.org/api-docs/sift~, which the server already serves
+as [[https://jointhefreeworld.org/api-docs/sift/index.html][the API reference]].
+It runs where that directory is -- the machine that serves, or the CI job on it
+-- and the deploy job runs it after the gates for every push to ~trunk~.
 
 * Premises
 :PROPERTIES:
@@ -1204,7 +1212,8 @@ maak test-suite    # one suite, by file: tests/checkers/tabs.scm
 maak check         # compile every module
 maak self-check    # sift's sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips
-maak docs          # regenerate doc/rules.org
+maak docs          # regenerate doc/rules.org and the API reference
+maak deploy        # publish the API reference to jointhefreeworld.org
 maak emacs-check   # byte-compile the package, warnings are errors
 maak emacs-test    # ERT
 maak editors-check # Vim in batch, Node over the VS Code logic

@@ -32,7 +32,8 @@ maak check         # compile every module, so a syntax error fails the build
 maak self-check    # sift's own sources are formatted by sift
 maak fixture-check # the golden corpus still round-trips, byte for byte
 maak web-check     # the browser build runs every operation, not only compiles
-maak docs          # regenerate doc/rules.org from the rules
+maak docs          # regenerate doc/rules.org and the API reference
+maak deploy        # publish the API reference to jointhefreeworld.org
 maak bench         # time the reader, the formatter and every checker
 #+end_src
 
@@ -143,11 +144,13 @@ Two jobs, because a gate and a deployment are two different questions:
   it in Hoot's own virtual machine, and asks the facade every operation the
   protocol has.  It is a gate rather than a Veritas suite because it needs a
   toolchain that is not Guile's.
-- *deploy* publishes the browser build, and it needs ~gates~ to have passed:
-  ~maak web-deploy~ copies what ~maak web~ built into the directory the server
-  serves.  That is a deployment and not a check, so it runs for a push to
-  ~trunk~ or a dispatch and never for a pull request.  A build published from a
-  tree that failed its own checks is a build the site has to take back.
+- *deploy* publishes what the site serves -- the browser build and the API
+  reference -- and it needs ~gates~ to have passed: ~maak web-deploy~ copies
+  what ~maak web~ built into the directory the server serves, and ~maak deploy~
+  builds the reference with ~maak docs~ and copies it to the ~api-docs~ entry
+  the README links.  That is a deployment and not a check, so it runs for a push
+  to ~trunk~ or a dispatch and never for a pull request.  A build published from
+  a tree that failed its own checks is a build the site has to take back.
 
 A release is cut from a green tree, by the one task that also runs the gates:
 

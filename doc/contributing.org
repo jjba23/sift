@@ -42,7 +42,7 @@ The gates are the ones a release runs, and any of them can be run alone:
 | ~maak check~       | every module compiles, so a syntax error fails the build      |
 | ~maak self-check~  | sift's own sources are formatted by sift                      |
 | ~maak fixture-check~ | the golden corpus still round-trips, byte for byte          |
-| ~maak docs~        | regenerate ~doc/rules.org~ from the rules                     |
+| ~maak docs~        | regenerate ~doc/rules.org~ and the API reference              |
 | ~maak emacs-test~  | the Emacs package's ERT suite                                 |
 | ~maak editors-check~ | Vim in batch, Node over the VS Code logic                   |
 | ~maak web~         | the browser build compiles                                    |

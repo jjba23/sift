@@ -47,6 +47,7 @@
             fixture-check
             self-check
             docs
+            deploy
             diagrams
             complexity
             editors-check
@@ -248,9 +249,10 @@ document, and the test suite fails when the two disagree.
 The API chapter is the other half.  Dokgen reads the modules rather than their
 text, so every exported procedure that has a docstring is in the reference; it
 writes Texinfo to doc/api, and texi2any renders that one page to doc/api-dist.
-Only doc/api is cleared -- doc/ also holds the hand-written pages (this
+Both of those are cleared first -- doc/ also holds the hand-written pages (this
 project's manual), and a task that emptied the directory would take them with
-it.
+it, but a page or a diagram left in the output from a build that no longer
+produces it would be published by `maak deploy'.
 
 Beside the Texinfo dokgen writes the stylesheet and the script the page is read
 with, and a directory of diagrams for the docstrings that carry one; Texinfo
@@ -258,6 +260,7 @@ copies neither, so both are put beside the page that points at them."
   (run-guile
    "(use-modules (sift catalogue)) (call-with-output-file catalogue-file (lambda (port) (display (catalogue->org) port)))")
   (delete-file-recursively "doc/api")
+  (delete-file-recursively "doc/api-dist")
   (time-machine-manifest-shell
    (list "dokgen" "api"
          "--destination" "doc/api"
@@ -283,6 +286,34 @@ copies neither, so both are put beside the page that points at them."
             '("dokgen.css" "dokgen.js"))
   (when (file-exists? "doc/api/diagrams")
     (cp "doc/api/diagrams" "doc/api-dist" #:force? #t #:verbose? #t)))
+
+;; Where the reference is published.  jointhefreeworld.org serves
+;; /srv/http/jointhefreeworld.org/api-docs/<name>/ as
+;; https://jointhefreeworld.org/api-docs/<name>/, which is the link the README
+;; opens; the server has nothing to be told when a project is added, so
+;; publishing a reference is putting its directory there.
+(define api-docs-deploy-directory
+  "/srv/http/jointhefreeworld.org/api-docs/sift")
+
+(define (deploy)
+  "Publish the API reference to the web directory.
+
+`maak docs' builds the reference and can put it nowhere a reader reaches; this
+is the copy that makes https://jointhefreeworld.org/api-docs/sift/index.html --
+the link at the top of the README -- the page dokgen just wrote rather than
+whatever was there when someone last remembered to copy it.
+
+Deployment is a copy into the directory the server reads, the way the browser
+build is published, and it runs where that directory is: on the machine that
+serves, or in the CI job that runs there.  The directory is emptied first, so a
+module that was renamed does not leave a page on the server beside the one that
+replaced it, and the build is removed afterwards: what the tree keeps is the
+source."
+  (docs)
+  (log-info "publishing doc/api-dist to ~a" api-docs-deploy-directory)
+  (delete-file-recursively api-docs-deploy-directory)
+  (cp "doc/api-dist" api-docs-deploy-directory)
+  (delete-file-recursively "doc/api-dist"))
 
 (define (diagrams)
   "Render every mermaid source under resources/diagrams to the SVG beside it.

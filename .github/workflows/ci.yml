@@ -7,11 +7,11 @@
 # `gates' asks whether the tree is worth merging -- the suite, the Emacs
 # package, every module compiled, the corpus already formatted -- and answers
 # for a pull request as well as for a push, so a branch is judged before it
-# lands rather than after.  `deploy' publishes the browser build, which is a
-# copy into the directory the server reads: it runs where the tree has landed,
-# which is a push to trunk or a dispatch, and it waits for the gates because a
-# build published from a tree that failed its own checks is a build the site
-# has to take back.
+# lands rather than after.  `deploy' publishes what the site serves -- the
+# browser build and the API reference -- which is a copy into the directory the
+# server reads: it runs where the tree has landed, which is a push to trunk or a
+# dispatch, and it waits for the gates because a build published from a tree
+# that failed its own checks is a build the site has to take back.
 #
 # The tasks are the ones `maak release' calls this project's gates, so a
 # release cannot be the first thing to notice that a module does not compile
@@ -58,6 +58,6 @@ jobs:
     if: github.event_name != 'pull_request'
     uses: jjba23/byggsteg-github/.github/workflows/byggsteg.yml@trunk
     with:
-      tasks: maak-web-deploy
+      tasks: maak-web-deploy maak-deploy
       poll-limit: "1024"
     secrets: inherit
